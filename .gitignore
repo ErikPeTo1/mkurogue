@@ -1,0 +1,3 @@
+# Configuración de Eclipse: solo sirve a quien abra el proyecto en Eclipse
+.settings/
+.project
