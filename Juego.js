@@ -12,7 +12,9 @@ const tamTile = 32
 const RUTAS_IMAGENES = {
     fondoExploracion: null, fondoCombate: null, fondoVictoria: null, fondoDerrota: null,
     "Paku": null, "Mamuri": null, "VBZ": null, "Imanps": null,
-    "Corsario Espacial": null, "Moto Pirata": null, "Cañón de cristal": null, "Ubisoft": null
+    "Corsario Espacial": null, "Moto Pirata": null, "Cañón de cristal": null, "Bisotuf": null,
+    "Dron vigía": null, "Mercenario": null, "Francotirador": null, "Androide de asalto": null,
+    "Dron reparador": null, "Dron kamikaze": null, "Escolta acorazado": null
 }
 const imagenes = {}
 for (const clave in RUTAS_IMAGENES) {
@@ -35,14 +37,30 @@ const ESTILOS_PLACEHOLDER = {
     "Corsario Espacial": { color: "rgb(200, 70, 70)",   forma: "hexagono" },
     "Moto Pirata":       { color: "rgb(230, 140, 40)",  forma: "rombo" },
     "Cañón de cristal":  { color: "rgb(90, 200, 220)",  forma: "caja" },
-    "Ubisoft":           { color: "rgb(120, 130, 240)", forma: "circulo" }
+    "Bisotuf":           { color: "rgb(120, 130, 240)", forma: "circulo" },
+    "Dron vigía":         { color: "rgb(170, 175, 195)", forma: "triangulo" },
+    "Mercenario":         { color: "rgb(150, 90, 210)",  forma: "hexagono" },
+    "Francotirador":      { color: "rgb(150, 165, 75)",  forma: "rombo" },
+    "Androide de asalto": { color: "rgb(205, 115, 75)",  forma: "pentagono" },
+    "Dron reparador":     { color: "rgb(110, 220, 150)", forma: "cruz" },
+    "Dron kamikaze":      { color: "rgb(240, 80, 50)",   forma: "triangulo" },
+    "Escolta acorazado":  { color: "rgb(120, 150, 165)", forma: "octogono" }
 }
 const FORMAS = {   // polígonos en coordenadas 0-1; "nave" apunta a la derecha
     nave:  [[0.05, 0.1], [0.95, 0.5], [0.05, 0.9], [0.3, 0.5]],
     rombo: [[0.5, 0.02], [0.98, 0.5], [0.5, 0.98], [0.02, 0.5]],
     caja:  [[0.08, 0.08], [0.92, 0.08], [0.92, 0.92], [0.08, 0.92]],
     hexagono: [[0.98, 0.5], [0.74, 0.92], [0.26, 0.92], [0.02, 0.5], [0.26, 0.08], [0.74, 0.08]],
+    triangulo: [[0.5, 0.04], [0.96, 0.92], [0.04, 0.92]],
+    octogono: [[0.3, 0.03], [0.7, 0.03], [0.97, 0.3], [0.97, 0.7], [0.7, 0.97], [0.3, 0.97], [0.03, 0.7], [0.03, 0.3]],
+    cruz: [[0.35, 0.05], [0.65, 0.05], [0.65, 0.35], [0.95, 0.35], [0.95, 0.65], [0.65, 0.65],
+           [0.65, 0.95], [0.35, 0.95], [0.35, 0.65], [0.05, 0.65], [0.05, 0.35], [0.35, 0.35]],
+    pentagono: [],
     estrella: []
+}
+for (let i = 0; i < 5; i++) {   // pentágono regular con una punta hacia arriba
+    const angulo = -Math.PI / 2 + i * 2 * Math.PI / 5
+    FORMAS.pentagono.push([0.5 + 0.48 * Math.cos(angulo), 0.52 + 0.48 * Math.sin(angulo)])
 }
 for (let i = 0; i < 10; i++) {   // estrella de 5 puntas
     const angulo = -Math.PI / 2 + i * Math.PI / 5
@@ -55,7 +73,7 @@ const COLORES_FONDO = {   // [arriba, abajo] del degradado placeholder
     fondoVictoria:    ["rgb(6, 36, 30)",  "rgb(0, 0, 0)"],
     fondoDerrota:     ["rgb(56, 6, 6)",   "rgb(0, 0, 0)"]
 }
-const ESCALA_ENEMIGO = { "Ubisoft": 1.25 }
+const ESCALA_ENEMIGO = { "Bisotuf": 1.25 }
 
 // Estrellas fijas para los fondos de espacio (generadas una vez, sin depender de Math.random)
 const estrellas = []
@@ -79,32 +97,18 @@ const MAX_GOLPES = 10               // tope de golpes encadenados en un solo ata
 const XP_BASE_NIVEL = 20            // XP para pasar del nivel 1 al 2
 const XP_EXPONENTE = 1.5            // la XP necesaria crece como nivel^1.5 (no hay tope de nivel)
 // Por cada nivel medio del equipo por encima de 1, estas stats enemigas suben este porcentaje (0.20 = +20%)
-// El ATK ya no está aquí: su multiplicador y crecimiento los fija el menú previo (NIVELES_DANO)
+// El ATK no está aquí: su multiplicador y crecimiento dependen de la dificultad (DIFICULTADES)
 const ESCALA_STATS_ENEMIGO = { HP_MAX: 0.20, DEF: 0.10, VEL: 0.03 }
 
-// Menú previo a la partida: dificultad del daño enemigo y velocidad de la XP.
-// multiplicador = sobre el ATK base de poolEnemigos; crecimiento = % de ese ATK por nivel medio del equipo.
-const NIVELES_DANO = [
-    { nombre: "Muy fácil",   multiplicador: 0.9,  crecimiento: 0.10 },
-    { nombre: "Fácil",       multiplicador: 1.1,  crecimiento: 0.14 },
-    { nombre: "Normal",      multiplicador: 1.35, crecimiento: 0.18 },
-    { nombre: "Difícil",     multiplicador: 1.7,  crecimiento: 0.24 },
-    { nombre: "Muy difícil", multiplicador: 2.1,  crecimiento: 0.30 }
+// Dificultades que se eligen en el menú previo.
+// multiplicador = sobre el ATK base de poolEnemigos; crecimiento = % de ese ATK por nivel medio del
+// equipo; xp = multiplicador de la experiencia que dan los enemigos.
+const DIFICULTADES = [
+    { nombre: "Fácil",   descripcion: ["Enemigos más flojos", "Subes de nivel más rápido"],     multiplicador: 1.1,  crecimiento: 0.14, xp: 1.5 },
+    { nombre: "Normal",  descripcion: ["El reto pensado", "para el juego"],                     multiplicador: 1.35, crecimiento: 0.18, xp: 1 },
+    { nombre: "Difícil", descripcion: ["Enemigos más duros", "Subes de nivel más despacio"],    multiplicador: 1.7,  crecimiento: 0.24, xp: 0.75 }
 ]
-const NIVELES_XP = [
-    { nombre: "Lenta (x0.5)",     multiplicador: 0.5 },
-    { nombre: "Reducida (x0.75)", multiplicador: 0.75 },
-    { nombre: "Normal (x1)",      multiplicador: 1 },
-    { nombre: "Rápida (x1.5)",    multiplicador: 1.5 },
-    { nombre: "Muy rápida (x2)",  multiplicador: 2 }
-]
-// Cada preset fija los dos diales a la vez; tocar un dial a mano pasa a mostrar "Personalizado"
-const PRESETS = [
-    { nombre: "Fácil",   danoIndice: 1, xpIndice: 3 },
-    { nombre: "Normal",  danoIndice: 2, xpIndice: 2 },
-    { nombre: "Difícil", danoIndice: 3, xpIndice: 1 }
-]
-const CONFIG = { danoIndice: 2, xpIndice: 2 }   // se elige en el menú; por defecto, Normal
+let dificultadElegida = 1   // índice en DIFICULTADES; por defecto, Normal
 
 // Velocidad de Paku en exploración, en px/segundo (no en px/frame): así se mueve igual de rápido
 // en cualquier monitor. 120 px/s equivale a los 2 px/frame originales, pero medido a 60 Hz.
@@ -136,8 +140,6 @@ let logCombate = []
 let mostrarPanelDescanso = false
 let logDescanso = []
 // Menú previo a la partida
-let menuFila = 0        // 0 Dificultad, 1 Daño enemigos, 2 Experiencia, 3 Código, 4 Empezar
-let menuDigito = 0      // en la fila Código: 0 = dígito de dificultad, 1 = dígito de XP
 let zonasMenu = []      // zonas clicables del menú, recalculadas cada fotograma
 // Menú in-game de estadísticas
 let personajeSeleccionado = 0   // índice en equipoJugador, resaltado en la lista de la izquierda
@@ -183,13 +185,36 @@ const imanps = { nombre: "Imanps", x: 0, y: 0, width: 18, height: 18, defendiend
     p.bonusHP = 0
 })
 // xp = experiencia base que da cada enemigo (crece con el nivel medio del equipo)
+// peso = probabilidad relativa de aparecer: un enemigo con peso 10 sale el doble que uno con peso 5
+// ia: "aleatorio" (ataca a cualquiera), "agresivo" (al que menos HP tiene), "defensivo" (al de más ATK)
+// clase: "humano" o "maquina" (el Dron reparador solo arregla máquinas)
+// rol: comportamiento especial en su turno, en vez de atacar siempre ("reparar", "inhibir", "estallar")
 const poolEnemigos = [
-    { nombre: "Corsario Espacial", xp: 15, ia: "aleatorio", defendiendo: false, stats: { HP: 45, HP_MAX: 45, ATK: 4, DEF: 2, VEL: 3, LUCK: 1 } },
-    { nombre: "Moto Pirata", xp: 16, ia: "aleatorio", defendiendo: false, stats: { HP: 30, HP_MAX: 30, ATK: 5, DEF: 5, VEL: 20, LUCK: 2 } },
-    { nombre: "Cañón de cristal", xp: 12, ia: "aleatorio", defendiendo: false, stats: { HP: 20, HP_MAX: 20, ATK: 6, DEF: 1, VEL: 6, LUCK: 4 } },
-    // ATK base 3 (antes 0): con el dial de dificultad en Normal (x1.35) le queda ATK 4, como al resto
-    { nombre: "Ubisoft", xp: 40, ia: "defensivo", defendiendo: false, stats: { HP: 200, HP_MAX: 200, ATK: 3, DEF: 4, VEL: 1, LUCK: 0 } }
+    { nombre: "Corsario Espacial", xp: 15, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 45, HP_MAX: 45, ATK: 4, DEF: 2, VEL: 3, LUCK: 1 } },
+    { nombre: "Moto Pirata", xp: 16, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 30, HP_MAX: 30, ATK: 5, DEF: 5, VEL: 20, LUCK: 2 } },
+    { nombre: "Cañón de cristal", xp: 12, peso: 10, clase: "maquina", ia: "aleatorio", defendiendo: false, stats: { HP: 20, HP_MAX: 20, ATK: 6, DEF: 1, VEL: 6, LUCK: 4 } },
+    // Rápido y frágil: suele actuar antes que nadie, pero cae de dos golpes
+    { nombre: "Dron vigía", xp: 10, peso: 10, clase: "maquina", ia: "aleatorio", defendiendo: false, stats: { HP: 18, HP_MAX: 18, ATK: 4, DEF: 2, VEL: 14, LUCK: 3 } },
+    // Va siempre a por el aliado con menos vida
+    { nombre: "Mercenario", xp: 18, peso: 10, clase: "humano", ia: "agresivo", defendiendo: false, stats: { HP: 38, HP_MAX: 38, ATK: 6, DEF: 3, VEL: 5, LUCK: 3 } },
+    // Poco daño de base, pero con LUCK 8 tiene un 40% de crítico
+    { nombre: "Francotirador", xp: 16, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 32, HP_MAX: 32, ATK: 5, DEF: 2, VEL: 4, LUCK: 8 } },
+    // Pega fuerte y apunta al aliado con más ATK, pero aguanta poco
+    { nombre: "Androide de asalto", xp: 18, peso: 10, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 28, HP_MAX: 28, ATK: 8, DEF: 2, VEL: 7, LUCK: 2 } },
+    // Repara a la máquina aliada más dañada; si no hay ninguna, dispara flojo. Conviene tumbarlo pronto.
+    { nombre: "Dron reparador", xp: 14, peso: 10, clase: "maquina", rol: "reparar", ia: "aleatorio", defendiendo: false, stats: { HP: 22, HP_MAX: 22, ATK: 3, DEF: 2, VEL: 6, LUCK: 1 } },
+    // No ataca: si no lo destruyes en 3 turnos, estalla y daña a todo el equipo
+    { nombre: "Dron kamikaze", xp: 16, peso: 10, clase: "maquina", rol: "estallar", ia: "aleatorio", defendiendo: false, stats: { HP: 26, HP_MAX: 26, ATK: 6, DEF: 2, VEL: 3, LUCK: 0 } },
+    // Tanque intermedio: un turno sí y otro no se protege y te quita un orbe; alarga los combates
+    { nombre: "Escolta acorazado", xp: 26, peso: 10, clase: "humano", rol: "inhibir", ia: "aleatorio", defendiendo: false, stats: { HP: 90, HP_MAX: 90, ATK: 4, DEF: 4, VEL: 2, LUCK: 1 } },
+    // El tanque: muchísima vida y poco daño. Raro (peso 4), pero da mucha XP
+    { nombre: "Bisotuf", xp: 40, peso: 4, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 200, HP_MAX: 200, ATK: 3, DEF: 4, VEL: 1, LUCK: 0 } }
 ]
+// Dron reparador: cuánto cura (fracción de la vida máxima de la máquina reparada)
+const PORCENTAJE_REPARACION = 0.20
+// Dron kamikaze: turnos suyos hasta que estalla, y multiplicador del daño de la explosión
+const TURNOS_KAMIKAZE = 3
+const MULTIPLICADOR_EXPLOSION = 3
 const poolEventos = [
     { nombre: "Caja de suministros", descripcion: "Encuentras una caja abandonada" },
     { nombre: "Mensaje cifrado", descripcion: "Un terminal con datos del enemigo" },
@@ -206,7 +231,7 @@ let accionesGuardadas = []
 // Estadísticas de la partida (se muestran al perder)
 let tiempoInicio = 0   // se fija en empezarPartida(), al salir del menú
 let tiempoPartida = 0
-const enemigosDerrotados = {}  // { "Ubisoft": 3, ... }
+const enemigosDerrotados = {}  // { "Bisotuf": 3, ... }
 
 historial = []
  for (let i = 0; i < 151; i++) {
@@ -292,7 +317,7 @@ document.addEventListener("keydown", function(e) {
     const confirmar = e.key === "Enter" || e.key === " "
 
     if (estado === "menu") {
-        menuTecla(arriba, abajo, izquierda, derecha, confirmar)
+        menuTecla(izquierda, derecha, confirmar)
         return
     }
     if (estado === "descanso") {
@@ -353,41 +378,17 @@ document.addEventListener("keyup", function(e) {
 })
 
 // --- Menú previo a la partida -----------------------------------------------
-function indicePresetActual() {
-    return PRESETS.findIndex(p => p.danoIndice === CONFIG.danoIndice && p.xpIndice === CONFIG.xpIndice)
-}
-// delta +1/-1: cicla entre los presets; si los ajustes actuales son "Personalizado", parte de Normal
-function menuAjustarPreset(delta) {
-    const actual = indicePresetActual()
-    const base = actual === -1 ? 1 : actual
-    const nuevo = ((base + delta) % PRESETS.length + PRESETS.length) % PRESETS.length
-    CONFIG.danoIndice = PRESETS[nuevo].danoIndice
-    CONFIG.xpIndice = PRESETS[nuevo].xpIndice
-}
 function empezarPartida() {
     tiempoInicio = performance.now()
     estado = "exploracion"
 }
-// arriba/abajo mueven de fila; izquierda/derecha cambian el valor de la fila elegida
-// (en la fila Código, eligen el dígito activo y Enter/clic le suma 1)
-function menuTecla(arriba, abajo, izquierda, derecha, confirmar) {
-    if (arriba) menuFila = Math.max(0, menuFila - 1)
-    if (abajo) menuFila = Math.min(4, menuFila + 1)
-    if (menuFila === 0 && (izquierda || derecha)) {
-        menuAjustarPreset(derecha ? 1 : -1)
-    } else if (menuFila === 1 && (izquierda || derecha)) {
-        CONFIG.danoIndice = Math.max(0, Math.min(NIVELES_DANO.length - 1, CONFIG.danoIndice + (derecha ? 1 : -1)))
-    } else if (menuFila === 2 && (izquierda || derecha)) {
-        CONFIG.xpIndice = Math.max(0, Math.min(NIVELES_XP.length - 1, CONFIG.xpIndice + (derecha ? 1 : -1)))
-    } else if (menuFila === 3) {
-        if (izquierda) menuDigito = 0
-        if (derecha) menuDigito = 1
-        if (confirmar) {
-            if (menuDigito === 0) CONFIG.danoIndice = (CONFIG.danoIndice + 1) % NIVELES_DANO.length
-            else CONFIG.xpIndice = (CONFIG.xpIndice + 1) % NIVELES_XP.length
-        }
-    }
-    if (menuFila === 4 && confirmar) empezarPartida()
+// ←/→ (o A/D) cambian de dificultad dando la vuelta: a la derecha de Difícil va Fácil, y a la
+// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida.
+function menuTecla(izquierda, derecha, confirmar) {
+    const n = DIFICULTADES.length
+    if (izquierda) dificultadElegida = (dificultadElegida - 1 + n) % n
+    if (derecha) dificultadElegida = (dificultadElegida + 1) % n
+    if (confirmar) empezarPartida()
 }
 
 // Ratón: convierte el clic a coordenadas del canvas (1024x704) aunque esté escalado en pantalla
@@ -400,26 +401,31 @@ function zonaEnPunto(lista, x, y) {
 }
 canvas.addEventListener("mousemove", function(e) {
     const p = coordsRaton(e)
+    let z = null
     if (estado === "menu") {
-        const z = zonaEnPunto(zonasMenu, p.x, p.y)
-        if (z) {
-            menuFila = z.fila
-            if (z.digito !== undefined) menuDigito = z.digito
-        }
+        // Pasar el ratón por un recuadro lo elige. Como mousemove solo salta al mover el ratón, si
+        // después se usan las flechas, la selección se queda donde la dejan ellas hasta que se mueva.
+        z = zonaEnPunto(zonasMenu, p.x, p.y)
+        if (z) dificultadElegida = z.indice
     } else if (estado === "estadisticas") {
-        const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
+        z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z) personajeSeleccionado = z.indice
     }
+    // Manita sobre lo que se puede clicar, para que se note
+    canvas.style.cursor = z ? "pointer" : "default"
+})
+canvas.addEventListener("mouseleave", function() {
+    canvas.style.cursor = "default"
 })
 canvas.addEventListener("click", function(e) {
     const p = coordsRaton(e)
     if (estado === "menu") {
+        // Clic en un recuadro: confirma esa dificultad y empieza la partida
         const z = zonaEnPunto(zonasMenu, p.x, p.y)
         if (!z) return
-        menuFila = z.fila
-        if (z.tipo === "flecha") menuTecla(false, false, z.delta < 0, z.delta > 0, false)
-        else if (z.tipo === "digito") { menuDigito = z.digito; menuTecla(false, false, false, false, true) }
-        else if (z.tipo === "empezar") menuTecla(false, false, false, false, true)
+        dificultadElegida = z.indice
+        empezarPartida()
+        canvas.style.cursor = "default"
     } else if (estado === "estadisticas") {
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z) personajeSeleccionado = z.indice
@@ -455,19 +461,30 @@ function dispararEvento() {
 }
 
 // Un enemigo con las stats escaladas por el nivel medio del equipo (nivel 1 = stats base).
-// El ATK usa el dial de dificultad del menú (CONFIG.danoIndice); el resto usa ESCALA_STATS_ENEMIGO.
+// El ATK y la XP dependen de la dificultad elegida; el resto usa ESCALA_STATS_ENEMIGO.
 function crearEnemigo(base) {
     const n = nivelMedio() - 1
-    const dano = NIVELES_DANO[CONFIG.danoIndice]
+    const dificultad = DIFICULTADES[dificultadElegida]
     const escala = clave => 1 + ESCALA_STATS_ENEMIGO[clave] * n
     const stats = { ...base.stats }
     stats.HP_MAX = Math.round(base.stats.HP_MAX * escala("HP_MAX"))
     stats.HP = stats.HP_MAX
-    stats.ATK = Math.round(base.stats.ATK * dano.multiplicador * (1 + dano.crecimiento * n))
+    stats.ATK = Math.round(base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n))
     stats.DEF = Math.round(base.stats.DEF * escala("DEF"))
     stats.VEL = Math.round(base.stats.VEL * escala("VEL"))
-    const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * NIVELES_XP[CONFIG.xpIndice].multiplicador)
+    const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp)
     return { ...base, tipo: base.nombre, xp: xp, stats: stats }
+}
+
+// Elige una plantilla de poolEnemigos al azar, respetando su "peso" (los de más peso salen más)
+function elegirEnemigoDelPool() {
+    const total = poolEnemigos.reduce((suma, en) => suma + en.peso, 0)
+    let tirada = Math.random() * total
+    for (const en of poolEnemigos) {
+        tirada -= en.peso
+        if (tirada < 0) return en
+    }
+    return poolEnemigos[poolEnemigos.length - 1]
 }
 
 // 1 enemigo (50%), 2 (35%) o 3 (15%); los repetidos se distinguen con una letra
@@ -476,7 +493,7 @@ function generarEnemigos() {
     const cantidad = roll < 0.50 ? 1 : roll < 0.85 ? 2 : 3
     const lista = []
     for (let i = 0; i < cantidad; i++) {
-        lista.push(crearEnemigo(poolEnemigos[Math.floor(Math.random() * poolEnemigos.length)]))
+        lista.push(crearEnemigo(elegirEnemigoDelPool()))
     }
     const repetidos = {}
     lista.forEach(en => repetidos[en.nombre] = (repetidos[en.nombre] || 0) + 1)
@@ -858,21 +875,24 @@ function ejecutarRonda() {
             }
         }
 
-        if (enemigosVivos().length === 0) {
-            const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
-            const col = Math.floor((paku.x + paku.width / 2) / tamTile)
-            mapa[fila][col] = 0
-            if (Math.random() < 0.20) dispararEvento()
-            xpTotalVictoria = enemigosCombate.reduce((suma, en) => suma + en.xp, 0)
-            resumenVictoria = repartirXP(xpTotalVictoria)
-            estado = "victoria"
+        // La derrota se mira primero: si un kamikaze estalla siendo el último enemigo y tumba a todo el
+        // equipo, no hay enemigos vivos, pero eso es una derrota, no una victoria
+        if (estado === "derrota") {
+            tiempoPartida = performance.now() - tiempoInicio
             bloquearTeclas()
             terminarRonda()
             return
         }
 
-        if (estado === "derrota") {
-            tiempoPartida = performance.now() - tiempoInicio
+        if (enemigosVivos().length === 0) {
+            const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
+            const col = Math.floor((paku.x + paku.width / 2) / tamTile)
+            mapa[fila][col] = 0
+            if (Math.random() < 0.20) dispararEvento()
+            // Los kamikazes que han estallado no dan XP: no los has destruido tú
+            xpTotalVictoria = enemigosCombate.filter(en => !en.estallo).reduce((suma, en) => suma + en.xp, 0)
+            resumenVictoria = repartirXP(xpTotalVictoria)
+            estado = "victoria"
             bloquearTeclas()
             terminarRonda()
             return
@@ -886,7 +906,70 @@ function ejecutarRonda() {
     terminarRonda()
 }
 
+function comprobarDerrota() {
+    if (equipoJugador.every(p => p.stats.HP <= 0)) estado = "derrota"
+}
+
+// Dron reparador: cura a la máquina aliada más dañada (en proporción), sin contarse a sí mismo.
+// Devuelve false si no hay ninguna máquina herida, y entonces el dron ataca como cualquier otro.
+function repararMaquina(enemigo) {
+    const heridas = enemigosCombate.filter(en =>
+        en !== enemigo && en.stats.HP > 0 && en.clase === "maquina" && en.stats.HP < en.stats.HP_MAX)
+    if (heridas.length === 0) return false
+    const objetivo = heridas.reduce((min, en) => en.stats.HP / en.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? en : min)
+    const cura = Math.min(Math.ceil(objetivo.stats.HP_MAX * PORCENTAJE_REPARACION), objetivo.stats.HP_MAX - objetivo.stats.HP)
+    objetivo.stats.HP += cura
+    logCombate.push(enemigo.nombre + " repara a " + objetivo.nombre + " (+" + cura + " HP)")
+    return true
+}
+
+// Escolta acorazado: un turno sí y otro no, se protege (DEF doble hasta su siguiente turno) y le
+// quita un orbe al aliado que más tenga. Si nadie tiene orbes, o le toca descansar, ataca normal.
+function inhibir(enemigo) {
+    if (enemigo.inhibioAntes) {
+        enemigo.inhibioAntes = false
+        return false
+    }
+    const conEnergia = equipoJugador.filter(p => p.stats.HP > 0 && p.energia > 0)
+    if (conEnergia.length === 0) return false
+    const objetivo = conEnergia.reduce((max, p) => p.energia > max.energia ? p : max)
+    objetivo.energia--
+    enemigo.defendiendo = true
+    enemigo.inhibioAntes = true
+    logCombate.push(enemigo.nombre + " se protege e inhibe a " + objetivo.nombre + " (pierde 1 orbe)")
+    return true
+}
+
+// Dron kamikaze: no ataca, se va cargando. En su turno número TURNOS_KAMIKAZE estalla, daña a todo el
+// equipo (la defensa cuenta, así que Defender ayuda) y desaparece sin dar XP ni contar como derrotado.
+function turnoKamikaze(enemigo) {
+    enemigo.turnosCargando = (enemigo.turnosCargando || 0) + 1
+    const quedan = TURNOS_KAMIKAZE - enemigo.turnosCargando
+    if (quedan > 0) {
+        logCombate.push(enemigo.nombre + " se está cargando... (estalla en " + quedan + ")")
+        return
+    }
+    logCombate.push("¡" + enemigo.nombre + " estalla!")
+    equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
+        const r = calcularDaño(enemigo, p, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0 })
+        p.stats.HP = Math.max(0, p.stats.HP - r.daño)
+        logCombate.push(p.nombre + " recibe " + r.daño + " de daño de la explosión")
+    })
+    enemigo.stats.HP = 0
+    enemigo.estallo = true
+}
+
 function accionEnemigo(enemigo) {
+    // La protección del Escolta dura hasta el comienzo de su siguiente turno
+    enemigo.defendiendo = false
+    if (enemigo.rol === "estallar") {
+        turnoKamikaze(enemigo)
+        comprobarDerrota()
+        return
+    }
+    if (enemigo.rol === "reparar" && repararMaquina(enemigo)) return
+    if (enemigo.rol === "inhibir" && inhibir(enemigo)) return
+
     let objetivo
     const vivos = equipoJugador.filter(p => p.stats.HP > 0)
 
@@ -913,11 +996,7 @@ function accionEnemigo(enemigo) {
         ? "¡" + enemigo.nombre + " ha dado un golpe crítico a " + objetivo.nombre + "! (" + resultado.daño + " daño)"
         : enemigo.nombre + " ha atacado a " + objetivo.nombre + " (" + resultado.daño + " daño)"
     logCombate.push(msg)
-
-    const todosKO = equipoJugador.every(p => p.stats.HP <= 0)
-    if (todosKO) {
-        estado = "derrota"
-    }
+    comprobarDerrota()
 }
 function movimiento(deltaMs) {
     anteriorX = paku.x
@@ -962,86 +1041,45 @@ function descansar() {
 }
 
 // --- Menú previo a la partida: dibujo ---------------------------------------
-function dibujarFilaOpcion(i, etiqueta, valor, y) {
-    const activa = menuFila === i
-    ctx.textAlign = "left"
-    ctx.fillStyle = activa ? "yellow" : "white"
-    ctx.font = "20px sans-serif"
-    ctx.fillText(etiqueta, 260, y)
-    ctx.textAlign = "center"
-    ctx.fillStyle = activa ? "yellow" : "rgb(150, 150, 160)"
-    ctx.fillText("◀", 560, y)
-    ctx.fillText("▶", 760, y)
-    ctx.fillStyle = activa ? "yellow" : "white"
-    ctx.fillText(valor, 650, y)
-    ctx.textAlign = "left"
-    // Las flechas se registran antes que la fila entera: zonaEnPunto usa la primera zona que
-    // encuentra, y la fila las solapa por completo, así que si no van primero nunca se alcanzarían.
-    zonasMenu.push({ fila: i, tipo: "flecha", delta: -1, x: 540, y: y - 24, w: 40, h: 36 })
-    zonasMenu.push({ fila: i, tipo: "flecha", delta: 1, x: 740, y: y - 24, w: 40, h: 36 })
-    zonasMenu.push({ fila: i, tipo: "fila", x: 240, y: y - 24, w: 560, h: 36 })
-}
-
+// Tres recuadros, uno por dificultad: el ratón o las flechas eligen, y clic o Enter empiezan
 function dibujarMenu() {
     zonasMenu = []
     dibujarFondo("fondoExploracion")
-    ctx.textAlign = "left"
-    ctx.fillStyle = "white"
-    ctx.font = "40px sans-serif"
-    ctx.fillText("Nave", 440, 90)
-    ctx.fillStyle = "rgb(180, 180, 190)"
-    ctx.font = "15px sans-serif"
-    ctx.fillText("↑↓ elige una fila   ←→ cambia el valor   Enter o clic confirma", 300, 130)
-
-    const preset = indicePresetActual()
-    dibujarFilaOpcion(0, "Dificultad", preset === -1 ? "Personalizado" : PRESETS[preset].nombre, 210)
-    dibujarFilaOpcion(1, "Daño enemigos", NIVELES_DANO[CONFIG.danoIndice].nombre, 280)
-    dibujarFilaOpcion(2, "Experiencia", NIVELES_XP[CONFIG.xpIndice].nombre, 350)
-
-    // Código: dos casillas (dificultad/XP) al estilo de un reloj de microondas
-    const yCodigo = 420
-    ctx.fillStyle = menuFila === 3 ? "yellow" : "white"
-    ctx.font = "20px sans-serif"
-    ctx.fillText("Código", 260, yCodigo)
-    const digitos = [CONFIG.danoIndice, CONFIG.xpIndice]
-    digitos.forEach((valor, i) => {
-        const x = 600 + i * 70
-        const activo = menuFila === 3 && menuDigito === i
-        ctx.fillStyle = activo ? "rgb(60, 140, 255)" : "rgb(60, 60, 70)"
-        ctx.fillRect(x, yCodigo - 24, 50, 36)
-        ctx.strokeStyle = "white"
-        ctx.lineWidth = 1
-        ctx.strokeRect(x, yCodigo - 24, 50, 36)
-        ctx.fillStyle = "white"
-        ctx.font = "20px sans-serif"
-        ctx.textAlign = "center"
-        ctx.fillText(String(valor), x + 25, yCodigo)
-        ctx.textAlign = "left"
-        zonasMenu.push({ fila: 3, tipo: "digito", digito: i, x: x, y: yCodigo - 24, w: 50, h: 36 })
-    })
-    ctx.font = "13px sans-serif"
-    ctx.fillStyle = "rgb(150, 150, 160)"
-    ctx.fillText("← → elige casilla y Enter/clic le suma 1. Apunta el código para repetir esta combinación en otra partida.", 20, yCodigo + 40)
-
-    // Empezar
-    const yEmpezar = 540
-    const activa4 = menuFila === 4
-    ctx.fillStyle = activa4 ? "rgb(80, 200, 90)" : "rgb(52, 52, 54)"
-    ctx.fillRect(412, yEmpezar - 30, 200, 60)
-    ctx.strokeStyle = "white"
-    ctx.strokeRect(412, yEmpezar - 30, 200, 60)
-    ctx.fillStyle = activa4 ? "black" : "white"
-    ctx.font = "22px sans-serif"
     ctx.textAlign = "center"
-    ctx.fillText("Empezar", 512, yEmpezar + 8)
-    ctx.textAlign = "left"
-    zonasMenu.push({ fila: 4, tipo: "empezar", x: 412, y: yEmpezar - 30, w: 200, h: 60 })
+    ctx.fillStyle = "white"
+    ctx.font = "bold 48px sans-serif"
+    ctx.fillText("MKURogue", 512, 100)
+    ctx.fillStyle = "rgb(180, 180, 190)"
+    ctx.font = "18px sans-serif"
+    ctx.fillText("Elige la dificultad", 512, 160)
 
-    const dano = NIVELES_DANO[CONFIG.danoIndice]
-    const xp = NIVELES_XP[CONFIG.xpIndice]
-    ctx.font = "14px sans-serif"
-    ctx.fillStyle = "rgb(170, 170, 180)"
-    ctx.fillText("Con estos ajustes: daño enemigo x" + dano.multiplicador.toFixed(2) + " (+" + Math.round(dano.crecimiento * 100) + "%/nivel), XP x" + xp.multiplicador, 130, 630)
+    const ancho = 240, alto = 150, hueco = 30
+    const xInicial = (canvas.width - (ancho * DIFICULTADES.length + hueco * (DIFICULTADES.length - 1))) / 2
+    const y = 200
+    DIFICULTADES.forEach((d, i) => {
+        const x = xInicial + i * (ancho + hueco)
+        const elegida = i === dificultadElegida
+        ctx.fillStyle = elegida ? "rgba(60, 140, 255, 0.25)" : "rgba(255, 255, 255, 0.05)"
+        ctx.fillRect(x, y, ancho, alto)
+        ctx.strokeStyle = elegida ? "yellow" : "rgba(255, 255, 255, 0.3)"
+        ctx.lineWidth = elegida ? 3 : 1
+        ctx.strokeRect(x, y, ancho, alto)
+        ctx.lineWidth = 1
+
+        ctx.fillStyle = elegida ? "yellow" : "white"
+        ctx.font = "bold 26px sans-serif"
+        ctx.fillText(d.nombre, x + ancho / 2, y + 55)
+        ctx.fillStyle = "rgb(190, 190, 200)"
+        ctx.font = "14px sans-serif"
+        d.descripcion.forEach((linea, j) => ctx.fillText(linea, x + ancho / 2, y + 92 + j * 22))
+
+        zonasMenu.push({ tipo: "dificultad", indice: i, x: x, y: y, w: ancho, h: alto })
+    })
+
+    ctx.fillStyle = "rgb(150, 150, 160)"
+    ctx.font = "15px sans-serif"
+    ctx.fillText("Elige con el ratón o con ← →  ·  Clic o Enter para empezar", 512, 400)
+    ctx.textAlign = "left"
 }
 
 function dibujarPared(x, y, b) {
@@ -1216,6 +1254,17 @@ function dibujarMarcador(x, y, direccion) {
     ctx.fill()
 }
 
+function estadoEspecialEnemigo(en) {
+    if (en.estallo) return { texto: "Ha estallado", color: "gray" }
+    if (en.stats.HP <= 0) return null
+    if (en.rol === "estallar") {
+        const quedan = TURNOS_KAMIKAZE - (en.turnosCargando || 0)
+        return { texto: "Estalla en " + quedan, color: quedan <= 1 ? "rgb(255, 80, 60)" : "orange" }
+    }
+    if (en.defendiendo) return { texto: "Protegido", color: "rgb(120, 190, 255)" }
+    return null
+}
+
 function dibujarCombate() {
     dibujarFondo("fondoCombate")
     ctx.font = "14px sans-serif"
@@ -1253,7 +1302,14 @@ function dibujarCombate() {
         dibujarBarraHP(x, y + tam + 6, tam, en.stats)
         ctx.fillStyle = muerto ? "gray" : elegido ? "orange" : "white"
         ctx.fillText(en.nombre, x, y + tam + 30)
-        ctx.fillText(en.stats.HP + "/" + en.stats.HP_MAX + " HP", x, y + tam + 48)
+        const textoHP = en.stats.HP + "/" + en.stats.HP_MAX + " HP"
+        ctx.fillText(textoHP, x, y + tam + 48)
+        // Estado especial a continuación de la vida: cuenta atrás del kamikaze o protección del Escolta
+        const especial = estadoEspecialEnemigo(en)
+        if (especial) {
+            ctx.fillStyle = especial.color
+            ctx.fillText("  · " + especial.texto, x + ctx.measureText(textoHP).width, y + tam + 48)
+        }
         if (elegido) dibujarMarcador(x + tam + 4, y + tam / 2, "izquierda")
         cursor += tam + 62
     })
@@ -1544,8 +1600,7 @@ function dibujarEstadisticas() {
     ctx.fillText(
         "Tiempo: " + formatearTiempo(tiempoActual) +
         "   Enemigos derrotados: " + totalDerrotados +
-        "   Dificultad: " + NIVELES_DANO[CONFIG.danoIndice].nombre +
-        "   XP: " + NIVELES_XP[CONFIG.xpIndice].nombre,
+        "   Dificultad: " + DIFICULTADES[dificultadElegida].nombre,
         20, yPie)
 }
 
