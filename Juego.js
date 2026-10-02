@@ -116,6 +116,9 @@ const VELOCIDAD_PAKU = 120
 // Intervalo "virtual" al que se graba el rastro que siguen los compañeros, también en tiempo real
 // y no en fotogramas: así el hueco entre Paku y cada compañero es el mismo a cualquier framerate.
 const PASO_HISTORIAL = 1000 / 60   // ~16.67 ms
+// Pasos del rastro que se guardan: Mamuri va en el 50, VBZ en el 100, Imanps en el 150 y el robot
+// de servicio (si lo tenéis) en el 190
+const LARGO_HISTORIAL = 191
 let acumuladorHistorial = 0
 // Tope del delta entre fotogramas (ms): si la pestaña estuvo en segundo plano, evita un salto enorme
 const DELTA_MAXIMO = 100
@@ -135,7 +138,10 @@ let habilidadElegida = null     // habilidad ya elegida, a la espera de objetivo
 let resumenVictoria = []        // por personaje: XP ganada, subidas de nivel, mejoras...
 let xpTotalVictoria = 0
 let bloqueoTeclasHasta = 0
-let eventoActual = null
+let objetoSeleccionado = 0      // posición en el submenú de objetos
+let objetoElegido = null        // id del objeto ya elegido, a la espera de objetivo
+let eventoEnCurso = null        // { evento, opciones, seleccion, resultado } mientras hay un evento abierto
+let zonasEvento = []            // zonas clicables de las opciones del evento
 let logCombate = []
 let mostrarPanelDescanso = false
 let logDescanso = []
@@ -145,8 +151,6 @@ let zonasMenu = []      // zonas clicables del menú, recalculadas cada fotogram
 let personajeSeleccionado = 0   // índice en equipoJugador, resaltado en la lista de la izquierda
 let zonasEstadisticas = []      // zonas clicables de esa lista, recalculadas cada fotograma
 //Fallar golpes
-//Objetos
-//Eventos funcionales
 const teclas = {}
 // crecimiento = lo que gana cada stat por nivel (admite decimales; el valor final se redondea)
 // habilidades = lista ordenada por nivelMin; objetivo: "enemigo" (se elige), "enemigos" (todos), "aliado" (el más herido), "aliados" (todos)
@@ -179,10 +183,11 @@ const imanps = { nombre: "Imanps", x: 0, y: 0, width: 18, height: 18, defendiend
         { id: "oleada",     nombre: "Oleada",     coste: 3, objetivo: "aliados", nivelMin: 5 }
     ],
     stats: { HP:25, HP_MAX:25, ATK:7,  DEF:4, VEL:5, LUCK:8  }}
-// Stats de nivel 1 (base) y HP máximo extra ganado en descansos
+// Stats de nivel 1 (base) y extras permanentes (HP de los descansos, mejoras del Taller de armas)
 ;[paku, mamuri, vbz, imanps].forEach(p => {
     p.base = { HP_MAX: p.stats.HP_MAX, ATK: p.stats.ATK, DEF: p.stats.DEF, VEL: p.stats.VEL, LUCK: p.stats.LUCK }
-    p.bonusHP = 0
+    p.bonus = { HP_MAX: 0, ATK: 0, DEF: 0, VEL: 0, LUCK: 0 }
+    p.bonusOrbes = 0   // orbes máximos extra (Núcleo de energía)
 })
 // xp = experiencia base que da cada enemigo (crece con el nivel medio del equipo)
 // peso = probabilidad relativa de aparecer: un enemigo con peso 10 sale el doble que uno con peso 5
@@ -194,7 +199,7 @@ const poolEnemigos = [
     { nombre: "Moto Pirata", xp: 16, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 30, HP_MAX: 30, ATK: 5, DEF: 5, VEL: 20, LUCK: 2 } },
     { nombre: "Cañón de cristal", xp: 12, peso: 10, clase: "maquina", ia: "aleatorio", defendiendo: false, stats: { HP: 20, HP_MAX: 20, ATK: 6, DEF: 1, VEL: 6, LUCK: 4 } },
     // Rápido y frágil: suele actuar antes que nadie, pero cae de dos golpes
-    { nombre: "Dron vigía", xp: 10, peso: 10, clase: "maquina", ia: "aleatorio", defendiendo: false, stats: { HP: 18, HP_MAX: 18, ATK: 4, DEF: 2, VEL: 14, LUCK: 3 } },
+    { nombre: "Dron vigía", xp: 10, peso: 10, clase: "maquina", dron: true, ia: "aleatorio", defendiendo: false, stats: { HP: 18, HP_MAX: 18, ATK: 4, DEF: 2, VEL: 14, LUCK: 3 } },
     // Va siempre a por el aliado con menos vida
     { nombre: "Mercenario", xp: 18, peso: 10, clase: "humano", ia: "agresivo", defendiendo: false, stats: { HP: 38, HP_MAX: 38, ATK: 6, DEF: 3, VEL: 5, LUCK: 3 } },
     // Poco daño de base, pero con LUCK 8 tiene un 40% de crítico
@@ -202,9 +207,9 @@ const poolEnemigos = [
     // Pega fuerte y apunta al aliado con más ATK, pero aguanta poco
     { nombre: "Androide de asalto", xp: 18, peso: 10, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 28, HP_MAX: 28, ATK: 8, DEF: 2, VEL: 7, LUCK: 2 } },
     // Repara a la máquina aliada más dañada; si no hay ninguna, dispara flojo. Conviene tumbarlo pronto.
-    { nombre: "Dron reparador", xp: 14, peso: 10, clase: "maquina", rol: "reparar", ia: "aleatorio", defendiendo: false, stats: { HP: 22, HP_MAX: 22, ATK: 3, DEF: 2, VEL: 6, LUCK: 1 } },
+    { nombre: "Dron reparador", xp: 14, peso: 10, clase: "maquina", dron: true, rol: "reparar", ia: "aleatorio", defendiendo: false, stats: { HP: 22, HP_MAX: 22, ATK: 3, DEF: 2, VEL: 6, LUCK: 1 } },
     // No ataca: si no lo destruyes en 3 turnos, estalla y daña a todo el equipo
-    { nombre: "Dron kamikaze", xp: 16, peso: 10, clase: "maquina", rol: "estallar", ia: "aleatorio", defendiendo: false, stats: { HP: 26, HP_MAX: 26, ATK: 6, DEF: 2, VEL: 3, LUCK: 0 } },
+    { nombre: "Dron kamikaze", xp: 16, peso: 10, clase: "maquina", dron: true, rol: "estallar", ia: "aleatorio", defendiendo: false, stats: { HP: 26, HP_MAX: 26, ATK: 6, DEF: 2, VEL: 3, LUCK: 0 } },
     // Tanque intermedio: un turno sí y otro no se protege y te quita un orbe; alarga los combates
     { nombre: "Escolta acorazado", xp: 26, peso: 10, clase: "humano", rol: "inhibir", ia: "aleatorio", defendiendo: false, stats: { HP: 90, HP_MAX: 90, ATK: 4, DEF: 4, VEL: 2, LUCK: 1 } },
     // El tanque: muchísima vida y poco daño. Raro (peso 4), pero da mucha XP
@@ -215,11 +220,577 @@ const PORCENTAJE_REPARACION = 0.20
 // Dron kamikaze: turnos suyos hasta que estalla, y multiplicador del daño de la explosión
 const TURNOS_KAMIKAZE = 3
 const MULTIPLICADOR_EXPLOSION = 3
-const poolEventos = [
-    { nombre: "Caja de suministros", descripcion: "Encuentras una caja abandonada" },
-    { nombre: "Mensaje cifrado", descripcion: "Un terminal con datos del enemigo" },
-    { nombre: "Soldado herido", descripcion: "Un guardia malherido pide clemencia" }
+
+// --- Objetos ----------------------------------------------------------------
+// Se consiguen en los eventos y se usan en combate con "Objeto" (gasta el turno de quien lo usa).
+// objetivo: como en las habilidades ("aliado" = el más herido; "aliados" / "enemigos" = todos)
+const OBJETOS = {
+    botiquin: { nombre: "Botiquín",         objetivo: "aliado",   descripcion: "Cura la mitad de la vida al aliado más herido" },
+    granada:  { nombre: "Granada de pulso", objetivo: "enemigos", descripcion: "Daña a todos los enemigos, ignorando su defensa" },
+    bateria:  { nombre: "Batería",          objetivo: "aliados",  descripcion: "+2 orbes de energía a todo el equipo" },
+    reanimador: { nombre: "Kit de reanimación", objetivo: "caido", descripcion: "Revive al primer aliado caído con la mitad de su vida" }
+}
+const inventario = { botiquin: 0, granada: 0, bateria: 0, reanimador: 0 }
+
+// Efectos de los eventos que se aplican al empezar el siguiente combate, y luego se gastan
+// cantidadEnemigos / claseEnemigos: fuerzan cuántos enemigos salen y de qué clase ("humano"/"maquina")
+// emp: las máquinas enemigas no actúan la primera ronda · dronAliado: un dron os cura cada ronda
+const PREPARATIVOS_VACIOS = { orbesExtra: 0, cantidadEnemigos: null, claseEnemigos: null, xpExtra: 1, emp: false, dronAliado: false }
+let preparativos = { ...PREPARATIVOS_VACIOS }
+let xpCombate = 1   // multiplicador de XP del combate en curso (lo pone, por ejemplo, la Emboscada)
+let dronAliadoActivo = false   // en este combate os acompaña el dron reparador reprogramado
+let curaRobotVictoria = 0      // % que ha curado el robot de servicio al ganar (para la pantalla de victoria)
+
+// Probabilidad de que, tras ganar un combate, salte un evento al continuar (como una casilla azul)
+const PROBABILIDAD_EVENTO_VICTORIA = 0.20
+let eventoTrasVictoria = false
+
+// Efectos de los eventos que duran el resto de la partida (se acumulan si se repiten)
+const mejorasPartida = {
+    orbesIniciales: 0,       // orbes extra con los que empieza cada personaje cada combate (Cápsula de energía)
+    defensaEnemiga: 1,       // multiplicador de la DEF de todos los enemigos (Terminal de seguridad)
+    vidaMaquinas: 1,         // multiplicador de la vida de las máquinas enemigas (Terminal de seguridad)
+    ataqueMaquinas: 1,       // multiplicador del ATK de las máquinas enemigas (Fábrica de androides)
+    vidaEnemigos: 1,         // multiplicador de la vida de todos los enemigos (Reactor principal)
+    dronesPirateados: false, // los drones enemigos juegan a vuestro favor (Hangar de drones)
+    robots: 0,               // robots de servicio que os siguen y curan al acabar cada combate
+    combatesHambrientos: 0   // combates que quedan con los enemigos debilitados (Comedor de la tripulación)
+}
+const SABOTAJE = 0.75    // cada sabotaje del Terminal deja la DEF o la vida en un 75% (un 25% menos)
+const HAMBRE = 0.85      // enemigos hambrientos: ATK y VEL al 85%
+const COMBATES_HAMBRE = 3
+const DAÑO_GRAVEDAD = [0.15, 0.20, 0.25]   // vida que cuesta la Sala de gravedad, por dificultad
+const NIVELES_POR_RANGO = 5                // cada rango de habilidad (Biblioteca) equivale a 5 niveles
+const CURA_ROBOT = 0.10                    // lo que cura cada robot de servicio al acabar un combate
+const CURA_DRON_ALIADO = 0.15              // lo que cura el dron reprogramado al final de cada ronda
+const COSTE_IMPLANTE = 10                  // vida máxima (y actual) que cobra el Mercader de implantes
+
+// Taller de armas: una mejora individual equivale a 3 niveles de crecimiento de ese stat, con un
+// mínimo; la de equipo da +1 ATK y +1 DEF a todos. Ambas se multiplican cada 10 niveles medios.
+const NIVELES_TALLER = 3
+const MINIMO_TALLER = { HP_MAX: 10, ATK: 2, DEF: 2, VEL: 2, LUCK: 2 }
+
+// --- Eventos de las casillas azules -----------------------------------------
+// opciones() devuelve 2-3 opciones { texto, detalle, efecto }. efecto() aplica lo que pasa y devuelve
+// { lineas } con lo que se cuenta después, y combate: true si al continuar empieza un combate.
+const EVENTOS = [
+    {
+        titulo: "Caja de suministros",
+        texto: "Una caja sellada con el emblema de la nave. Podría tener algo útil... o una alarma.",
+        opciones: () => [
+            { texto: "Forzarla", detalle: "Dos objetos, pero un 40% de que salte la alarma",
+              efecto: () => {
+                  const lineas = [darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())]
+                  if (Math.random() < 0.4) return { lineas: [...lineas, "¡Salta la alarma! Llega una patrulla."], combate: true }
+                  return { lineas }
+              } },
+            { texto: "Abrirla con cuidado", detalle: "Un objeto, sin riesgo",
+              efecto: () => ({ lineas: [darObjeto(objetoAlAzar())] }) }
+        ]
+    },
+    {
+        titulo: "Soldado herido",
+        texto: "Un guardia malherido pide clemencia. Dice que conoce las rutas de la patrulla.",
+        opciones: () => {
+            const lista = [
+                { texto: "Perdonarle", detalle: "Os chiva la patrulla: 1 orbe más para cada uno en el próximo combate",
+                  efecto: () => {
+                      preparativos.orbesExtra += 1
+                      return { lineas: ["El guardia os cuenta por dónde pasa la patrulla.", "Próximo combate: empezáis con 1 orbe más cada uno."] }
+                  } },
+                { texto: "Rematarle", detalle: "Experiencia para el equipo",
+                  efecto: () => ({ lineas: ganarXPEvento(15) }) }
+            ]
+            if (inventario.botiquin > 0) {
+                lista.push({ texto: "Curarle (gastas un Botiquín)", detalle: "Agradecido, os da dos objetos",
+                  efecto: () => {
+                      inventario.botiquin--
+                      return { lineas: ["Le curas las heridas y os da lo que lleva encima.", darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())] }
+                  } })
+            }
+            return lista
+        }
+    },
+    {
+        titulo: "Terminal de seguridad",
+        texto: "Un terminal sigue encendido. VBZ cree que puede colarse en el sistema central de la nave y sabotear algo para siempre.",
+        opciones: () => {
+            const prob = probabilidadHackeo()
+            const alarma = { lineas: ["El sistema os detecta. ¡Salta la alarma!"], combate: true }
+            return [
+                { texto: "Sabotear los escudos", detalle: prob + "%: todos los enemigos, un 25% menos de defensa el resto de la partida · si no, alarma",
+                  efecto: () => {
+                      if (Math.random() * 100 >= prob) return alarma
+                      mejorasPartida.defensaEnemiga *= SABOTAJE
+                      return { lineas: ["¡Dentro! Desconectas los generadores de escudos de la nave.", "Resto de la partida: los enemigos tienen un 25% menos de defensa."] }
+                  } },
+                { texto: "Sabotear la fábrica de máquinas", detalle: prob + "%: máquinas enemigas, un 25% menos de vida el resto de la partida · si no, alarma",
+                  efecto: () => {
+                      if (Math.random() * 100 >= prob) return alarma
+                      mejorasPartida.vidaMaquinas *= SABOTAJE
+                      return { lineas: ["¡Dentro! Saboteas la cadena de montaje.", "Resto de la partida: drones, androides y demás máquinas, un 25% menos de vida."] }
+                  } },
+                { texto: "Dejarlo estar", detalle: "No pasa nada",
+                  efecto: () => ({ lineas: ["Mejor no tentar a la suerte."] }) }
+            ]
+        }
+    },
+    {
+        titulo: "Taller de armas",
+        texto: "Un taller abandonado, con herramientas y piezas de repuesto. Da para una buena mejora.",
+        opciones: () => {
+            const lista = mejorasAlAzar(2).map(m => ({
+                texto: m.personaje.nombre + ": " + ETIQUETAS_STATS[m.clave] + " +" + m.cantidad,
+                detalle: "Mejora permanente para " + m.personaje.nombre,
+                efecto: () => {
+                    mejorarStat(m.personaje, m.clave, m.cantidad)
+                    return { lineas: [m.personaje.nombre + " gana " + m.cantidad + " de " + ETIQUETAS_STATS[m.clave] + " para el resto de la partida."] }
+                }
+            }))
+            const n = factorTaller()
+            lista.push({
+                texto: "Todo el equipo: ATK +" + n + " y DEF +" + n,
+                detalle: "Mejora permanente para los cuatro",
+                efecto: () => {
+                    equipoJugador.forEach(p => { mejorarStat(p, "ATK", n); mejorarStat(p, "DEF", n) })
+                    return { lineas: ["Todo el equipo gana " + n + " de ATK y " + n + " de DEF para el resto de la partida."] }
+                }
+            })
+            return lista
+        }
+    },
+    {
+        titulo: "Fuga de plasma",
+        texto: "Una tubería rota escupe plasma en mitad del pasillo.",
+        opciones: () => [
+            { texto: "Cruzar corriendo", detalle: "Todo el equipo pierde un 15% de su vida máxima",
+              efecto: () => ({ lineas: ["Cruzáis a la carrera entre chispazos.", ...dañarEquipo(0.15)] }) },
+            { texto: "Dar un rodeo", detalle: "Sin daño, pero el próximo combate será contra 3 enemigos",
+              efecto: () => {
+                  preparativos.cantidadEnemigos = 3
+                  return { lineas: ["Dais un rodeo... justo por la ruta de una patrulla.", "Próximo combate: 3 enemigos."] }
+              } }
+        ]
+    },
+    {
+        titulo: "Cápsula de energía",
+        texto: "Una cápsula de energía zumba, inestable. Conectada a vuestros equipos, os daría energía para siempre.",
+        opciones: () => [
+            { texto: "Conectarla al equipo", detalle: "Todos empezáis cada combate con 1 orbe más, toda la partida · 30% de calambrazo",
+              efecto: () => {
+                  mejorasPartida.orbesIniciales++
+                  const lineas = ["Resto de la partida: empezáis cada combate con " + mejorasPartida.orbesIniciales + " orbe(s) cada uno."]
+                  if (Math.random() < 0.3) lineas.push("¡Calambrazo!", ...dañarEquipo(0.15))
+                  return { lineas }
+              } },
+            { texto: "Desmontarla", detalle: "Sin riesgo: os lleváis dos Baterías",
+              efecto: () => ({ lineas: [darObjeto("bateria"), darObjeto("bateria")] }) }
+        ]
+    },
+    {
+        titulo: "Emboscada",
+        texto: "¡Una patrulla os ha visto y os corta el paso!",
+        opciones: () => [
+            { texto: "Plantar cara", detalle: "Combate ahora, con un 50% más de experiencia",
+              efecto: () => {
+                  preparativos.xpExtra = 1.5
+                  return { lineas: ["Os preparáis para luchar."], combate: true }
+              } },
+            { texto: "Huir", detalle: "Escapáis, pero todos pierden un 10% de su vida máxima",
+              efecto: () => ({ lineas: ["Escapáis por los conductos de ventilación.", ...dañarEquipo(0.10)] }) }
+        ]
+    },
+    // Campos opcionales de un evento:
+    //   disponible() → false si no tiene sentido ahora (no sale)
+    //   preparar()   → datos que se fijan al abrirlo y que reciben texto(datos) y opciones(datos)
+    //   un efecto que devuelve seguir: true deja el evento abierto, con sus opciones recalculadas
+    {
+        titulo: "Taller de reciclaje",
+        texto: "Una recicladora traga chatarra y escupe piezas útiles. Con dos de vuestros objetos podría fabricar una mejora.",
+        disponible: () => totalObjetos() >= 2,
+        opciones: () => [
+            ...mejorasAlAzar(2).map(m => ({
+                texto: m.personaje.nombre + ": " + ETIQUETAS_STATS[m.clave] + " +" + m.cantidad,
+                detalle: "Mejora permanente · gastas 2 objetos (de los que más tengáis)",
+                efecto: () => {
+                    const gastados = quitarObjetos(2)
+                    mejorarStat(m.personaje, m.clave, m.cantidad)
+                    return { lineas: ["Recicláis: " + gastados.join(" y ") + ".", m.personaje.nombre + " gana " + m.cantidad + " de " + ETIQUETAS_STATS[m.clave] + " para el resto de la partida."] }
+                }
+            })),
+            { texto: "Salir", detalle: "Os quedáis los objetos", efecto: () => ({ lineas: ["Dejáis la recicladora zumbando."] }) }
+        ]
+    },
+    {
+        titulo: "Laboratorio de mutágenos",
+        texto: "Viales de colores burbujean en una vitrina. Prometen hacer más fuerte a quien se los inyecte... a cambio de algo.",
+        opciones: () => [
+            ...mutagenosAlAzar(3).map(m => ({
+                texto: m.personaje.nombre + ": " + ETIQUETAS_STATS[m.sube] + " +" + m.cuanto + ", " + ETIQUETAS_STATS[m.baja] + " −" + m.menos,
+                detalle: "Permanente",
+                efecto: () => {
+                    mejorarStat(m.personaje, m.sube, m.cuanto)
+                    mejorarStat(m.personaje, m.baja, -m.menos)
+                    return { lineas: [m.personaje.nombre + " se inyecta el mutágeno.", "Resto de la partida: " + ETIQUETAS_STATS[m.sube] + " +" + m.cuanto + " y " + ETIQUETAS_STATS[m.baja] + " −" + m.menos + "."] }
+                }
+            })),
+            { texto: "No arriesgarse", detalle: "Nadie se pincha nada", efecto: () => ({ lineas: ["Mejor no jugar con eso."] }) }
+        ]
+    },
+    {
+        titulo: "Núcleo de energía",
+        texto: "Un núcleo de energía late en el centro de la sala. Quien lo toque absorberá parte de su poder... y se quemará.",
+        opciones: () => [
+            ...equipoJugador.filter(p => p.stats.HP > 1).map(p => ({
+                texto: p.nombre + ": +1 orbe máximo",
+                detalle: "Permanente · pierde la mitad de su vida actual (" + Math.floor(p.stats.HP / 2) + " HP)",
+                efecto: () => {
+                    const pierde = Math.floor(p.stats.HP / 2)
+                    p.stats.HP -= pierde
+                    p.bonusOrbes++
+                    return { lineas: [p.nombre + " toca el núcleo y pierde " + pierde + " HP.", "Resto de la partida: " + p.nombre + " tiene " + energiaMaxima(p) + " orbes máximos."] }
+                }
+            })),
+            { texto: "No tocarlo", detalle: "Os vais sin quemaros", efecto: () => ({ lineas: ["Ni tocarlo."] }) }
+        ]
+    },
+    {
+        titulo: "Mercader de implantes",
+        texto: "Un mercader clandestino instala implantes de combate. No acepta créditos: cobra en carne. Podéis comprar las veces que queráis.",
+        opciones: () => [
+            ...equipoJugador.filter(p => puedePagarImplante(p)).map(p => ({
+                texto: p.nombre + ": ATK +" + atkImplante() + " por " + COSTE_IMPLANTE + " de vida máxima",
+                detalle: "Permanente · también pierde " + COSTE_IMPLANTE + " de vida ahora (" + p.stats.HP + " → " + (p.stats.HP - COSTE_IMPLANTE) + ")",
+                efecto: () => {
+                    const atk = atkImplante()
+                    mejorarStat(p, "HP_MAX", -COSTE_IMPLANTE)
+                    mejorarStat(p, "ATK", atk)
+                    return { lineas: [p.nombre + " recibe un implante: ATK +" + atk + ", vida máxima −" + COSTE_IMPLANTE + "."], seguir: true }
+                }
+            })),
+            { texto: "Salir de la tienda", detalle: "Se puede comprar mientras al personaje le quede más de " + COSTE_IMPLANTE + " de vida",
+              efecto: () => ({ lineas: ["El mercader se despide con una sonrisa metálica."] }) }
+        ]
+    },
+    {
+        titulo: "Sala de gravedad aumentada",
+        texto: "Un cartel avisa: «Gravedad x10. Solo entrenamiento de élite». Moverse aquí dentro es un infierno... y el mejor entrenamiento posible.",
+        opciones: () => {
+            const pct = Math.round(DAÑO_GRAVEDAD[dificultadElegida] * 100)
+            const n = factorTaller()
+            return [
+                { texto: "Entrenar", detalle: "VEL +" + n + " permanente para todos · todos pierden un " + pct + "% de su vida máxima",
+                  efecto: () => {
+                      const lineas = ["Entrenáis hasta caer rendidos.", ...dañarEquipo(DAÑO_GRAVEDAD[dificultadElegida])]
+                      equipoJugador.forEach(p => mejorarStat(p, "VEL", n))
+                      lineas.push("Todo el equipo gana " + n + " de VEL para el resto de la partida.")
+                      return { lineas }
+                  } },
+                { texto: "Salir", detalle: "Hoy no toca", efecto: () => ({ lineas: ["Salís antes de que os aplaste la gravedad."] }) }
+            ]
+        }
+    },
+    {
+        titulo: "Biblioteca de datos",
+        texto: "Archivos de entrenamiento de la tripulación enemiga. Mamuri, VBZ e Imanps se ponen a estudiar; Paku sabe leer, pero se queda mirando los dibujos.",
+        opciones: () => [
+            { texto: "Técnicas básicas", detalle: "Mamuri, VBZ e Imanps suben un rango su primera habilidad",
+              efecto: () => ({ lineas: subirRangoHabilidad(0) }) },
+            { texto: "Técnicas avanzadas", detalle: "Suben un rango su segunda habilidad (cuenta aunque aún no la hayan aprendido)",
+              efecto: () => ({ lineas: subirRangoHabilidad(1) }) }
+        ]
+    },
+    {
+        titulo: "Hangar de drones",
+        texto: "Decenas de drones cargan en sus estaciones. VBZ podría meterles un virus para que se vuelvan contra los suyos.",
+        disponible: () => !mejorasPartida.dronesPirateados,
+        opciones: () => {
+            const prob = probabilidadHackeo()
+            return [
+                { texto: "Piratear los drones", detalle: prob + "%: el resto de la partida, los drones luchan de vuestro lado · si no, alarma",
+                  efecto: () => {
+                      if (Math.random() * 100 >= prob) return { lineas: ["Los drones detectan el virus. ¡Salta la alarma!"], combate: true }
+                      mejorasPartida.dronesPirateados = true
+                      return { lineas: ["¡Virus instalado!", "Resto de la partida: el Dron vigía ataca a sus compañeros, el reparador os cura a vosotros y el kamikaze estalla contra los enemigos."] }
+                  } },
+                { texto: "Robar piezas", detalle: "Sin riesgo: dos Baterías", efecto: () => ({ lineas: [darObjeto("bateria"), darObjeto("bateria")] }) }
+            ]
+        }
+    },
+    {
+        titulo: "Fábrica de androides",
+        texto: "Una cadena de montaje ensambla androides y drones. Sobre la mesa hay un dron reparador a medio programar.",
+        opciones: () => [
+            { texto: "Sabotear la cadena", detalle: "Resto de la partida: las máquinas enemigas, un 20% menos de ataque",
+              efecto: () => {
+                  mejorasPartida.ataqueMaquinas *= 0.8
+                  return { lineas: ["Desajustáis los servos de la cadena de montaje.", "Resto de la partida: las máquinas enemigas pegan un 20% menos."] }
+              } },
+            { texto: "Reprogramar el dron reparador", detalle: "En el próximo combate os cura un " + Math.round(CURA_DRON_ALIADO * 100) + "% al final de cada ronda",
+              efecto: () => {
+                  preparativos.dronAliado = true
+                  return { lineas: ["Imanps le cambia el chip: ahora es vuestro.", "Próximo combate: el dron cura al más herido al final de cada ronda."] }
+              } }
+        ]
+    },
+    {
+        titulo: "Reactor principal",
+        texto: "El reactor que mueve la nave entera. Si lo sobrecargáis, todo el sistema se resentirá... y vosotros también.",
+        opciones: () => [
+            { texto: "Sobrecargarlo", detalle: "Toda la partida: enemigos con un 10% menos de vida · ahora perdéis un 25% de vida",
+              efecto: () => {
+                  mejorasPartida.vidaEnemigos *= 0.9
+                  return { lineas: ["El reactor ruge y os lanza una onda de calor.", ...dañarEquipo(0.25), "Resto de la partida: los enemigos tienen un 10% menos de vida."] }
+              } },
+            { texto: "No tocarlo", detalle: "Mejor no", efecto: () => ({ lineas: ["Os alejáis del reactor sin hacer ruido."] }) }
+        ]
+    },
+    {
+        titulo: "Sala de mando",
+        texto: "Pantallas con los planos de la nave y las rutas de las patrullas. Podríais desviar a los guardias.",
+        disponible: () => casillasDeTipo(2).length > 0,
+        opciones: () => [
+            { texto: "Reprogramar las patrullas", detalle: "Las 4 casillas de combate más cercanas pasan a ser de evento o de descanso",
+              efecto: () => ({ lineas: convertirCombatesCercanos(4) }) },
+            { texto: "Salir", detalle: "No tocar nada", efecto: () => ({ lineas: ["Salís sin dejar rastro."] }) }
+        ]
+    },
+    {
+        titulo: "Puerta de seguridad",
+        texto: "Una puerta blindada controla este sector. Abrirla bien podría despejar la zona de patrullas.",
+        opciones: () => {
+            const prob = probabilidadHackeo()
+            const lista = [
+                { texto: "Hackearla", detalle: prob + "%: desaparecen los combates en 5 casillas a la redonda · si no, alarma",
+                  efecto: () => {
+                      if (Math.random() * 100 >= prob) return { lineas: ["La puerta os bloquea. ¡Salta la alarma!"], combate: true }
+                      const n = quitarCombatesCerca(5)
+                      return { lineas: ["La puerta se abre y las patrullas del sector se retiran.", n + " casilla(s) de combate despejada(s)."] }
+                  } }
+            ]
+            if (inventario.granada > 0) {
+                lista.push({ texto: "Volarla con una Granada de pulso", detalle: "Gastas una Granada · experiencia para el equipo",
+                  efecto: () => {
+                      inventario.granada--
+                      return { lineas: ["¡BUM! La puerta salta por los aires.", ...ganarXPEvento(25)] }
+                  } })
+            }
+            lista.push({ texto: "Pasar de largo", detalle: "No pasa nada", efecto: () => ({ lineas: ["Seguís por otro pasillo."] }) })
+            return lista
+        }
+    },
+    {
+        titulo: "Mapa estelar",
+        texto: "Un mapa holográfico de la nave, con zonas que no aparecían en vuestros planos.",
+        opciones: () => [
+            { texto: "Explorar zonas nuevas", detalle: "Aparecen 8 casillas nuevas (combate, descanso o evento) en pasillos vacíos",
+              efecto: () => ({ lineas: [crearCasillasNuevas(8, null)] }) },
+            { texto: "Buscar puntos de interés", detalle: "Aparecen 3 casillas de evento en pasillos vacíos",
+              efecto: () => ({ lineas: [crearCasillasNuevas(3, 4)] }) }
+        ]
+    },
+    {
+        titulo: "Partida con contrabandistas",
+        texto: "Unos contrabandistas juegan a los dados en un almacén. VBZ ya se está frotando las manos.",
+        disponible: () => totalObjetos() > 0,
+        opciones: () => {
+            const prob = probabilidadApuesta()
+            const lista = []
+            if (totalObjetos() > 0) {
+                lista.push({ texto: "Apostar todos los objetos", detalle: prob + "%: se duplican · si no, los perdéis todos",
+                  efecto: () => {
+                      if (Math.random() * 100 < prob) {
+                          for (const id in inventario) inventario[id] *= 2
+                          return { lineas: ["¡VBZ gana! Ahora tenéis: " + resumenInventario() + ".", "¿Otra ronda?"], seguir: true }
+                      }
+                      for (const id in inventario) inventario[id] = 0
+                      return { lineas: ["VBZ pierde... y con él, todos vuestros objetos."] }
+                  } })
+            }
+            lista.push({ texto: "Retirarse", detalle: "Os quedáis con lo que tenéis",
+              efecto: () => ({ lineas: ["Os vais con " + (totalObjetos() > 0 ? resumenInventario() : "los bolsillos vacíos") + "."] }) })
+            return lista
+        }
+    },
+    {
+        titulo: "Caja negra",
+        texto: "La caja negra de una nave abatida. Dentro puede haber tecnología punta... o algo que mejor no despertar.",
+        opciones: () => [
+            { texto: "Abrirla", detalle: "55%: una gran mejora permanente · 45%: todos, −10% de vida máxima para siempre",
+              efecto: () => {
+                  if (Math.random() < 0.55) {
+                      const m = mejorasAlAzar(1)[0]
+                      const cantidad = m.cantidad * 2
+                      mejorarStat(m.personaje, m.clave, cantidad)
+                      return { lineas: ["¡Tecnología punta!", m.personaje.nombre + " gana " + cantidad + " de " + ETIQUETAS_STATS[m.clave] + " para el resto de la partida."] }
+                  }
+                  const lineas = ["Una nube de nanobots os carcome el equipo."]
+                  equipoJugador.forEach(p => {
+                      const pierde = Math.max(1, Math.round(p.stats.HP_MAX * 0.10))
+                      mejorarStat(p, "HP_MAX", -pierde)
+                      lineas.push(p.nombre + ": vida máxima −" + pierde)
+                  })
+                  return { lineas }
+              } },
+            { texto: "Dejarla cerrada", detalle: "Hay cosas que es mejor no saber", efecto: () => ({ lineas: ["La dejáis donde estaba."] }) }
+        ]
+    },
+    {
+        titulo: "Comedor de la tripulación",
+        texto: "La despensa de la tripulación, llena hasta arriba. Lo que os comáis vosotros no se lo comerán ellos.",
+        opciones: () => [
+            { texto: "Daros un festín", detalle: "Todo el equipo recupera un 50% de su vida máxima",
+              efecto: () => ({ lineas: ["Coméis hasta reventar.", ...curarEquipo(0.5)] }) },
+            { texto: "Arrasar la despensa", detalle: "Recuperáis un 25% · los enemigos, hambrientos, −15% de ATK y VEL durante 3 combates",
+              efecto: () => {
+                  mejorasPartida.combatesHambrientos += COMBATES_HAMBRE
+                  return { lineas: ["Os lo coméis todo y tiráis las sobras por la escotilla.", ...curarEquipo(0.25), "Próximos " + mejorasPartida.combatesHambrientos + " combates: enemigos con un 15% menos de ATK y VEL."] }
+              } }
+        ]
+    },
+    {
+        titulo: "Señal de socorro",
+        texto: "Una baliza emite una señal de socorro desde un compartimento sellado.",
+        opciones: () => [
+            { texto: "Responder", detalle: "60%: os dan un Kit de reanimación · 40%: es una trampa (combate con +50% de XP)",
+              efecto: () => {
+                  if (Math.random() < 0.6) return { lineas: ["Un técnico atrapado os agradece el rescate.", darObjeto("reanimador")] }
+                  preparativos.xpExtra = 1.5
+                  return { lineas: ["¡Era una trampa! Os rodea una patrulla."], combate: true }
+              } },
+            { texto: "Ignorarla", detalle: "Seguís adelante", efecto: () => ({ lineas: ["Dejáis atrás la señal."] }) }
+        ]
+    },
+    {
+        titulo: "Cámara criogénica",
+        texto: "Una cápsula criogénica con alguien dentro. El panel dice que lleva años dormido.",
+        opciones: () => [
+            { texto: "Despertar al ocupante", detalle: "Puede despertar bien y ayudaros... o confuso y atacaros",
+              efecto: () => {
+                  if (Math.random() < 0.6) {
+                      preparativos.orbesExtra += 1
+                      return { lineas: ["El ocupante despierta bien: aturdido, pero agradecido.", darObjeto(objetoAlAzar()), "Os avisa de la próxima patrulla: +1 orbe en el próximo combate."] }
+                  }
+                  preparativos.cantidadEnemigos = 1
+                  preparativos.claseEnemigos = "humano"
+                  return { lineas: ["El ocupante despierta confuso, os toma por enemigos... ¡y os ataca!"], combate: true }
+              } },
+            { texto: "Dejarlo dormir", detalle: "No es asunto vuestro", efecto: () => ({ lineas: ["Lo dejáis soñar tranquilo."] }) }
+        ]
+    },
+    {
+        titulo: "Duelo de honor",
+        // La prueba (un stat al azar) se elige al abrir el evento
+        preparar: () => {
+            const clave = ORDEN_STATS[Math.floor(Math.random() * ORDEN_STATS.length)]
+            const vivos = equipoJugador.filter(p => p.stats.HP > 0)
+            const media = vivos.reduce((s, p) => s + p.stats[clave], 0) / Math.max(1, vivos.length)
+            return { clave: clave, oficial: Math.max(1, Math.round(media * 1.1)) }
+        },
+        texto: (d) => "Un oficial de la nave os desafía. " + PRUEBAS_DUELO[d.clave].reto + " (" + ETIQUETAS_STATS[d.clave] + " del oficial: " + d.oficial + ") ¿Quién acepta?",
+        opciones: (d) => [
+            ...equipoJugador.filter(p => p.stats.HP > 0).map(p => {
+                const prob = probabilidadDuelo(p, d)
+                const premio = cantidadTaller(p, d.clave)
+                return {
+                    texto: p.nombre + " (" + ETIQUETAS_STATS[d.clave] + " " + p.stats[d.clave] + ")",
+                    detalle: prob + "% de ganar · si gana, " + ETIQUETAS_STATS[d.clave] + " +" + premio + " permanente; si pierde, se queda a 1 de vida",
+                    efecto: () => {
+                        if (Math.random() * 100 < prob) {
+                            mejorarStat(p, d.clave, premio)
+                            return { lineas: [p.nombre + " " + PRUEBAS_DUELO[d.clave].gana + ".", "¡Gana el duelo! " + ETIQUETAS_STATS[d.clave] + " +" + premio + " para el resto de la partida."] }
+                        }
+                        p.stats.HP = 1
+                        return { lineas: [p.nombre + " " + PRUEBAS_DUELO[d.clave].pierde + ".", "Pierde el duelo y se queda a 1 de vida."] }
+                    }
+                }
+            }),
+            { texto: "Rechazar el duelo", detalle: "El honor no da de comer", efecto: () => ({ lineas: ["El oficial se ríe de vosotros mientras os marcháis."] }) }
+        ]
+    },
+    {
+        titulo: "Generador de pulsos EMP",
+        texto: "Un generador de pulsos electromagnéticos de uso militar. Una descarga dejaría fritas a las máquinas cercanas.",
+        opciones: () => [
+            { texto: "Cargar el pulso", detalle: "En el próximo combate, las máquinas enemigas no actúan la primera ronda",
+              efecto: () => {
+                  preparativos.emp = true
+                  return { lineas: ["Cargáis el pulso y os lo lleváis listo para disparar.", "Próximo combate: las máquinas enemigas pasan la primera ronda aturdidas."] }
+              } },
+            { texto: "Desmontarlo", detalle: "Os lleváis una Granada de pulso", efecto: () => ({ lineas: [darObjeto("granada")] }) }
+        ]
+    },
+    {
+        titulo: "Sala de vigilancia",
+        texto: "Monitores con todas las cámaras de la nave. Si los destruís, algunas patrullas os perderán la pista.",
+        disponible: () => casillasDeTipo(2).length > 0,
+        opciones: () => [
+            { texto: "Destruir las cámaras", detalle: "Desaparecen entre 1 y 6 casillas de combate del mapa, al azar",
+              efecto: () => {
+                  const n = quitarCombatesAlAzar(1 + Math.floor(Math.random() * 6))
+                  return { lineas: ["Hacéis añicos los monitores.", n + " patrulla(s) os pierden la pista: " + n + " casilla(s) de combate menos."] }
+              } },
+            { texto: "Salir", detalle: "Sin hacer ruido", efecto: () => ({ lineas: ["Salís de puntillas."] }) }
+        ]
+    },
+    // Pendiente: cuando exista el escudo (una barra como la vida, pero que no se regenera), este evento
+    // dará escudo al equipo al empezar cada combate. Hasta entonces queda desactivado.
+    // {
+    //     titulo: "Generador de escudos portátil",
+    //     texto: "Un generador de escudos de bolsillo, todavía con carga.",
+    //     opciones: () => [
+    //         { texto: "Llevároslo", detalle: "Empezáis cada combate con escudo, toda la partida", efecto: () => ({ lineas: ["..."] }) },
+    //         { texto: "Dejarlo", detalle: "No pasa nada", efecto: () => ({ lineas: ["Lo dejáis donde estaba."] }) }
+    //     ]
+    // },
+    {
+        titulo: "Capilla de la tripulación",
+        texto: "Una pequeña capilla, con velas eléctricas y un silencio que reconforta.",
+        opciones: () => {
+            const caidos = equipoJugador.filter(p => p.stats.HP <= 0)
+            const lista = []
+            if (caidos.length > 0) {
+                lista.push({ texto: "Rezar por los caídos", detalle: caidos.map(p => p.nombre).join(", ") + ": vuelve(n) con la mitad de su vida",
+                  efecto: () => ({ lineas: caidos.map(p => {
+                      p.stats.HP = Math.ceil(p.stats.HP_MAX / 2)
+                      return p.nombre + " vuelve en sí con " + p.stats.HP + " HP."
+                  }) }) })
+            } else {
+                lista.push({ texto: "Meditar", detalle: "Nadie ha caído: experiencia para el equipo",
+                  efecto: () => ({ lineas: ["Meditáis un rato en silencio.", ...ganarXPEvento(12)] }) })
+            }
+            lista.push({ texto: "Seguir adelante", detalle: "No hay tiempo", efecto: () => ({ lineas: ["Seguís vuestro camino."] }) })
+            return lista
+        }
+    },
+    {
+        titulo: "Robot de servicio averiado",
+        texto: "Un robot de limpieza tirado en el suelo, echando chispas. Imanps cree que podría arreglarlo.",
+        opciones: () => {
+            const pct = Math.round(CURA_ROBOT * 100)
+            const lista = []
+            if (imanps.stats.HP > 0) {
+                lista.push({ texto: "Que Imanps lo repare", detalle: "Os sigue toda la partida y os cura un " + pct + "% de vida al acabar cada combate",
+                  efecto: () => {
+                      mejorasPartida.robots++
+                      return { lineas: ["Imanps aprieta un par de tornillos y el robot se pone en pie.", "Resto de la partida: os sigue y cura al equipo un " + pct * mejorasPartida.robots + "% al final de cada combate."] }
+                  } })
+            }
+            lista.push({ texto: "Desmontarlo", detalle: "Os lleváis dos objetos", efecto: () => ({ lineas: [darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())] }) })
+            lista.push({ texto: "Dejarlo", detalle: "Que se arregle solo", efecto: () => ({ lineas: ["El robot sigue echando chispas."] }) })
+            return lista
+        }
+    }
 ]
+
+// Duelo de honor: cómo se cuenta cada prueba según el stat
+const PRUEBAS_DUELO = {
+    HP_MAX: { reto: "Os reta a ver quién aguanta más en la esclusa sin respirar.", gana: "aguanta hasta que el oficial se desmaya", pierde: "sale tosiendo y morado" },
+    ATK:    { reto: "Os reta a mover un contenedor de carga más deprisa que él.", gana: "mueve el contenedor como si fuera de cartón", pierde: "se deja la espalda empujando" },
+    DEF:    { reto: "Os reta a aguantar sus golpes sin retroceder.", gana: "aguanta sin inmutarse", pierde: "acaba por los suelos" },
+    VEL:    { reto: "Os reta a una carrera por los conductos de ventilación.", gana: "llega el primero y le espera bostezando", pierde: "se queda atascado en un codo del conducto" },
+    LUCK:   { reto: "Os reta a una partida de cartas a todo o nada.", gana: "saca una escalera real", pierde: "se lo juega todo a un farol... y pierde" }
+}
 let anteriorX = paku.x
 let anteriorY = paku.y
 let estado = "menu"    // "menu" | "exploracion" | "combate" | "descanso" | "estadisticas" | "victoria" | "derrota"
@@ -233,10 +804,13 @@ let tiempoInicio = 0   // se fija en empezarPartida(), al salir del menú
 let tiempoPartida = 0
 const enemigosDerrotados = {}  // { "Bisotuf": 3, ... }
 
-historial = []
- for (let i = 0; i < 151; i++) {
-    historial.push({ x: paku.x, y: paku.y })
+let historial = []
+// Todo el rastro en la posición de Paku (al empezar, y tras cada combate)
+function reiniciarHistorial() {
+    historial = []
+    for (let i = 0; i < LARGO_HISTORIAL; i++) historial.push({ x: paku.x, y: paku.y })
 }
+reiniciarHistorial()
 
 
 
@@ -325,6 +899,10 @@ document.addEventListener("keydown", function(e) {
         mostrarPanelDescanso = false
         return
     }
+    if (estado === "evento") {
+        eventoTecla(arriba, abajo, izquierda, derecha, confirmar)
+        return
+    }
     if (estado === "estadisticas") {
         if (tecla === "m" || tecla === "escape") { estado = "exploracion"; return }
         if (arriba) personajeSeleccionado = Math.max(0, personajeSeleccionado - 1)
@@ -332,7 +910,12 @@ document.addEventListener("keydown", function(e) {
         return
     }
     if (estado === "victoria") {
-        estado = "exploracion"
+        if (eventoTrasVictoria) {
+            eventoTrasVictoria = false
+            iniciarEvento()
+        } else {
+            estado = "exploracion"
+        }
         return
     }
     if (estado === "derrota") {
@@ -360,6 +943,15 @@ document.addEventListener("keydown", function(e) {
             if (confirmar) {
                 ultimaConfirmacion = performance.now()
                 elegirHabilidad(lista[habilidadSeleccionada])
+            }
+            if (atras) faseCombate = "seleccion"
+        } else if (faseCombate === "objeto") {
+            const lista = objetosDisponibles()
+            if (arriba) objetoSeleccionado = Math.max(0, objetoSeleccionado - 1)
+            if (abajo) objetoSeleccionado = Math.min(lista.length - 1, objetoSeleccionado + 1)
+            if (confirmar) {
+                ultimaConfirmacion = performance.now()
+                elegirObjeto(lista[objetoSeleccionado].id)
             }
             if (atras) faseCombate = "seleccion"
         } else if (faseCombate === "seleccion") {
@@ -410,6 +1002,10 @@ canvas.addEventListener("mousemove", function(e) {
     } else if (estado === "estadisticas") {
         z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z) personajeSeleccionado = z.indice
+    } else if (estado === "evento" && !eventoEnCurso.resultado) {
+        // Como en el menú de inicio: pasar el ratón por una opción la elige
+        z = zonaEnPunto(zonasEvento, p.x, p.y)
+        if (z) eventoEnCurso.seleccion = z.indice
     }
     // Manita sobre lo que se puede clicar, para que se note
     canvas.style.cursor = z ? "pointer" : "default"
@@ -429,6 +1025,15 @@ canvas.addEventListener("click", function(e) {
     } else if (estado === "estadisticas") {
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z) personajeSeleccionado = z.indice
+    } else if (estado === "evento") {
+        if (eventoEnCurso.resultado) {
+            // Clic en cualquier sitio para continuar (no justo después de decidir, por si es un doble clic)
+            if (performance.now() >= bloqueoTeclasHasta) cerrarEvento()
+        } else {
+            const z = zonaEnPunto(zonasEvento, p.x, p.y)
+            if (z) elegirOpcionEvento(z.indice)
+        }
+        canvas.style.cursor = "default"
     }
 })
 
@@ -454,12 +1059,6 @@ function colisiones() {
     }
 }
 
-function dispararEvento() {
-    const evento = poolEventos[Math.floor(Math.random() * poolEventos.length)]
-    eventoActual = evento
-    console.log("EVENTO: " + evento.nombre + " — " + evento.descripcion)
-}
-
 // Un enemigo con las stats escaladas por el nivel medio del equipo (nivel 1 = stats base).
 // El ATK y la XP dependen de la dificultad elegida; el resto usa ESCALA_STATS_ENEMIGO.
 function crearEnemigo(base) {
@@ -467,33 +1066,45 @@ function crearEnemigo(base) {
     const dificultad = DIFICULTADES[dificultadElegida]
     const escala = clave => 1 + ESCALA_STATS_ENEMIGO[clave] * n
     const stats = { ...base.stats }
-    stats.HP_MAX = Math.round(base.stats.HP_MAX * escala("HP_MAX"))
+    // Efectos de eventos: sabotajes (permanentes) y enemigos hambrientos (unos cuantos combates)
+    const maquina = base.clase === "maquina"
+    const hambre = mejorasPartida.combatesHambrientos > 0 ? HAMBRE : 1
+    let vida = base.stats.HP_MAX * escala("HP_MAX") * mejorasPartida.vidaEnemigos
+    if (maquina) vida *= mejorasPartida.vidaMaquinas
+    stats.HP_MAX = Math.max(1, Math.round(vida))
     stats.HP = stats.HP_MAX
-    stats.ATK = Math.round(base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n))
+    let ataque = base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n) * hambre
+    if (maquina) ataque *= mejorasPartida.ataqueMaquinas
+    stats.ATK = Math.round(ataque)
     stats.DEF = Math.round(base.stats.DEF * escala("DEF"))
-    stats.VEL = Math.round(base.stats.VEL * escala("VEL"))
+    // Hacia abajo, para que el sabotaje se note también con defensas pequeñas (2 → 1)
+    if (mejorasPartida.defensaEnemiga < 1) stats.DEF = Math.floor(stats.DEF * mejorasPartida.defensaEnemiga)
+    stats.VEL = Math.round(base.stats.VEL * escala("VEL") * hambre)
     const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp)
     return { ...base, tipo: base.nombre, xp: xp, stats: stats }
 }
 
-// Elige una plantilla de poolEnemigos al azar, respetando su "peso" (los de más peso salen más)
-function elegirEnemigoDelPool() {
-    const total = poolEnemigos.reduce((suma, en) => suma + en.peso, 0)
+// Elige una plantilla de poolEnemigos al azar, respetando su "peso" (los de más peso salen más);
+// si se pide una clase ("humano"/"maquina"), solo entre las de esa clase
+function elegirEnemigoDelPool(clase = null) {
+    const pool = clase ? poolEnemigos.filter(en => en.clase === clase) : poolEnemigos
+    const total = pool.reduce((suma, en) => suma + en.peso, 0)
     let tirada = Math.random() * total
-    for (const en of poolEnemigos) {
+    for (const en of pool) {
         tirada -= en.peso
         if (tirada < 0) return en
     }
-    return poolEnemigos[poolEnemigos.length - 1]
+    return pool[pool.length - 1]
 }
 
-// 1 enemigo (50%), 2 (35%) o 3 (15%); los repetidos se distinguen con una letra
-function generarEnemigos() {
+// 1 enemigo (50%), 2 (35%) o 3 (15%), salvo que se pida una cantidad fija;
+// los repetidos se distinguen con una letra
+function generarEnemigos(cantidadFija = null, clase = null) {
     const roll = Math.random()
-    const cantidad = roll < 0.50 ? 1 : roll < 0.85 ? 2 : 3
+    const cantidad = cantidadFija !== null ? cantidadFija : roll < 0.50 ? 1 : roll < 0.85 ? 2 : 3
     const lista = []
     for (let i = 0; i < cantidad; i++) {
-        lista.push(crearEnemigo(elegirEnemigoDelPool()))
+        lista.push(crearEnemigo(elegirEnemigoDelPool(clase)))
     }
     const repetidos = {}
     lista.forEach(en => repetidos[en.nombre] = (repetidos[en.nombre] || 0) + 1)
@@ -515,19 +1126,45 @@ function iniciarCombate() {
     objetivoSeleccionado = 0
     habilidadSeleccionada = 0
     habilidadElegida = null
+    objetoSeleccionado = 0
+    objetoElegido = null
     accionesGuardadas = []
     equipoJugador.forEach(p => {
         p.defendiendo = false
         p.retrasado = false
-        p.energia = Math.min(ENERGIA_INICIAL, energiaMaxima(p))
+        p.energia = Math.min(ENERGIA_INICIAL + mejorasPartida.orbesIniciales, energiaMaxima(p))
     })
     personajeActual = siguienteVivo(0)
-    enemigosCombate = generarEnemigos()
-    eventoActual = null
-    historial = []
-    for (let i = 0; i < 151; i++) {
-    historial.push({ x: paku.x, y: paku.y })
+    dronAliadoActivo = false
+    enemigosCombate = generarEnemigos(preparativos.cantidadEnemigos, preparativos.claseEnemigos)
+    aplicarPreparativos()
+    reiniciarHistorial()
 }
+
+// Aplica a este combate lo que dejaron preparado los eventos, lo avisa en el log y lo gasta
+function aplicarPreparativos() {
+    const vivos = equipoJugador.filter(p => p.stats.HP > 0)
+    if (preparativos.orbesExtra > 0) {
+        vivos.forEach(p => p.energia = Math.min(energiaMaxima(p), p.energia + preparativos.orbesExtra))
+        logCombate.push("Empezáis con " + preparativos.orbesExtra + " orbe(s) más cada uno.")
+    }
+    if (preparativos.cantidadEnemigos === 3) logCombate.push("Os topáis con una patrulla completa.")
+    if (preparativos.emp) {
+        enemigosCombate.filter(en => en.clase === "maquina").forEach(en => en.aturdido = 1)
+        logCombate.push("¡Disparáis el pulso EMP! Las máquinas enemigas quedan aturdidas.")
+    }
+    if (preparativos.dronAliado) {
+        dronAliadoActivo = true
+        logCombate.push("Vuestro dron reparador os acompaña en este combate.")
+    }
+    // Los enemigos ya se han creado hambrientos: se gasta un combate de hambre
+    if (mejorasPartida.combatesHambrientos > 0) {
+        logCombate.push("Los enemigos están hambrientos: −15% de ATK y VEL.")
+        mejorasPartida.combatesHambrientos--
+    }
+    xpCombate = preparativos.xpExtra
+    if (xpCombate > 1) logCombate.push("Este combate da un " + Math.round((xpCombate - 1) * 100) + "% más de experiencia.")
+    preparativos = { ...PREPARATIVOS_VACIOS }
 }
 
 function siguienteVivo(desde) {
@@ -552,7 +1189,7 @@ function energiaMaxima(personaje) {
         intervalo += ORBE_INTERVALO_CRECE
         extra++
     }
-    return ENERGIA_BASE + extra
+    return ENERGIA_BASE + extra + (personaje.bonusOrbes || 0)
 }
 
 function xpParaSubir(nivel) {
@@ -567,13 +1204,12 @@ function habilidadesDisponibles(personaje) {
     return personaje.habilidades.filter(h => personaje.nivel >= h.nivelMin)
 }
 
-// Stats de un personaje a un nivel dado: base + crecimiento por nivel + HP extra de los descansos
+// Stats de un personaje a un nivel dado: base + crecimiento por nivel + extras permanentes
 function statsParaNivel(personaje, nivel) {
     const stats = {}
     for (const clave in personaje.base) {
-        stats[clave] = Math.round(personaje.base[clave] + personaje.crecimiento[clave] * (nivel - 1))
+        stats[clave] = Math.round(personaje.base[clave] + personaje.crecimiento[clave] * (nivel - 1)) + personaje.bonus[clave]
     }
-    stats.HP_MAX += personaje.bonusHP
     return stats
 }
 
@@ -635,7 +1271,7 @@ function comprobarTile() {
             estado = "descanso"
             bloquearTeclas()
         }
-        if (tile === 4) dispararEvento()
+        if (tile === 4) iniciarEvento()
         if (tile === 3 || tile === 4) {
             const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
             const col = Math.floor((paku.x + paku.width / 2) / tamTile)
@@ -645,13 +1281,38 @@ function comprobarTile() {
     }
 }
 
-function necesitaObjetivo(accion, habilidad) {
-    return accion === 0 || (accion === 1 && habilidad.objetivo === "enemigo")
+// A quién apunta la acción que se está eligiendo: "enemigo" (hay que escoger uno) u otra cosa
+function tipoObjetivoPendiente() {
+    if (accionSeleccionada === 0) return "enemigo"
+    if (accionSeleccionada === 1) return habilidadElegida.objetivo
+    if (accionSeleccionada === 3) return OBJETOS[objetoElegido].objetivo
+    return null
+}
+
+// Objetos que quedan para elegir esta ronda: lo que hay en el inventario menos lo que ya han
+// reservado los compañeros que eligieron antes (así dos no gastan el mismo botiquín)
+function objetosDisponibles() {
+    const caidos = equipoJugador.filter(p => p.stats.HP <= 0).length
+    return Object.keys(OBJETOS)
+        .map(id => {
+            const reservados = accionesGuardadas.filter(a => a.accion === 3 && a.objeto === id).length
+            let cantidad = inventario[id] - reservados
+            // El kit de reanimación solo sirve si hay caídos (sin contar los que ya se van a reanimar)
+            if (id === "reanimador") cantidad = Math.min(cantidad, caidos - reservados)
+            return { id: id, cantidad: cantidad }
+        })
+        .filter(o => o.cantidad > 0)
 }
 
 // Enter/espacio sobre el menú de acciones
 function ejecutarAccion() {
     const personaje = equipoJugador[personajeActual]
+    if (accionSeleccionada === 3) {
+        if (objetosDisponibles().length === 0) return
+        faseCombate = "objeto"
+        objetoSeleccionado = 0
+        return
+    }
     if (accionSeleccionada === 1) {
         const disponibles = habilidadesDisponibles(personaje)
         if (disponibles.length > 1) {
@@ -674,8 +1335,14 @@ function elegirHabilidad(habilidad) {
     pedirObjetivo()
 }
 
+// Objeto elegido en el submenú: pide objetivo si hace falta
+function elegirObjeto(id) {
+    objetoElegido = id
+    pedirObjetivo()
+}
+
 function pedirObjetivo() {
-    if (necesitaObjetivo(accionSeleccionada, habilidadElegida)) {
+    if (tipoObjetivoPendiente() === "enemigo") {
         const vivos = enemigosVivos()
         if (vivos.length > 1) {
             faseCombate = "objetivo"
@@ -688,12 +1355,14 @@ function pedirObjetivo() {
     }
 }
 
-// Esc en la elección de objetivo: vuelve al submenú de habilidades o al menú principal
+// Esc en la elección de objetivo: vuelve al submenú de habilidades u objetos, o al menú principal
 function volverAtras() {
     const personaje = equipoJugador[personajeActual]
     const habiaSubmenu = accionSeleccionada === 1 && habilidadesDisponibles(personaje).length > 1
     habilidadElegida = null
-    faseCombate = habiaSubmenu ? "habilidad" : "seleccion"
+    objetoElegido = null
+    if (accionSeleccionada === 3) faseCombate = "objeto"
+    else faseCombate = habiaSubmenu ? "habilidad" : "seleccion"
 }
 
 function moverObjetivo(delta) {
@@ -708,9 +1377,11 @@ function confirmarAccion(objetivo) {
         personaje: equipoJugador[personajeActual],
         accion: accionSeleccionada,
         habilidad: habilidadElegida,
+        objeto: objetoElegido,
         objetivo: objetivo })
     accionSeleccionada = 0
     habilidadElegida = null
+    objetoElegido = null
     faseCombate = "seleccion"
     personajeActual = siguienteVivo(personajeActual + 1)
 
@@ -731,13 +1402,18 @@ function calcularOrden() {
 
 // adicional = true en los golpes encadenados (el 2º y siguientes de un ataque de VBZ), para que el
 // log deje claro cuáles son golpes extra y no ataques nuevos.
-function golpearEnemigo(personaje, objetivo, opciones = {}, habilidad = null, adicional = false) {
-    const resultado = calcularDaño(personaje, objetivo, opciones)
+// Resta vida a un enemigo y, si cae con esto, lo apunta en las estadísticas de enemigos derrotados
+function dañarEnemigo(objetivo, daño) {
     const estabaVivo = objetivo.stats.HP > 0
-    objetivo.stats.HP = Math.max(0, objetivo.stats.HP - resultado.daño)
+    objetivo.stats.HP = Math.max(0, objetivo.stats.HP - daño)
     if (estabaVivo && objetivo.stats.HP <= 0) {
         enemigosDerrotados[objetivo.tipo] = (enemigosDerrotados[objetivo.tipo] || 0) + 1
     }
+}
+
+function golpearEnemigo(personaje, objetivo, opciones = {}, habilidad = null, adicional = false) {
+    const resultado = calcularDaño(personaje, objetivo, opciones)
+    dañarEnemigo(objetivo, resultado.daño)
     let msg
     if (habilidad) {
         msg = personaje.nombre + " usa " + habilidad + (resultado.critico ? " (¡crítico!)" : "") + ": " + resultado.daño + " daño a " + objetivo.nombre
@@ -757,6 +1433,41 @@ function golpearEnemigo(personaje, objetivo, opciones = {}, habilidad = null, ad
 function enemigoAlAzar() {
     const vivos = enemigosVivos()
     return vivos.length > 0 ? vivos[Math.floor(Math.random() * vivos.length)] : null
+}
+
+// Usar un objeto gasta el turno de quien lo usa y una unidad del inventario
+function usarObjeto(personaje, id, objetivo) {
+    if (inventario[id] <= 0) return
+    const nombre = OBJETOS[id].nombre
+    if (id === "reanimador") {
+        // Si para cuando le toca ya no queda ningún caído, no lo gasta
+        const caido = equipoJugador.find(p => p.stats.HP <= 0)
+        if (!caido) {
+            logCombate.push(personaje.nombre + " guarda el " + nombre + ": ya no hace falta")
+            return
+        }
+        inventario[id]--
+        caido.stats.HP = Math.ceil(caido.stats.HP_MAX / 2)
+        caido.energia = 0
+        logCombate.push(personaje.nombre + " usa el " + nombre + ": ¡" + caido.nombre + " vuelve con " + caido.stats.HP + " HP!")
+        return
+    }
+    inventario[id]--
+    if (id === "botiquin") {
+        const aliados = equipoJugador.filter(p => p.stats.HP > 0)
+        const herido = aliados.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
+        const cura = Math.min(Math.ceil(herido.stats.HP_MAX * 0.5), herido.stats.HP_MAX - herido.stats.HP)
+        herido.stats.HP += cura
+        logCombate.push(personaje.nombre + " usa " + nombre + ": " + herido.nombre + " recupera " + cura + " HP")
+    } else if (id === "granada") {
+        // Daño fijo que crece con el nivel medio del equipo y no mira la defensa
+        const daño = 6 + 4 * Math.round(nivelMedio())
+        logCombate.push(personaje.nombre + " lanza una " + nombre + ": " + daño + " de daño a todos los enemigos")
+        enemigosVivos().forEach(en => dañarEnemigo(en, daño))
+    } else if (id === "bateria") {
+        equipoJugador.filter(p => p.stats.HP > 0).forEach(p => p.energia = Math.min(energiaMaxima(p), p.energia + 2))
+        logCombate.push(personaje.nombre + " usa una " + nombre + ": +2 orbes para todo el equipo")
+    }
 }
 
 // Ataque básico. El primer golpe siempre se da. Solo los personajes con golpeMultiple (VBZ) encadenan,
@@ -782,10 +1493,10 @@ function ataqueBasico(personaje, objetivo, probabilidadExtra = 0) {
     }
 }
 
-// Cada habilidad mejora con el nivel del personaje
+// Cada habilidad mejora con el nivel del personaje (más 5 niveles por cada rango de la Biblioteca)
 function usarHabilidad(personaje, h, objetivo) {
     personaje.energia -= h.coste
-    const nv = personaje.nivel
+    const nv = nivelHabilidad(personaje, h)
 
     if (h.id === "embestida") {
         // ATK x1.5 (+2% por nivel) ignorando la DEF del enemigo
@@ -816,9 +1527,9 @@ function usarHabilidad(personaje, h, objetivo) {
         personaje.stats.HP = Math.max(1, personaje.stats.HP - coste)
         logCombate.push(personaje.nombre + " pierde " + coste + " HP por la apuesta")
     } else if (h.id === "racha") {
-        // Ataque encadenado con +100% de probabilidad de golpes extra
+        // Ataque encadenado con +100% (+5% por nivel) de probabilidad de golpes extra
         logCombate.push(personaje.nombre + " usa " + h.nombre)
-        ataqueBasico(personaje, objetivo, 100)
+        ataqueBasico(personaje, objetivo, 100 + 5 * (nv - 1))
     } else if (h.id === "reparacion") {
         // Cura 10 HP (+2 por nivel) al aliado vivo con menor proporción de vida
         const aliados = equipoJugador.filter(p => p.stats.HP > 0)
@@ -855,7 +1566,12 @@ function ejecutarRonda() {
         if (actor.stats.HP <= 0) continue
 
         if (enemigosCombate.includes(actor)) {
-            accionEnemigo(actor)
+            if (actor.aturdido > 0) {
+                actor.aturdido--
+                logCombate.push(actor.nombre + " está aturdido y no actúa")
+            } else {
+                accionEnemigo(actor)
+            }
         } else {
             const accion = accionesGuardadas.find(a => a.personaje === actor)
             if (!accion) continue
@@ -871,7 +1587,7 @@ function ejecutarRonda() {
             } else if (accion.accion === 2) {
                 logCombate.push(actor.nombre + " se defiende")
             } else if (accion.accion === 3) {
-                console.log("objeto — pendiente")
+                usarObjeto(actor, accion.objeto, objetivo)
             }
         }
 
@@ -888,14 +1604,29 @@ function ejecutarRonda() {
             const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
             const col = Math.floor((paku.x + paku.width / 2) / tamTile)
             mapa[fila][col] = 0
-            if (Math.random() < 0.20) dispararEvento()
             // Los kamikazes que han estallado no dan XP: no los has destruido tú
-            xpTotalVictoria = enemigosCombate.filter(en => !en.estallo).reduce((suma, en) => suma + en.xp, 0)
+            xpTotalVictoria = Math.round(enemigosCombate.filter(en => !en.estallo).reduce((suma, en) => suma + en.xp, 0) * xpCombate)
+            xpCombate = 1
             resumenVictoria = repartirXP(xpTotalVictoria)
+            // Robot de servicio: cura a los que siguen en pie al acabar el combate
+            curaRobotVictoria = Math.round(CURA_ROBOT * mejorasPartida.robots * 100)
+            if (curaRobotVictoria > 0) curarEquipo(CURA_ROBOT * mejorasPartida.robots)
+            eventoTrasVictoria = Math.random() < PROBABILIDAD_EVENTO_VICTORIA
             estado = "victoria"
             bloquearTeclas()
             terminarRonda()
             return
+        }
+    }
+
+    // Dron reparador reprogramado (Fábrica de androides): cura al aliado más herido
+    if (dronAliadoActivo) {
+        const heridos = equipoJugador.filter(p => p.stats.HP > 0 && p.stats.HP < p.stats.HP_MAX)
+        if (heridos.length > 0) {
+            const herido = heridos.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
+            const cura = Math.min(Math.ceil(herido.stats.HP_MAX * CURA_DRON_ALIADO), herido.stats.HP_MAX - herido.stats.HP)
+            herido.stats.HP += cura
+            logCombate.push("Vuestro dron cura a " + herido.nombre + " (+" + cura + " HP)")
         }
     }
 
@@ -942,7 +1673,8 @@ function inhibir(enemigo) {
 
 // Dron kamikaze: no ataca, se va cargando. En su turno número TURNOS_KAMIKAZE estalla, daña a todo el
 // equipo (la defensa cuenta, así que Defender ayuda) y desaparece sin dar XP ni contar como derrotado.
-function turnoKamikaze(enemigo) {
+// Si el kamikaze está pirateado (Hangar de drones), estalla contra los demás enemigos.
+function turnoKamikaze(enemigo, contraEnemigos = false) {
     enemigo.turnosCargando = (enemigo.turnosCargando || 0) + 1
     const quedan = TURNOS_KAMIKAZE - enemigo.turnosCargando
     if (quedan > 0) {
@@ -950,18 +1682,61 @@ function turnoKamikaze(enemigo) {
         return
     }
     logCombate.push("¡" + enemigo.nombre + " estalla!")
-    equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
-        const r = calcularDaño(enemigo, p, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0 })
-        p.stats.HP = Math.max(0, p.stats.HP - r.daño)
-        logCombate.push(p.nombre + " recibe " + r.daño + " de daño de la explosión")
-    })
+    if (contraEnemigos) {
+        enemigosVivos().filter(en => en !== enemigo).forEach(en => {
+            const r = calcularDaño(enemigo, en, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0 })
+            dañarEnemigo(en, r.daño)
+            logCombate.push(en.nombre + " recibe " + r.daño + " de daño de la explosión")
+        })
+    } else {
+        equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
+            const r = calcularDaño(enemigo, p, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0 })
+            p.stats.HP = Math.max(0, p.stats.HP - r.daño)
+            logCombate.push(p.nombre + " recibe " + r.daño + " de daño de la explosión")
+        })
+    }
     enemigo.stats.HP = 0
     enemigo.estallo = true
+}
+
+// Drones pirateados (Hangar de drones): siguen siendo enemigos a los que hay que tumbar, pero en su
+// turno os ayudan. El vigía ataca a otro enemigo, el reparador cura a vuestro equipo y el kamikaze
+// estalla contra los enemigos.
+function accionDronPirateado(dron) {
+    if (dron.rol === "estallar") {
+        turnoKamikaze(dron, true)
+        return
+    }
+    if (dron.rol === "reparar") {
+        const heridos = equipoJugador.filter(p => p.stats.HP > 0 && p.stats.HP < p.stats.HP_MAX)
+        if (heridos.length === 0) {
+            logCombate.push(dron.nombre + " (pirateado) revolotea a vuestro alrededor")
+            return
+        }
+        const herido = heridos.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
+        const cura = Math.min(Math.ceil(herido.stats.HP_MAX * PORCENTAJE_REPARACION), herido.stats.HP_MAX - herido.stats.HP)
+        herido.stats.HP += cura
+        logCombate.push(dron.nombre + " (pirateado) cura a " + herido.nombre + " (+" + cura + " HP)")
+        return
+    }
+    const otros = enemigosVivos().filter(en => en !== dron)
+    if (otros.length === 0) {
+        logCombate.push(dron.nombre + " (pirateado) da vueltas sin saber a quién atacar")
+        return
+    }
+    const objetivo = otros[Math.floor(Math.random() * otros.length)]
+    const r = calcularDaño(dron, objetivo)
+    dañarEnemigo(objetivo, r.daño)
+    logCombate.push(dron.nombre + " (pirateado) ataca a " + objetivo.nombre + " (" + r.daño + " daño)")
 }
 
 function accionEnemigo(enemigo) {
     // La protección del Escolta dura hasta el comienzo de su siguiente turno
     enemigo.defendiendo = false
+    if (enemigo.dron && mejorasPartida.dronesPirateados) {
+        accionDronPirateado(enemigo)
+        return
+    }
     if (enemigo.rol === "estallar") {
         turnoKamikaze(enemigo)
         comprobarDerrota()
@@ -1017,7 +1792,7 @@ function actualizarRastro(deltaMs) {
     acumuladorHistorial += deltaMs
     while (acumuladorHistorial >= PASO_HISTORIAL) {
         historial.unshift({ x: paku.x, y: paku.y })
-        if (historial.length > 151) historial.pop()
+        if (historial.length > LARGO_HISTORIAL) historial.pop()
         acumuladorHistorial -= PASO_HISTORIAL
     }
 
@@ -1029,7 +1804,7 @@ function descansar() {
     logDescanso = []
     equipoJugador.forEach(p => {
         if (p.stats.HP === p.stats.HP_MAX) {
-            p.bonusHP += 5
+            p.bonus.HP_MAX += 5
             p.stats.HP_MAX += 5
             p.stats.HP += 5
             logDescanso.push(p.nombre + " ha ganado 5 de HP máximo")
@@ -1038,6 +1813,323 @@ function descansar() {
             logDescanso.push(p.nombre + " ha recuperado 15 HP")
         }
     })
+}
+
+// --- Eventos: efectos ---------------------------------------------------------
+function objetoAlAzar() {
+    const ids = Object.keys(OBJETOS)
+    return ids[Math.floor(Math.random() * ids.length)]
+}
+function darObjeto(id) {
+    inventario[id]++
+    return "Consigues: " + OBJETOS[id].nombre
+}
+// Daño fuera de combate: un porcentaje de la vida máxima, pero nunca deja a nadie a 0
+function dañarEquipo(fraccion) {
+    return equipoJugador.filter(p => p.stats.HP > 0).map(p => {
+        const daño = Math.max(0, Math.min(Math.ceil(p.stats.HP_MAX * fraccion), p.stats.HP - 1))
+        p.stats.HP -= daño
+        return p.nombre + " pierde " + daño + " HP"
+    })
+}
+// XP de un evento: como la de un enemigo con esa XP base (escala con el nivel y la dificultad)
+function ganarXPEvento(base) {
+    const total = Math.round(base * Math.pow(nivelMedio(), XP_EXPONENTE) * DIFICULTADES[dificultadElegida].xp)
+    const lineas = ["El equipo gana " + total + " XP."]
+    repartirXP(total)
+        .filter(r => r.nivelDespues > r.nivelAntes)
+        .forEach(r => lineas.push("¡" + r.nombre + " sube a nivel " + r.nivelDespues + "!"))
+    return lineas
+}
+// El hackeo lo intenta VBZ: cuanta más suerte, más fácil (tope 90%)
+function probabilidadHackeo() {
+    return Math.min(90, 40 + vbz.stats.LUCK)
+}
+// Las mejoras del Taller crecen cada 10 niveles medios del equipo
+function factorTaller() {
+    return 1 + Math.floor((nivelMedio() - 1) / 10)
+}
+// Mejora individual: lo que ese personaje ganaría en NIVELES_TALLER niveles en ese stat, con un mínimo
+function cantidadTaller(p, clave) {
+    return Math.max(MINIMO_TALLER[clave], Math.round(p.crecimiento[clave] * NIVELES_TALLER)) * factorTaller()
+}
+// n mejoras individuales distintas (personaje + stat) al azar para el Taller de armas
+function mejorasAlAzar(n) {
+    const posibles = []
+    equipoJugador.forEach(p => ORDEN_STATS.forEach(clave =>
+        posibles.push({ personaje: p, clave: clave, cantidad: cantidadTaller(p, clave) })))
+    const elegidas = []
+    while (elegidas.length < n && posibles.length > 0) {
+        elegidas.push(posibles.splice(Math.floor(Math.random() * posibles.length), 1)[0])
+    }
+    return elegidas
+}
+// Se guarda también en p.bonus para que la mejora no se pierda al subir de nivel. Con cantidad
+// negativa resta (mutágenos, implantes...); la vida actual sigue a la máxima sin bajar de 1.
+function mejorarStat(p, clave, cantidad) {
+    p.bonus[clave] += cantidad
+    p.stats[clave] += cantidad
+    if (clave === "HP_MAX" && p.stats.HP > 0) {   // a un caído no lo revive
+        p.stats.HP = Math.max(1, Math.min(p.stats.HP_MAX, p.stats.HP + cantidad))
+    }
+}
+
+function totalObjetos() {
+    return Object.values(inventario).reduce((suma, n) => suma + n, 0)
+}
+function resumenInventario() {
+    return Object.keys(OBJETOS).filter(id => inventario[id] > 0).map(id => OBJETOS[id].nombre + " x" + inventario[id]).join(", ")
+}
+// Gasta n objetos, siempre de los que más haya; devuelve sus nombres
+function quitarObjetos(n) {
+    const nombres = []
+    for (let i = 0; i < n; i++) {
+        const id = Object.keys(inventario).reduce((max, k) => inventario[k] > inventario[max] ? k : max)
+        if (inventario[id] <= 0) break
+        inventario[id]--
+        nombres.push(OBJETOS[id].nombre)
+    }
+    return nombres
+}
+// Cura fuera de combate a los que siguen en pie (no revive)
+function curarEquipo(fraccion) {
+    return equipoJugador.filter(p => p.stats.HP > 0).map(p => {
+        const cura = Math.min(Math.ceil(p.stats.HP_MAX * fraccion), p.stats.HP_MAX - p.stats.HP)
+        p.stats.HP += cura
+        return p.nombre + " recupera " + cura + " HP"
+    })
+}
+
+// Mutágenos: n combinaciones distintas de personaje + stat que sube + stat que baja, sin dejar
+// ningún stat por debajo de 1 (la vida, por debajo de 10)
+function mutagenosAlAzar(n) {
+    const f = factorTaller()
+    const sube = clave => (clave === "HP_MAX" ? 12 : 4) * f
+    const baja = clave => (clave === "HP_MAX" ? 6 : 2) * f
+    const posibles = []
+    equipoJugador.forEach(p => ORDEN_STATS.forEach(s => ORDEN_STATS.forEach(b => {
+        const minimo = b === "HP_MAX" ? 10 : 1
+        if (s !== b && p.stats[b] - baja(b) >= minimo) posibles.push({ personaje: p, sube: s, baja: b, cuanto: sube(s), menos: baja(b) })
+    })))
+    const elegidas = []
+    while (elegidas.length < n && posibles.length > 0) {
+        elegidas.push(posibles.splice(Math.floor(Math.random() * posibles.length), 1)[0])
+    }
+    return elegidas
+}
+
+// Mercader de implantes: se puede pagar mientras quede más de COSTE_IMPLANTE de vida (actual y máxima)
+function puedePagarImplante(p) {
+    return p.stats.HP > COSTE_IMPLANTE && p.stats.HP_MAX > COSTE_IMPLANTE
+}
+function atkImplante() {
+    return 3 * factorTaller()
+}
+
+// Biblioteca: Mamuri, VBZ e Imanps suben un rango la habilidad número "indice" (0 = primera, 1 = segunda)
+function subirRangoHabilidad(indice) {
+    const lineas = []
+    ;[mamuri, vbz, imanps].forEach(p => {
+        const h = p.habilidades[indice]
+        h.rango = (h.rango || 0) + 1
+        lineas.push(p.nombre + ": " + h.nombre + " sube a rango " + h.rango + ".")
+    })
+    lineas.push("Paku hojea los dibujos muy concentrado. No aprende nada.")
+    return lineas
+}
+// Nivel con el que se calcula una habilidad: el del personaje, más 5 por cada rango
+function nivelHabilidad(p, h) {
+    return p.nivel + NIVELES_POR_RANGO * (h.rango || 0)
+}
+
+// Contrabandistas: la suerte de VBZ ayuda, pero poco (tope 65%)
+function probabilidadApuesta() {
+    return Math.min(65, Math.round(45 + vbz.stats.LUCK * 0.25))
+}
+// Duelo: tu stat contra el del oficial (que va algo por encima de la media del equipo)
+function probabilidadDuelo(p, d) {
+    return Math.round(100 * p.stats[d.clave] / (p.stats[d.clave] + d.oficial))
+}
+
+// --- Eventos: el mapa ---------------------------------------------------------
+function casillasDeTipo(tipo) {
+    const lista = []
+    mapa.forEach((filaMapa, fila) => filaMapa.forEach((t, col) => { if (t === tipo) lista.push({ fila: fila, col: col }) }))
+    return lista
+}
+function casillaPaku() {
+    return { fila: Math.floor((paku.y + paku.height / 2) / tamTile), col: Math.floor((paku.x + paku.width / 2) / tamTile) }
+}
+function distanciaPaku(c) {
+    const p = casillaPaku()
+    return Math.max(Math.abs(c.fila - p.fila), Math.abs(c.col - p.col))
+}
+function mezclar(lista) {
+    for (let i = lista.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        const t = lista[i]; lista[i] = lista[j]; lista[j] = t
+    }
+    return lista
+}
+// Sala de mando: las n casillas de combate más cercanas pasan a ser de evento o de descanso
+function convertirCombatesCercanos(n) {
+    const elegidas = casillasDeTipo(2).sort((a, b) => distanciaPaku(a) - distanciaPaku(b)).slice(0, n)
+    let eventos = 0, descansos = 0
+    elegidas.forEach(c => {
+        if (Math.random() < 0.5) { mapa[c.fila][c.col] = 4; eventos++ }
+        else { mapa[c.fila][c.col] = 3; descansos++ }
+    })
+    return ["Desviáis las patrullas cercanas.", eventos + " casilla(s) de evento y " + descansos + " de descanso donde antes había combate."]
+}
+// Puerta de seguridad: quita los combates a "radio" casillas o menos de Paku
+function quitarCombatesCerca(radio) {
+    const cerca = casillasDeTipo(2).filter(c => distanciaPaku(c) <= radio)
+    cerca.forEach(c => mapa[c.fila][c.col] = 0)
+    return cerca.length
+}
+// Sala de vigilancia: quita n combates al azar de todo el mapa
+function quitarCombatesAlAzar(n) {
+    const elegidas = mezclar(casillasDeTipo(2)).slice(0, n)
+    elegidas.forEach(c => mapa[c.fila][c.col] = 0)
+    return elegidas.length
+}
+// Mapa estelar: n casillas nuevas, solo sobre pasillo vacío (nunca encima de Paku). Si no se pide
+// un tipo, se reparten como al generar el mapa: combate 50%, descanso 40%, evento 10%.
+function crearCasillasNuevas(n, tipo) {
+    const p = casillaPaku()
+    const libres = mezclar(casillasDeTipo(0).filter(c => c.fila !== p.fila || c.col !== p.col)).slice(0, n)
+    const cuenta = { 2: 0, 3: 0, 4: 0 }
+    libres.forEach(c => {
+        let t = tipo
+        if (t === null) {
+            const r = Math.random()
+            t = r < 0.5 ? 2 : r < 0.9 ? 3 : 4
+        }
+        mapa[c.fila][c.col] = t
+        cuenta[t]++
+    })
+    if (tipo === 4) return "Aparecen " + cuenta[4] + " casillas de evento nuevas en el mapa."
+    return "Aparecen " + libres.length + " casillas nuevas: " + cuenta[2] + " de combate, " + cuenta[3] + " de descanso y " + cuenta[4] + " de evento."
+}
+
+// --- Eventos: flujo ---------------------------------------------------------
+// Un evento al azar entre los que tienen sentido ahora (p. ej. el reciclaje necesita objetos)
+function iniciarEvento() {
+    const posibles = EVENTOS.filter(ev => !ev.disponible || ev.disponible())
+    const evento = posibles[Math.floor(Math.random() * posibles.length)]
+    const datos = evento.preparar ? evento.preparar() : {}
+    eventoEnCurso = { evento: evento, datos: datos, opciones: evento.opciones(datos), seleccion: 0, mensaje: null, resultado: null }
+    estado = "evento"
+    bloquearTeclas()
+}
+function elegirOpcionEvento(i) {
+    const res = eventoEnCurso.opciones[i].efecto()
+    if (res.seguir) {
+        // El evento sigue abierto (Mercader, apuestas): se cuenta lo que ha pasado y se recalculan las opciones
+        eventoEnCurso.mensaje = res.lineas
+        eventoEnCurso.opciones = eventoEnCurso.evento.opciones(eventoEnCurso.datos)
+        eventoEnCurso.seleccion = Math.min(i, eventoEnCurso.opciones.length - 1)
+    } else {
+        eventoEnCurso.seleccion = i
+        eventoEnCurso.resultado = res
+    }
+    bloquearTeclas()   // para no saltarse el resultado con la misma pulsación
+}
+function textoEvento() {
+    const ev = eventoEnCurso.evento
+    return typeof ev.texto === "function" ? ev.texto(eventoEnCurso.datos) : ev.texto
+}
+function cerrarEvento() {
+    const combate = eventoEnCurso.resultado.combate
+    eventoEnCurso = null
+    if (combate) iniciarCombate()
+    else estado = "exploracion"
+}
+// Mientras se elige: flechas/WASD mueven (dando la vuelta) y Enter/espacio deciden.
+// En el resultado, cualquier tecla continúa.
+function eventoTecla(arriba, abajo, izquierda, derecha, confirmar) {
+    if (eventoEnCurso.resultado) {
+        cerrarEvento()
+        return
+    }
+    const n = eventoEnCurso.opciones.length
+    if (arriba || izquierda) eventoEnCurso.seleccion = (eventoEnCurso.seleccion - 1 + n) % n
+    if (abajo || derecha) eventoEnCurso.seleccion = (eventoEnCurso.seleccion + 1) % n
+    if (confirmar) elegirOpcionEvento(eventoEnCurso.seleccion)
+}
+
+// --- Eventos: dibujo ---------------------------------------------------------
+// Panel sobre el mapa con el texto del evento y sus opciones; después, lo que ha pasado
+function dibujarEvento() {
+    dibujarExploracion()
+    zonasEvento = []
+    ctx.fillStyle = "rgba(0, 0, 0, 0.55)"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    const x = 162, y = 70, ancho = 700, alto = 570
+    ctx.fillStyle = "rgb(24, 28, 46)"
+    ctx.fillRect(x, y, ancho, alto)
+    ctx.strokeStyle = "rgb(90, 140, 255)"
+    ctx.lineWidth = 2
+    ctx.strokeRect(x, y, ancho, alto)
+    ctx.lineWidth = 1
+
+    const ev = eventoEnCurso.evento
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(120, 180, 255)"
+    ctx.font = "bold 26px sans-serif"
+    ctx.fillText(ev.titulo, x + ancho / 2, y + 45)
+    ctx.textAlign = "left"
+    ctx.fillStyle = "rgb(210, 210, 220)"
+    ctx.font = "15px sans-serif"
+    dibujarTextoEnvuelto(textoEvento(), x + 30, y + 82, ancho - 60, 21, 3)
+
+    let ayuda
+    if (!eventoEnCurso.resultado) {
+        // Lo que acaba de pasar, si el evento sigue abierto (Mercader, apuestas)
+        let yOpciones = y + 150
+        if (eventoEnCurso.mensaje) {
+            ctx.fillStyle = "rgb(120, 220, 140)"
+            ctx.font = "15px sans-serif"
+            eventoEnCurso.mensaje.forEach(linea => {
+                yOpciones += 21 * Math.min(2, dibujarTextoEnvuelto(linea, x + 30, yOpciones, ancho - 60, 21, 2))
+            })
+            yOpciones += 8
+        }
+        eventoEnCurso.opciones.forEach((op, i) => {
+            const bx = x + 30, by = yOpciones + i * 62, bw = ancho - 60, bh = 54
+            const elegida = i === eventoEnCurso.seleccion
+            ctx.fillStyle = elegida ? "rgba(60, 140, 255, 0.25)" : "rgba(255, 255, 255, 0.05)"
+            ctx.fillRect(bx, by, bw, bh)
+            ctx.strokeStyle = elegida ? "yellow" : "rgba(255, 255, 255, 0.3)"
+            ctx.lineWidth = elegida ? 3 : 1
+            ctx.strokeRect(bx, by, bw, bh)
+            ctx.lineWidth = 1
+            ctx.fillStyle = elegida ? "yellow" : "white"
+            ctx.font = "bold 17px sans-serif"
+            ctx.fillText(op.texto, bx + 16, by + 23)
+            ctx.fillStyle = "rgb(170, 170, 185)"
+            ctx.font = "13px sans-serif"
+            ctx.fillText(op.detalle, bx + 16, by + 43)
+            zonasEvento.push({ indice: i, x: bx, y: by, w: bw, h: bh })
+        })
+        ayuda = "Elige con el ratón o con las flechas  ·  Clic o Enter para decidir"
+    } else {
+        // Lo que ha pasado; cada línea larga se parte en varias
+        ctx.fillStyle = "white"
+        ctx.font = "16px sans-serif"
+        let yLinea = y + 170
+        eventoEnCurso.resultado.lineas.forEach(linea => {
+            yLinea += 24 * Math.min(3, dibujarTextoEnvuelto(linea, x + 30, yLinea, ancho - 60, 24, 3)) + 4
+        })
+        ayuda = eventoEnCurso.resultado.combate
+            ? "¡A combatir!  ·  Pulsa una tecla o haz clic"
+            : "Pulsa una tecla o haz clic para continuar"
+    }
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(150, 150, 165)"
+    ctx.font = "14px sans-serif"
+    ctx.fillText(ayuda, x + ancho / 2, y + alto - 18)
+    ctx.textAlign = "left"
 }
 
 // --- Menú previo a la partida: dibujo ---------------------------------------
@@ -1114,6 +2206,12 @@ function dibujarExploracion() {
         ctx.fillStyle = "rgba(0, 0, 255, 0.3)"
         ctx.fillRect(col * tamTile, fila * tamTile, tamTile, tamTile)}
     }}
+        // El robot de servicio va el último del rastro, más pequeño
+        if (mejorasPartida.robots > 0 && historial[LARGO_HISTORIAL - 1]) {
+            const r = historial[LARGO_HISTORIAL - 1]
+            ctx.fillStyle = "rgb(150, 190, 200)"
+            ctx.fillRect(r.x + 4, r.y + 4, 10, 10)
+        }
         ctx.fillStyle = "yellow"
         ctx.fillRect(imanps.x, imanps.y, imanps.width, imanps.height)
         ctx.fillStyle = "green"
@@ -1257,10 +2355,15 @@ function dibujarMarcador(x, y, direccion) {
 function estadoEspecialEnemigo(en) {
     if (en.estallo) return { texto: "Ha estallado", color: "gray" }
     if (en.stats.HP <= 0) return null
+    const pirateado = en.dron && mejorasPartida.dronesPirateados
+    if (en.aturdido > 0) return { texto: "Aturdido", color: "rgb(240, 220, 90)" }
     if (en.rol === "estallar") {
         const quedan = TURNOS_KAMIKAZE - (en.turnosCargando || 0)
+        // Pirateado: mismo texto, pero en el color de "Pirateado" (no cabe más al lado de la vida)
+        if (pirateado) return { texto: "Estalla en " + quedan, color: "rgb(110, 220, 200)" }
         return { texto: "Estalla en " + quedan, color: quedan <= 1 ? "rgb(255, 80, 60)" : "orange" }
     }
+    if (pirateado) return { texto: "Pirateado", color: "rgb(110, 220, 200)" }
     if (en.defendiendo) return { texto: "Protegido", color: "rgb(120, 190, 255)" }
     return null
 }
@@ -1335,12 +2438,19 @@ function dibujarCombate() {
     const personaje = equipoJugador[personajeActual]
     const disponibles = personaje !== undefined ? habilidadesDisponibles(personaje) : []
 
+    const objetos = objetosDisponibles()
     if (faseCombate === "habilidad") {
         // Submenú de habilidades
         disponibles.forEach((h, i) => {
             const alcanza = personaje.energia >= h.coste
             ctx.fillStyle = !alcanza ? "gray" : i === habilidadSeleccionada ? "yellow" : "white"
             ctx.fillText((i === habilidadSeleccionada ? "> " : "  ") + h.nombre + " (" + h.coste + ")", 700, 580 + i * 30)
+        })
+    } else if (faseCombate === "objeto") {
+        // Submenú de objetos, con cuántos quedan
+        objetos.forEach((o, i) => {
+            ctx.fillStyle = i === objetoSeleccionado ? "rgb(120, 220, 140)" : "white"
+            ctx.fillText((i === objetoSeleccionado ? "> " : "  ") + OBJETOS[o.id].nombre + " x" + o.cantidad, 700, 580 + i * 30)
         })
     } else {
         const puedeHabilidad = disponibles.some(h => personaje.energia >= h.coste)
@@ -1357,7 +2467,7 @@ function dibujarCombate() {
         ctx.fillStyle = accionSeleccionada === 2 ? "rgb(53, 163, 194)" : "white"
         ctx.fillText("Defender", 700, 640)
 
-        ctx.fillStyle = accionSeleccionada === 3 ? "rgb(84, 156, 107)" : "white"
+        ctx.fillStyle = objetos.length === 0 ? "gray" : accionSeleccionada === 3 ? "rgb(84, 156, 107)" : "white"
         ctx.fillText("Objeto", 700, 670)
     }
 
@@ -1369,6 +2479,10 @@ function dibujarCombate() {
     } else if (faseCombate === "habilidad") {
         ctx.fillStyle = "orange"
         ctx.fillText("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", 280, 352)
+    } else if (faseCombate === "objeto" && objetos[objetoSeleccionado]) {
+        // Qué hace el objeto marcado
+        ctx.fillStyle = "rgb(120, 220, 140)"
+        ctx.fillText(OBJETOS[objetos[objetoSeleccionado].id].descripcion + " · Esc vuelve", 280, 352)
     }
     if (logCombate.length > 0) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
@@ -1457,12 +2571,20 @@ function dibujarVictoria() {
         }
     })
 
-    if (eventoActual) {
-        ctx.fillStyle = "yellow"
-        ctx.font = "16px sans-serif"
-        ctx.fillText("Evento: " + eventoActual.nombre + " - " + eventoActual.descripcion, 260, 620)
+    ctx.textAlign = "center"
+    if (curaRobotVictoria > 0) {
+        ctx.fillStyle = "rgb(150, 190, 200)"
+        ctx.font = "15px sans-serif"
+        ctx.fillText("El robot de servicio os cura un " + curaRobotVictoria + "% de vida.", 512, 615)
     }
+    if (eventoTrasVictoria) {
+        ctx.fillStyle = "rgb(120, 180, 255)"
+        ctx.font = "bold 16px sans-serif"
+        ctx.fillText("Entre los restos del combate, algo os llama la atención...", 512, 640)
+    }
+    ctx.textAlign = "left"
     ctx.fillStyle = "white"
+    ctx.font = "16px sans-serif"
     ctx.fillText("Pulsa algo para continuar", 420, 675)
 }
 
@@ -1588,11 +2710,11 @@ function dibujarEstadisticas() {
     } else {
         habilidades.forEach((h, i) => {
             ctx.fillStyle = "rgb(120, 200, 255)"
-            ctx.fillText("• " + h.nombre + "  (" + h.coste + " orbes)", xInterior, 410 + i * 22)
+            const rango = h.rango ? "  · rango " + h.rango : ""
+            ctx.fillText("• " + h.nombre + "  (" + h.coste + " orbes)" + rango, xInterior, 410 + i * 22)
         })
     }
 
-    const yPie = 660
     const tiempoActual = tiempoInicio > 0 ? performance.now() - tiempoInicio : 0
     const totalDerrotados = Object.values(enemigosDerrotados).reduce((suma, v) => suma + v, 0)
     ctx.fillStyle = "rgb(170, 170, 180)"
@@ -1601,7 +2723,44 @@ function dibujarEstadisticas() {
         "Tiempo: " + formatearTiempo(tiempoActual) +
         "   Enemigos derrotados: " + totalDerrotados +
         "   Dificultad: " + DIFICULTADES[dificultadElegida].nombre,
-        20, yPie)
+        340, 670)
+
+    dibujarResumenPartida(20, 470, 260, 696)
+}
+
+// Columna bajo la lista de personajes: objetos, lo preparado para el próximo combate y lo que
+// dura toda la partida (cada línea larga se parte; si no cabe todo, se corta antes de yMaximo)
+function dibujarResumenPartida(x, y, ancho, yMaximo) {
+    const preparado = []
+    if (preparativos.orbesExtra > 0) preparado.push("+" + preparativos.orbesExtra + " orbe(s)")
+    if (preparativos.cantidadEnemigos === 3) preparado.push("patrulla de 3")
+    if (preparativos.cantidadEnemigos === 1) preparado.push("un solo enemigo")
+    if (preparativos.xpExtra > 1) preparado.push("+" + Math.round((preparativos.xpExtra - 1) * 100) + "% XP")
+    if (preparativos.emp) preparado.push("pulso EMP")
+    if (preparativos.dronAliado) preparado.push("dron aliado")
+
+    const pct = m => Math.round((1 - m) * 100) + "%"
+    const partida = []
+    if (mejorasPartida.orbesIniciales > 0) partida.push("+" + mejorasPartida.orbesIniciales + " orbe(s) al empezar")
+    if (mejorasPartida.defensaEnemiga < 1) partida.push("enemigos −" + pct(mejorasPartida.defensaEnemiga) + " DEF")
+    if (mejorasPartida.vidaEnemigos < 1) partida.push("enemigos −" + pct(mejorasPartida.vidaEnemigos) + " vida")
+    if (mejorasPartida.vidaMaquinas < 1) partida.push("máquinas −" + pct(mejorasPartida.vidaMaquinas) + " vida")
+    if (mejorasPartida.ataqueMaquinas < 1) partida.push("máquinas −" + pct(mejorasPartida.ataqueMaquinas) + " ATK")
+    if (mejorasPartida.dronesPirateados) partida.push("drones pirateados")
+    if (mejorasPartida.robots > 0) partida.push("robot: +" + Math.round(CURA_ROBOT * mejorasPartida.robots * 100) + "% vida tras combate")
+    if (mejorasPartida.combatesHambrientos > 0) partida.push("enemigos hambrientos (" + mejorasPartida.combatesHambrientos + ")")
+
+    let cursor = y
+    const linea = (texto, color, maxLineas = 2) => {
+        const caben = Math.min(maxLineas, Math.floor((yMaximo - cursor) / 14) + 1)
+        if (caben <= 0) return
+        ctx.fillStyle = color
+        cursor += 14 * Math.min(caben, dibujarTextoEnvuelto(texto, x, cursor, ancho, 14, caben))
+    }
+    ctx.font = "12px sans-serif"
+    linea("Objetos: " + (totalObjetos() > 0 ? resumenInventario() : "ninguno"), "rgb(200, 200, 210)")
+    if (preparado.length > 0) linea("Próximo combate: " + preparado.join(", "), "rgb(240, 200, 120)")
+    if (partida.length > 0) linea("Toda la partida: " + partida.join(" · "), "rgb(120, 220, 140)", 10)
 }
 
 function formatearTiempo(ms) {
@@ -1694,6 +2853,9 @@ function loop(marca) {
     }
     else if (estado === "estadisticas") {
         dibujarEstadisticas()
+    }
+    else if (estado === "evento") {
+        dibujarEvento()
     }
     else if (estado === "victoria") {
     dibujarVictoria()
