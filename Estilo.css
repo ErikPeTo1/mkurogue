@@ -1,0 +1,15 @@
+body{ 
+    background-color: rgb(76, 76, 76);
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+canvas {
+    display: block;
+    margin: auto;
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain;
+}
