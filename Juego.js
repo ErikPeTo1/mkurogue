@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.5.0"
+const VERSION = "0.6.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -1004,7 +1004,7 @@ document.addEventListener("keydown", function(e) {
             abrirReporte()
             return
         }
-        menuTecla(izquierda, derecha, confirmar)
+        menuTecla(arriba, abajo, izquierda, derecha, confirmar, tecla === "escape")
         return
     }
     if (estado === "descanso") {
@@ -1092,11 +1092,28 @@ function empezarPartida() {
     estado = "exploracion"
 }
 // ←/→ (o A/D) cambian de dificultad dando la vuelta: a la derecha de Difícil va Fácil, y a la
-// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida.
-function menuTecla(izquierda, derecha, confirmar) {
+// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↓ lleva al
+// desplegable de colores (ver dibujarDesplegableColores) y ↑ vuelve.
+function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
+    const nColores = MODOS_COLOR.length
+    if (menuColoresAbierto) {
+        if (arriba) colorResaltado = Math.max(0, colorResaltado - 1)
+        if (abajo) colorResaltado = Math.min(nColores - 1, colorResaltado + 1)
+        if (confirmar) elegirColor(colorResaltado)
+        if (escape) menuColoresAbierto = false
+        return
+    }
+    if (focoMenu === "colores") {
+        if (arriba) focoMenu = "dificultad"
+        if (izquierda) modoColor = (modoColor - 1 + nColores) % nColores
+        if (derecha) modoColor = (modoColor + 1) % nColores
+        if (confirmar) abrirColores()
+        return
+    }
     const n = DIFICULTADES.length
     if (izquierda) dificultadElegida = (dificultadElegida - 1 + n) % n
     if (derecha) dificultadElegida = (dificultadElegida + 1) % n
+    if (abajo) focoMenu = "colores"
     if (confirmar) empezarPartida()
 }
 
@@ -1130,8 +1147,12 @@ canvas.addEventListener("mousemove", function(e) {
     if (estado === "menu") {
         // Pasar el ratón por un recuadro lo elige. Como mousemove solo salta al mover el ratón, si
         // después se usan las flechas, la selección se queda donde la dejan ellas hasta que se mueva.
-        z = zonaCercana(zonasMenu, p.x, p.y)
-        if (z && z.tipo === "dificultad") dificultadElegida = z.indice
+        // Con la lista de colores abierta, solo cuentan sus opciones y el propio botón
+        const zonas = menuColoresAbierto ? zonasMenu.filter(z => z.tipo === "color" || z.tipo === "colores") : zonasMenu
+        z = zonaCercana(zonas, p.x, p.y)
+        if (z && z.tipo === "dificultad") { dificultadElegida = z.indice; focoMenu = "dificultad" }
+        if (z && z.tipo === "colores") focoMenu = "colores"
+        if (z && z.tipo === "color") colorResaltado = z.indice
     } else if (estado === "estadisticas") {
         z = zonaCercana(zonasEstadisticas, p.x, p.y)
         if (z && z.tipo !== "reportar") personajeSeleccionado = z.indice
@@ -1151,7 +1172,17 @@ canvas.addEventListener("click", function(e) {
     if (estado === "menu") {
         // Clic en un recuadro: confirma esa dificultad y empieza la partida
         const z = zonaEnPunto(zonasMenu, p.x, p.y)
+        // Con la lista de colores abierta, un clic elige una opción o, en cualquier otro sitio, la cierra
+        if (menuColoresAbierto) {
+            if (z && z.tipo === "color") elegirColor(z.indice)
+            else menuColoresAbierto = false
+            return
+        }
         if (!z) return
+        if (z.tipo === "colores") {
+            abrirColores()
+            return
+        }
         if (z.tipo === "reportar") {
             abrirReporte()
             return
@@ -2428,7 +2459,8 @@ function dibujarMenu() {
         const elegida = i === dificultadElegida
         ctx.fillStyle = elegida ? "rgba(60, 140, 255, 0.25)" : "rgba(255, 255, 255, 0.05)"
         ctx.fillRect(x, y, ancho, alto)
-        ctx.strokeStyle = elegida ? "yellow" : "rgba(255, 255, 255, 0.3)"
+        // Con el foco en los colores, la dificultad elegida se sigue viendo, pero con el borde apagado
+        ctx.strokeStyle = !elegida ? "rgba(255, 255, 255, 0.3)" : focoMenu === "dificultad" ? "yellow" : "rgba(255, 255, 0, 0.4)"
         ctx.lineWidth = elegida ? 3 : 1
         ctx.strokeRect(x, y, ancho, alto)
         ctx.lineWidth = 1
@@ -2445,11 +2477,96 @@ function dibujarMenu() {
 
     ctx.fillStyle = "rgb(150, 150, 160)"
     ctx.font = "15px sans-serif"
-    ctx.fillText("Elige con el ratón o con ← →  ·  Clic o Enter para empezar", 512, 400)
+    const ayuda = focoMenu === "colores"
+        ? "← → cambian los colores  ·  Enter abre la lista  ·  ↑ vuelve a la dificultad"
+        : "Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↓ colores"
+    ctx.fillText(ayuda, 512, 400)
 
     zonasMenu.push(dibujarBotonReporte("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", 512, 600))
+    // El desplegable va lo último: si está abierto, su lista queda por encima de lo demás
+    dibujarDesplegableColores()
     dibujarVersion()
     ctx.textAlign = "left"
+}
+
+// --- Desplegable de colores del menú de inicio --------------------------------
+// Un botón con el modo elegido y sus tres casillas de muestra; al abrirlo, una lista con todos los
+// modos (cada uno con sus casillas). Ratón: clic abre y elige. Teclado: ↓ desde la dificultad lleva
+// al botón, ←/→ cambian de modo, Enter abre la lista (↑/↓ y Enter eligen, Esc cierra).
+let focoMenu = "dificultad"       // "dificultad" o "colores": a qué afectan las flechas y Enter
+let menuColoresAbierto = false
+let colorResaltado = 0            // opción marcada en la lista abierta
+const ANCHO_DESPLEGABLE = 440, X_DESPLEGABLE = 512 - 440 / 2, Y_DESPLEGABLE = 430, ALTO_FILA_COLOR = 42
+
+// Una fila: texto a la izquierda y las tres casillas (combate, descanso, evento) a la derecha
+function dibujarFilaColor(modo, y, resaltada, conFlecha) {
+    // Fondo opaco siempre: la lista abierta queda encima del botón de reportes y de la cuadrícula
+    // del fondo, y con un relleno semitransparente se transparentaban sus letras y líneas
+    ctx.fillStyle = "rgb(30, 34, 54)"
+    ctx.fillRect(X_DESPLEGABLE, y, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR)
+    if (resaltada) {
+        ctx.fillStyle = "rgba(60, 140, 255, 0.25)"
+        ctx.fillRect(X_DESPLEGABLE, y, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR)
+        // En la lista, la marcada lleva también borde (no solo cambia de color)
+        if (!conFlecha) {
+            ctx.strokeStyle = "yellow"
+            ctx.lineWidth = 2
+            ctx.strokeRect(X_DESPLEGABLE + 2, y + 2, ANCHO_DESPLEGABLE - 4, ALTO_FILA_COLOR - 4)
+            ctx.lineWidth = 1
+        }
+    }
+    ctx.textAlign = "left"
+    ctx.font = "15px sans-serif"
+    ctx.fillStyle = resaltada ? "yellow" : "white"
+    const texto = (conFlecha ? "Colores: " : "") + MODOS_COLOR[modo].nombre
+    ctx.fillText(texto, X_DESPLEGABLE + 14, y + 26)
+    ;[2, 3, 4].forEach((tipo, i) => dibujarCasilla(tipo, X_DESPLEGABLE + 268 + i * 36, y + 5, modo))
+    if (conFlecha) {
+        // Triángulo hacia abajo (o hacia arriba si la lista está abierta)
+        const cx = X_DESPLEGABLE + ANCHO_DESPLEGABLE - 20, cy = y + ALTO_FILA_COLOR / 2
+        ctx.beginPath()
+        if (menuColoresAbierto) { ctx.moveTo(cx - 6, cy + 3); ctx.lineTo(cx + 6, cy + 3); ctx.lineTo(cx, cy - 4) }
+        else { ctx.moveTo(cx - 6, cy - 3); ctx.lineTo(cx + 6, cy - 3); ctx.lineTo(cx, cy + 4) }
+        ctx.closePath()
+        ctx.fill()
+    }
+}
+
+function dibujarDesplegableColores() {
+    const enfocado = focoMenu === "colores" || menuColoresAbierto
+    dibujarFilaColor(modoColor, Y_DESPLEGABLE, enfocado, true)
+    ctx.strokeStyle = enfocado ? "yellow" : "rgba(255, 255, 255, 0.3)"
+    ctx.lineWidth = enfocado ? 3 : 1
+    ctx.strokeRect(X_DESPLEGABLE, Y_DESPLEGABLE, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR)
+    ctx.lineWidth = 1
+    zonasMenu.push({ tipo: "colores", x: X_DESPLEGABLE, y: Y_DESPLEGABLE, w: ANCHO_DESPLEGABLE, h: ALTO_FILA_COLOR })
+    if (!menuColoresAbierto) return
+    const yLista = Y_DESPLEGABLE + ALTO_FILA_COLOR + 4
+    MODOS_COLOR.forEach((m, i) => {
+        const y = yLista + i * ALTO_FILA_COLOR
+        dibujarFilaColor(i, y, i === colorResaltado, false)
+        // La opción en uso lleva una marca a la derecha
+        if (i === modoColor) {
+            ctx.fillStyle = "rgb(120, 220, 140)"
+            ctx.textAlign = "right"
+            ctx.fillText("✓", X_DESPLEGABLE + ANCHO_DESPLEGABLE - 12, y + 27)
+            ctx.textAlign = "left"
+        }
+        // Delante en la lista de zonas: así gana a lo que tenga debajo (el botón de reportes)
+        zonasMenu.unshift({ tipo: "color", indice: i, x: X_DESPLEGABLE, y: y, w: ANCHO_DESPLEGABLE, h: ALTO_FILA_COLOR })
+    })
+    ctx.strokeStyle = "yellow"
+    ctx.strokeRect(X_DESPLEGABLE, yLista, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR * MODOS_COLOR.length)
+}
+
+function abrirColores() {
+    menuColoresAbierto = true
+    focoMenu = "colores"
+    colorResaltado = modoColor
+}
+function elegirColor(i) {
+    modoColor = i
+    menuColoresAbierto = false
 }
 
 // Botón para abrir el panel de reportes, centrado en x; devuelve su zona clicable
@@ -2641,6 +2758,78 @@ function comprobarSectorDespejado() {
     avisoSectorHasta = performance.now() + DURACION_AVISO_SECTOR
 }
 
+// Casillas especiales: cada tipo tiene su símbolo y su color, para que se distingan también sin ver
+// bien los colores (daltonismo). Los tres símbolos son pixel art en la misma rejilla (8x8 "píxeles"
+// de 3 px), para que se vean con la misma resolución: 2 = combate (espadas cruzadas),
+// 3 = descanso (cruz de curación), 4 = evento (interrogación).
+const SIMBOLOS_CASILLA = {
+    2: ["X......X", ".X....X.", "..X..X..", "...XX...", "..XXXX..", ".X.XX.X.", "XX....XX", "XX....XX"],
+    3: ["...XX...", "...XX...", "...XX...", "XXXXXXXX", "XXXXXXXX", "...XX...", "...XX...", "...XX..."],
+    4: ["..XXXX..", ".XX..XX.", ".....XX.", "....XX..", "...XX...", "...XX...", "........", "...XX..."]
+}
+// Modos de color, uno por tipo de visión; se elige en el menú de inicio. Cada modo trae los colores
+// de las casillas y los del equipo (en el mapa, en combate y en Estadísticas), elegidos por simulación
+// (Machado 2009) para que se distingan tal como los ve esa persona:
+// - casillas (relleno al 40%): la Convencional tiene un ΔE mínimo de 28 con deuteranopia y 25 con
+//   tritanopia; la de cada modo, 47-58
+// - equipo: los colores convencionales se confunden entre sí y con las casillas (ΔE 3-5); los de cada
+//   modo, 28-32. Paku nunca es rojo fuera del modo Convencional.
+// equipo: null = los colores de siempre (ESTILOS_PLACEHOLDER en combate y los del mapa)
+const MODOS_COLOR = [
+    { nombre: "Convencional", casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255] }, equipo: null },
+    { nombre: "Protanopia (rojo)", casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255] },
+      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255] } },
+    { nombre: "Deuteranopia (verde)", casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166] },
+      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26] } },
+    { nombre: "Tritanopia (azul)", casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255] },
+      equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] } }
+]
+let modoColor = 0   // índice en MODOS_COLOR (no se guarda: cada vez que se abre el juego empieza en Convencional)
+
+// Color de un miembro del equipo en el modo actual ([r, g, b]), o null si el modo usa los de siempre
+function colorEquipoModo(nombre) {
+    const equipo = MODOS_COLOR[modoColor].equipo
+    return equipo && equipo[nombre] ? equipo[nombre] : null
+}
+const textoRGB = c => "rgb(" + c.join(", ") + ")"
+// Letra negra sobre colores claros y blanca sobre oscuros, para que siempre se lea
+function letraSobre(c) {
+    const lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+    return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]) > 0.35 ? "black" : "white"
+}
+
+function dibujarCasilla(tipo, x, y, modo = modoColor) {
+    const c = MODOS_COLOR[modo].casillas[tipo]
+    ctx.fillStyle = "rgba(" + c.join(", ") + ", 0.4)"
+    ctx.fillRect(x, y, tamTile, tamTile)
+    // El símbolo, del mismo color pero mucho más claro, para que resalte sobre el relleno
+    ctx.fillStyle = "rgb(" + c.map(v => Math.round(v + (255 - v) * 0.55)).join(", ") + ")"
+    SIMBOLOS_CASILLA[tipo].forEach((fila, f) => {
+        for (let k = 0; k < fila.length; k++) {
+            if (fila[k] === "X") ctx.fillRect(x + 4 + k * 3, y + 4 + f * 3, 3, 3)
+        }
+    })
+}
+
+// El equipo en el mapa: cuadrado de su color con la inicial encima (así no depende solo del color).
+// color y colorLetra son los de siempre; si el modo de color tiene los suyos, mandan esos.
+function dibujarMiembroMapa(p, color, colorLetra) {
+    const delModo = colorEquipoModo(p.nombre)
+    if (delModo) {
+        color = textoRGB(delModo)
+        colorLetra = letraSobre(delModo)
+    }
+    ctx.fillStyle = color
+    ctx.fillRect(p.x, p.y, p.width, p.height)
+    const alineacion = ctx.textAlign, fuente = ctx.font
+    ctx.textAlign = "center"
+    ctx.fillStyle = colorLetra
+    ctx.font = "bold 12px sans-serif"
+    ctx.fillText(p.nombre[0], p.x + p.width / 2, p.y + 14)
+    ctx.textAlign = alineacion
+    ctx.font = fuente
+}
+
 function dibujarExploracion() {
     dibujarFondo("fondoExploracion")
     for (let fila = 0; fila < mapa.length; fila++) {
@@ -2648,15 +2837,9 @@ function dibujarExploracion() {
         if (mapa[fila][col] === 1) {
             dibujarPared(col * tamTile, fila * tamTile, bordesPared[fila][col])
         }
-    else if (mapa[fila][col] === 2) {
-        ctx.fillStyle = "rgba(255, 0, 0, 0.3)"
-        ctx.fillRect(col * tamTile, fila * tamTile, tamTile, tamTile)}
-    else if (mapa[fila][col] === 3) {
-        ctx.fillStyle = "rgba(0, 255, 0, 0.3)"
-        ctx.fillRect(col * tamTile, fila * tamTile, tamTile, tamTile)}
-    else if (mapa[fila][col] === 4) {
-        ctx.fillStyle = "rgba(0, 0, 255, 0.3)"
-        ctx.fillRect(col * tamTile, fila * tamTile, tamTile, tamTile)}
+    else if (SIMBOLOS_CASILLA[mapa[fila][col]]) {
+        dibujarCasilla(mapa[fila][col], col * tamTile, fila * tamTile)
+    }
     }}
         // El robot de servicio va el último del rastro, más pequeño
         if (mejorasPartida.robots > 0 && historial[LARGO_HISTORIAL - 1]) {
@@ -2664,14 +2847,10 @@ function dibujarExploracion() {
             ctx.fillStyle = "rgb(150, 190, 200)"
             ctx.fillRect(r.x + 4, r.y + 4, 10, 10)
         }
-        ctx.fillStyle = "yellow"
-        ctx.fillRect(imanps.x, imanps.y, imanps.width, imanps.height)
-        ctx.fillStyle = "green"
-        ctx.fillRect(vbz.x, vbz.y, vbz.width, vbz.height)
-        ctx.fillStyle = "blue"
-        ctx.fillRect(mamuri.x, mamuri.y, mamuri.width, mamuri.height)
-        ctx.fillStyle = "red"
-        ctx.fillRect(paku.x, paku.y, paku.width, paku.height)
+        dibujarMiembroMapa(imanps, "yellow", "black")
+        dibujarMiembroMapa(vbz, "green", "white")
+        dibujarMiembroMapa(mamuri, "blue", "white")
+        dibujarMiembroMapa(paku, "red", "white")
     if (mostrarPanelDescanso) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
         ctx.fillRect(300, 200, 400, 250)
@@ -2712,15 +2891,20 @@ function colorNombre(p) {
     return equipoJugador[personajeActual] === p ? "orange" : "white"
 }
 
-// Una fila de orbes azules: llenos = energía disponible, vacíos = hueco de energía
-function dibujarOrbes(p, x, y) {
+// Una fila de orbes azules: llenos = energía disponible, vacíos = hueco de energía.
+// soloHuecos: todos vacíos y con fondo opaco (Estadísticas: fuera de combate la energía no cuenta,
+// así que se enseñan solo los huecos que tiene, sin la que le sobró del último combate)
+function dibujarOrbes(p, x, y, soloHuecos = false) {
     const azul = "rgb(60, 140, 255)"
     ctx.strokeStyle = azul
     ctx.lineWidth = 2
     for (let i = 0; i < energiaMaxima(p); i++) {
         ctx.beginPath()
         ctx.arc(x + i * 22, y, 8, 0, Math.PI * 2)
-        if (i < p.energia) {
+        if (soloHuecos) {
+            ctx.fillStyle = "rgb(16, 22, 44)"
+            ctx.fill()
+        } else if (i < p.energia) {
             ctx.fillStyle = azul
             ctx.fill()
         }
@@ -2749,7 +2933,9 @@ function dibujarSprite(clave, x, y, tam, izquierda = false) {
         return
     }
     const estilo = ESTILOS_PLACEHOLDER[clave] || { color: "gray", forma: "caja" }
-    ctx.fillStyle = estilo.color
+    // Los del equipo cambian de color con el modo de color elegido en el menú
+    const delModo = colorEquipoModo(clave)
+    ctx.fillStyle = delModo ? textoRGB(delModo) : estilo.color
     ctx.strokeStyle = "black"
     ctx.lineWidth = Math.max(1, tam / 24)
     if (estilo.forma === "circulo") {
@@ -2760,7 +2946,7 @@ function dibujarSprite(clave, x, y, tam, izquierda = false) {
     }
     ctx.fill()
     ctx.stroke()
-    ctx.fillStyle = "black"
+    ctx.fillStyle = delModo ? letraSobre(delModo) : "black"
     const fuenteAnterior = ctx.font
     ctx.font = "bold " + Math.round(tam / 3) + "px sans-serif"
     ctx.textAlign = "center"
@@ -2969,17 +3155,22 @@ function dibujarCombate() {
             ? "Habilidad: " + disponibles[0].nombre + " (" + disponibles[0].coste + ")"
             : "Habilidad..."
 
-        ctx.fillStyle = accionSeleccionada === 0 ? "rgb(255, 0, 0)" : "white"
-        ctx.fillText("Atacar", 700, 580)
+        // La acción marcada lleva "> " delante, como en los submenús (no solo cambia de color)
+        const marca = i => accionSeleccionada === i ? "> " : "  "
+        // Cada acción marcada tiene su color; en los modos de daltonismo, todas en amarillo, que se ve
+        // claro en cualquier caso (el rojo de Atacar, con protanopia, se ve casi negro)
+        const resaltado = color => modoColor === 0 ? color : "yellow"
+        ctx.fillStyle = accionSeleccionada === 0 ? resaltado("rgb(255, 0, 0)") : "white"
+        ctx.fillText(marca(0) + "Atacar", 700, 580)
 
         ctx.fillStyle = !puedeHabilidad ? "gray" : accionSeleccionada === 1 ? "yellow" : "white"
-        ctx.fillText(textoHabilidad, 700, 610)
+        ctx.fillText(marca(1) + textoHabilidad, 700, 610)
 
-        ctx.fillStyle = accionSeleccionada === 2 ? "rgb(53, 163, 194)" : "white"
-        ctx.fillText("Defender", 700, 640)
+        ctx.fillStyle = accionSeleccionada === 2 ? resaltado("rgb(53, 163, 194)") : "white"
+        ctx.fillText(marca(2) + "Defender", 700, 640)
 
-        ctx.fillStyle = objetos.length === 0 ? "gray" : accionSeleccionada === 3 ? "rgb(84, 156, 107)" : "white"
-        ctx.fillText("Objeto", 700, 670)
+        ctx.fillStyle = objetos.length === 0 ? "gray" : accionSeleccionada === 3 ? resaltado("rgb(84, 156, 107)") : "white"
+        ctx.fillText(marca(3) + "Objeto", 700, 670)
     }
 
     // Zona central, entre las dos columnas: avisos y log de combate
@@ -3226,7 +3417,7 @@ function dibujarEstadisticas() {
     ctx.font = "12px sans-serif"
     ctx.fillText(p.xp + "/" + xpSiguiente + " XP", xInterior + 310, 298)
 
-    dibujarOrbes(p, xInterior, 322)
+    dibujarOrbes(p, xInterior, 322, true)
     dibujarFilaStats(xInterior, 352, p.stats, {})
 
     ctx.fillStyle = "white"
