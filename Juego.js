@@ -1,3 +1,28 @@
+// Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
+// cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
+const VERSION = "0.5.0"
+// Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
+// a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
+// llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
+// "entry.XXXX" de cada pregunta (sale en su enlace "rellenado previamente"). Un campo en null no se
+// envía, y si es el nombre o lo esperado, tampoco sale en el panel. Si url es null, el panel avisa
+// de que aún no se puede enviar.
+// "tipo" es de opción múltiple en el formulario: "Bug" e "Idea" tienen que llamarse igual que sus
+// opciones; "Otra cosa" va a su opción "Otro".
+const REPORTES = {
+    url: "https://docs.google.com/forms/d/e/1FAIpQLSdobdBaHp4MgKPtSJ8LAlTB7J0v7Y4ther-dowXKqkw6Yt7lw/formResponse",
+    campos: {
+        version: "entry.1192171968",
+        tipo: "entry.2088131240",
+        dificultad: "entry.586657850",
+        mensaje: "entry.2054692340",    // "Qué ha pasado?"
+        esperado: "entry.172578075",    // "Qué esperabas?" (opcional)
+        nombre: "entry.2131976618",     // opcional: si se deja vacío va "Anónimo"
+        partida: "entry.221723184"      // se rellena sola: sector, nivel medio y tiempo de partida
+    }
+}
+const ESPERA_ENTRE_REPORTES = 30000   // ms, para que un doble clic no mande el mismo reporte dos veces
+
 const canvas = document.getElementById("juegonave")
 const ctx = canvas.getContext("2d")
 
@@ -98,7 +123,15 @@ const XP_BASE_NIVEL = 20            // XP para pasar del nivel 1 al 2
 const XP_EXPONENTE = 1.5            // la XP necesaria crece como nivel^1.5 (no hay tope de nivel)
 // Por cada nivel medio del equipo por encima de 1, estas stats enemigas suben este porcentaje (0.20 = +20%)
 // El ATK no está aquí: su multiplicador y crecimiento dependen de la dificultad (DIFICULTADES)
-const ESCALA_STATS_ENEMIGO = { HP_MAX: 0.20, DEF: 0.10, VEL: 0.03 }
+const ESCALA_STATS_ENEMIGO = { HP_MAX: 0.20, DEF: 0.10, VEL: 0.03, PRE: 0.05, EVA: 0.05 }
+
+// Golpes de refilón: cualquier golpe a un solo objetivo puede salir de refilón, con la mitad de daño y
+// sin poder ser crítico. Probabilidad = REFILON_MAXIMO × EVA del que recibe / (EVA + PRE del que ataca):
+// con PRE y EVA iguales, la mitad del máximo (15%); sin EVA, nunca. Defender suma ESQUIVA_DEFENDER.
+// Los golpes de área (Terremoto, granada, explosión del kamikaze) nunca salen de refilón.
+const REFILON_MAXIMO = 30
+const ESQUIVA_DEFENDER = 5
+const DAÑO_REFILON = 0.5
 
 // Dificultades que se eligen en el menú previo.
 // multiplicador = sobre el ATK base de poolEnemigos; crecimiento = % de ese ATK por nivel medio del
@@ -150,71 +183,91 @@ let zonasMenu = []      // zonas clicables del menú, recalculadas cada fotogram
 // Menú in-game de estadísticas
 let personajeSeleccionado = 0   // índice en equipoJugador, resaltado en la lista de la izquierda
 let zonasEstadisticas = []      // zonas clicables de esa lista, recalculadas cada fotograma
-//Fallar golpes
 const teclas = {}
 // crecimiento = lo que gana cada stat por nivel (admite decimales; el valor final se redondea)
 // habilidades = lista ordenada por nivelMin; objetivo: "enemigo" (se elige), "enemigos" (todos), "aliado" (el más herido), "aliados" (todos)
 const paku   = { nombre: "Paku",   x: 2*tamTile+7, y: 3*tamTile+7, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 2,
-    crecimiento: { HP_MAX: 3, ATK: 1, DEF: 0.5, VEL: 0.6, LUCK: 0.3 },
+    crecimiento: { HP_MAX: 3, ATK: 1, DEF: 0.5, VEL: 0.6, LUCK: 0.3, PRE: 0.4, EVA: 0.3 },
     habilidades: [
         { id: "embestida", nombre: "Embestida", coste: 2, objetivo: "enemigo", nivelMin: 1 },
         { id: "rafaga",    nombre: "Ráfaga",    coste: 3, objetivo: "enemigo", nivelMin: 5 }
     ],
-    stats: { HP:20, HP_MAX:20, ATK:5, DEF:3, VEL:8, LUCK:3  }}
+    stats: { HP:20, HP_MAX:20, ATK:5, DEF:3, VEL:8, LUCK:3, PRE:6, EVA:5 }}
 const mamuri = { nombre: "Mamuri", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
-    crecimiento: { HP_MAX: 4, ATK: 2, DEF: 1, VEL: 0.3, LUCK: 0.3 },
+    crecimiento: { HP_MAX: 4, ATK: 2, DEF: 1, VEL: 0.3, LUCK: 0.3, PRE: 0.4, EVA: 0.2 },
     habilidades: [
         { id: "golpePesado", nombre: "Golpe pesado", coste: 2, objetivo: "enemigo",  nivelMin: 1 },
         { id: "terremoto",   nombre: "Terremoto",    coste: 3, objetivo: "enemigos", nivelMin: 5 }
     ],
-    stats: { HP:30, HP_MAX:30, ATK:10, DEF:6, VEL:4, LUCK:10  }}
+    stats: { HP:30, HP_MAX:30, ATK:10, DEF:6, VEL:4, LUCK:10, PRE:5, EVA:3 }}
 // golpeMultiple: su LUCK x5 (puede pasar de 100%) da golpes encadenados en cada ataque
 const vbz    = { nombre: "VBZ",    x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
-    crecimiento: { HP_MAX: 6, ATK: 0.7, DEF: 1.2, VEL: 0.2, LUCK: 1 },
+    crecimiento: { HP_MAX: 6, ATK: 0.7, DEF: 1.2, VEL: 0.2, LUCK: 1, PRE: 0.4, EVA: 0.2 },
     habilidades: [
         { id: "apuesta", nombre: "Apuesta", coste: 2, objetivo: "enemigo", nivelMin: 1 },
         { id: "racha",   nombre: "Racha",   coste: 3, objetivo: "enemigo", nivelMin: 5 }
     ],
-    stats: { HP:40, HP_MAX:40, ATK:3,  DEF:6, VEL:2, LUCK:22 }}
+    stats: { HP:40, HP_MAX:40, ATK:3,  DEF:6, VEL:2, LUCK:22, PRE:7, EVA:2 }}
 const imanps = { nombre: "Imanps", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
-    crecimiento: { HP_MAX: 3.5, ATK: 1.2, DEF: 0.7, VEL: 0.5, LUCK: 0.4 },
+    crecimiento: { HP_MAX: 3.5, ATK: 1.2, DEF: 0.7, VEL: 0.5, LUCK: 0.4, PRE: 0.3, EVA: 0.4 },
     habilidades: [
         { id: "reparacion", nombre: "Reparación", coste: 2, objetivo: "aliado",  nivelMin: 1 },
         { id: "oleada",     nombre: "Oleada",     coste: 3, objetivo: "aliados", nivelMin: 5 }
     ],
-    stats: { HP:25, HP_MAX:25, ATK:7,  DEF:4, VEL:5, LUCK:8  }}
+    stats: { HP:25, HP_MAX:25, ATK:7,  DEF:4, VEL:5, LUCK:8, PRE:5, EVA:6 }}
 // Stats de nivel 1 (base) y extras permanentes (HP de los descansos, mejoras del Taller de armas)
 ;[paku, mamuri, vbz, imanps].forEach(p => {
-    p.base = { HP_MAX: p.stats.HP_MAX, ATK: p.stats.ATK, DEF: p.stats.DEF, VEL: p.stats.VEL, LUCK: p.stats.LUCK }
-    p.bonus = { HP_MAX: 0, ATK: 0, DEF: 0, VEL: 0, LUCK: 0 }
+    p.base = { HP_MAX: p.stats.HP_MAX, ATK: p.stats.ATK, DEF: p.stats.DEF, VEL: p.stats.VEL, LUCK: p.stats.LUCK, PRE: p.stats.PRE, EVA: p.stats.EVA }
+    p.bonus = { HP_MAX: 0, ATK: 0, DEF: 0, VEL: 0, LUCK: 0, PRE: 0, EVA: 0 }
     p.bonusOrbes = 0   // orbes máximos extra (Núcleo de energía)
 })
 // xp = experiencia base que da cada enemigo (crece con el nivel medio del equipo)
 // peso = probabilidad relativa de aparecer: un enemigo con peso 10 sale el doble que uno con peso 5
-// ia: "aleatorio" (ataca a cualquiera), "agresivo" (al que menos HP tiene), "defensivo" (al de más ATK)
+// ia: "aleatorio" (ataca a cualquiera), "agresivo" (al que menos HP tiene), "defensivo" (al de más ATK),
+//     "cobarde" (al que menos HP tiene, pero con poca vida huye y vuelve en el siguiente combate con refuerzos)
 // clase: "humano" o "maquina" (el Dron reparador solo arregla máquinas)
 // rol: comportamiento especial en su turno, en vez de atacar siempre ("reparar", "inhibir", "estallar")
 const poolEnemigos = [
-    { nombre: "Corsario Espacial", xp: 15, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 45, HP_MAX: 45, ATK: 4, DEF: 2, VEL: 3, LUCK: 1 } },
-    { nombre: "Moto Pirata", xp: 16, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 30, HP_MAX: 30, ATK: 5, DEF: 5, VEL: 20, LUCK: 2 } },
-    { nombre: "Cañón de cristal", xp: 12, peso: 10, clase: "maquina", ia: "aleatorio", defendiendo: false, stats: { HP: 20, HP_MAX: 20, ATK: 6, DEF: 1, VEL: 6, LUCK: 4 } },
+    { nombre: "Corsario Espacial", xp: 15, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 45, HP_MAX: 45, ATK: 4, DEF: 2, VEL: 3, LUCK: 1, PRE: 5, EVA: 4 } },
+    { nombre: "Moto Pirata", xp: 16, peso: 10, clase: "humano", ia: "cobarde", defendiendo: false, stats: { HP: 30, HP_MAX: 30, ATK: 5, DEF: 5, VEL: 20, LUCK: 2, PRE: 4, EVA: 12 } },
+    // Pega fuerte pero cae enseguida: casi nunca va solo (acompañado, ver ACOMPAÑANTES)
+    { nombre: "Cañón de cristal", xp: 12, peso: 10, clase: "maquina", acompañado: true, ia: "aleatorio", defendiendo: false, stats: { HP: 20, HP_MAX: 20, ATK: 6, DEF: 1, VEL: 6, LUCK: 4, PRE: 6, EVA: 1 } },
     // Rápido y frágil: suele actuar antes que nadie, pero cae de dos golpes
-    { nombre: "Dron vigía", xp: 10, peso: 10, clase: "maquina", dron: true, ia: "aleatorio", defendiendo: false, stats: { HP: 18, HP_MAX: 18, ATK: 4, DEF: 2, VEL: 14, LUCK: 3 } },
+    { nombre: "Dron vigía", xp: 10, peso: 10, clase: "maquina", dron: true, ia: "aleatorio", defendiendo: false, stats: { HP: 18, HP_MAX: 18, ATK: 4, DEF: 2, VEL: 14, LUCK: 3, PRE: 6, EVA: 9 } },
     // Va siempre a por el aliado con menos vida
-    { nombre: "Mercenario", xp: 18, peso: 10, clase: "humano", ia: "agresivo", defendiendo: false, stats: { HP: 38, HP_MAX: 38, ATK: 6, DEF: 3, VEL: 5, LUCK: 3 } },
+    { nombre: "Mercenario", xp: 18, peso: 10, clase: "humano", ia: "agresivo", defendiendo: false, stats: { HP: 38, HP_MAX: 38, ATK: 6, DEF: 3, VEL: 5, LUCK: 3, PRE: 7, EVA: 5 } },
     // Poco daño de base, pero con LUCK 8 tiene un 40% de crítico
-    { nombre: "Francotirador", xp: 16, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 32, HP_MAX: 32, ATK: 5, DEF: 2, VEL: 4, LUCK: 8 } },
+    { nombre: "Francotirador", xp: 16, peso: 10, clase: "humano", ia: "aleatorio", defendiendo: false, stats: { HP: 32, HP_MAX: 32, ATK: 5, DEF: 2, VEL: 4, LUCK: 8, PRE: 16, EVA: 4 } },
     // Pega fuerte y apunta al aliado con más ATK, pero aguanta poco
-    { nombre: "Androide de asalto", xp: 18, peso: 10, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 28, HP_MAX: 28, ATK: 8, DEF: 2, VEL: 7, LUCK: 2 } },
+    { nombre: "Androide de asalto", xp: 18, peso: 10, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 28, HP_MAX: 28, ATK: 8, DEF: 2, VEL: 7, LUCK: 2, PRE: 6, EVA: 3 } },
     // Repara a la máquina aliada más dañada; si no hay ninguna, dispara flojo. Conviene tumbarlo pronto.
-    { nombre: "Dron reparador", xp: 14, peso: 10, clase: "maquina", dron: true, rol: "reparar", ia: "aleatorio", defendiendo: false, stats: { HP: 22, HP_MAX: 22, ATK: 3, DEF: 2, VEL: 6, LUCK: 1 } },
+    { nombre: "Dron reparador", xp: 14, peso: 10, clase: "maquina", dron: true, rol: "reparar", ia: "aleatorio", defendiendo: false, stats: { HP: 22, HP_MAX: 22, ATK: 3, DEF: 2, VEL: 6, LUCK: 1, PRE: 4, EVA: 5 } },
     // No ataca: si no lo destruyes en 3 turnos, estalla y daña a todo el equipo
-    { nombre: "Dron kamikaze", xp: 16, peso: 10, clase: "maquina", dron: true, rol: "estallar", ia: "aleatorio", defendiendo: false, stats: { HP: 26, HP_MAX: 26, ATK: 6, DEF: 2, VEL: 3, LUCK: 0 } },
+    { nombre: "Dron kamikaze", xp: 16, peso: 10, clase: "maquina", dron: true, rol: "estallar", ia: "aleatorio", defendiendo: false, stats: { HP: 26, HP_MAX: 26, ATK: 6, DEF: 2, VEL: 3, LUCK: 0, PRE: 1, EVA: 2 } },
     // Tanque intermedio: un turno sí y otro no se protege y te quita un orbe; alarga los combates
-    { nombre: "Escolta acorazado", xp: 26, peso: 10, clase: "humano", rol: "inhibir", ia: "aleatorio", defendiendo: false, stats: { HP: 90, HP_MAX: 90, ATK: 4, DEF: 4, VEL: 2, LUCK: 1 } },
+    { nombre: "Escolta acorazado", xp: 26, peso: 10, clase: "humano", rol: "inhibir", ia: "aleatorio", defendiendo: false, stats: { HP: 90, HP_MAX: 90, ATK: 4, DEF: 4, VEL: 2, LUCK: 1, PRE: 4, EVA: 1 } },
     // El tanque: muchísima vida y poco daño. Raro (peso 4), pero da mucha XP
-    { nombre: "Bisotuf", xp: 40, peso: 4, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 200, HP_MAX: 200, ATK: 3, DEF: 4, VEL: 1, LUCK: 0 } }
+    { nombre: "Bisotuf", xp: 40, peso: 4, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 200, HP_MAX: 200, ATK: 3, DEF: 4, VEL: 1, LUCK: 0, PRE: 3, EVA: 0 } }
 ]
+// Enemigos "acompañado" (los frágiles, como el Cañón de cristal): con esta probabilidad, su grupo trae
+// un enemigo prioritario (hay que tumbarlo pronto), un tanque que lo cubre, o los dos. Si el grupo ya
+// tiene uno de ese tipo, no se añade otro. Solo amplían el grupo hasta "ampliarHasta" enemigos; si ya
+// es más grande (o un evento ha fijado cuántos son), sustituyen a otro.
+const ACOMPAÑANTES = {
+    probabilidad: 0.85,
+    prioritarios: ["Dron kamikaze", "Dron reparador"],
+    tanques: ["Escolta acorazado", "Bisotuf"],
+    reparto: { prioritario: 0.45, tanque: 0.35, ambos: 0.20 },
+    ampliarHasta: 3
+}
+
+// Tamaño de los grupos enemigos: peso de 1, 2, 3, 4 y 5 enemigos en el sector 1, y lo que gana cada
+// peso por cada sector nuevo (hasta SECTORES_CRECE_GRUPO sectores). Sector 1: 45/32/17/5/1 (%);
+// sector 4: 36/26/21/11/6; sector 8 en adelante: 29/21/24/17/10. Los de 6 solo salen por eventos.
+const PESOS_GRUPO = [45, 32, 17, 5, 1]
+const CRECE_GRUPO = [0, 0, 3, 3, 2]
+const SECTORES_CRECE_GRUPO = 7
+const MAX_ENEMIGOS = 6
 // Dron reparador: cuánto cura (fracción de la vida máxima de la máquina reparada)
 const PORCENTAJE_REPARACION = 0.20
 // Dron kamikaze: turnos suyos hasta que estalla, y multiplicador del daño de la explosión
@@ -235,7 +288,8 @@ const inventario = { botiquin: 0, granada: 0, bateria: 0, reanimador: 0 }
 // Efectos de los eventos que se aplican al empezar el siguiente combate, y luego se gastan
 // cantidadEnemigos / claseEnemigos: fuerzan cuántos enemigos salen y de qué clase ("humano"/"maquina")
 // emp: las máquinas enemigas no actúan la primera ronda · dronAliado: un dron os cura cada ronda
-const PREPARATIVOS_VACIOS = { orbesExtra: 0, cantidadEnemigos: null, claseEnemigos: null, xpExtra: 1, emp: false, dronAliado: false }
+// sorpresa: rondas que tardan todos los enemigos en reaccionar (empiezan aturdidos)
+const PREPARATIVOS_VACIOS = { orbesExtra: 0, cantidadEnemigos: null, claseEnemigos: null, xpExtra: 1, emp: false, dronAliado: false, sorpresa: 0 }
 let preparativos = { ...PREPARATIVOS_VACIOS }
 let xpCombate = 1   // multiplicador de XP del combate en curso (lo pone, por ejemplo, la Emboscada)
 let dronAliadoActivo = false   // en este combate os acompaña el dron reparador reprogramado
@@ -254,7 +308,8 @@ const mejorasPartida = {
     vidaEnemigos: 1,         // multiplicador de la vida de todos los enemigos (Reactor principal)
     dronesPirateados: false, // los drones enemigos juegan a vuestro favor (Hangar de drones)
     robots: 0,               // robots de servicio que os siguen y curan al acabar cada combate
-    combatesHambrientos: 0   // combates que quedan con los enemigos debilitados (Comedor de la tripulación)
+    combatesHambrientos: 0,  // combates que quedan con los enemigos debilitados (Comedor de la tripulación)
+    casillasExtra: { 2: 0, 3: 0, 4: 0 }   // casillas de combate/descanso/evento de más en cada sector (Mapa estelar)
 }
 const SABOTAJE = 0.75    // cada sabotaje del Terminal deja la DEF o la vida en un 75% (un 25% menos)
 const HAMBRE = 0.85      // enemigos hambrientos: ATK y VEL al 85%
@@ -268,7 +323,7 @@ const COSTE_IMPLANTE = 10                  // vida máxima (y actual) que cobra 
 // Taller de armas: una mejora individual equivale a 3 niveles de crecimiento de ese stat, con un
 // mínimo; la de equipo da +1 ATK y +1 DEF a todos. Ambas se multiplican cada 10 niveles medios.
 const NIVELES_TALLER = 3
-const MINIMO_TALLER = { HP_MAX: 10, ATK: 2, DEF: 2, VEL: 2, LUCK: 2 }
+const MINIMO_TALLER = { HP_MAX: 10, ATK: 2, DEF: 2, VEL: 2, LUCK: 2, PRE: 2, EVA: 2 }
 
 // --- Eventos de las casillas azules -----------------------------------------
 // opciones() devuelve 2-3 opciones { texto, detalle, efecto }. efecto() aplica lo que pasa y devuelve
@@ -583,10 +638,10 @@ const EVENTOS = [
         titulo: "Mapa estelar",
         texto: "Un mapa holográfico de la nave, con zonas que no aparecían en vuestros planos.",
         opciones: () => [
-            { texto: "Explorar zonas nuevas", detalle: "Aparecen 8 casillas nuevas (combate, descanso o evento) en pasillos vacíos",
-              efecto: () => ({ lineas: [crearCasillasNuevas(8, null)] }) },
-            { texto: "Buscar puntos de interés", detalle: "Aparecen 3 casillas de evento en pasillos vacíos",
-              efecto: () => ({ lineas: [crearCasillasNuevas(3, 4)] }) }
+            { texto: "Explorar zonas nuevas", detalle: "8 casillas más (combate, descanso o evento) en este sector y en los siguientes",
+              efecto: () => ({ lineas: [crearCasillasNuevas(8, null), "Cada sector nuevo tendrá también estas casillas de más."] }) },
+            { texto: "Buscar puntos de interés", detalle: "3 casillas de evento más en este sector y en los siguientes",
+              efecto: () => ({ lineas: [crearCasillasNuevas(3, 4), "Cada sector nuevo tendrá también estas casillas de más."] }) }
         ]
     },
     {
@@ -659,6 +714,29 @@ const EVENTOS = [
                   return { lineas: ["¡Era una trampa! Os rodea una patrulla."], combate: true }
               } },
             { texto: "Ignorarla", detalle: "Seguís adelante", efecto: () => ({ lineas: ["Dejáis atrás la señal."] }) }
+        ]
+    },
+    {
+        titulo: "Puesto de guardia",
+        texto: "Tras una compuerta entreabierta, un puesto de guardia lleno de soldados jugando a las cartas. Al fondo se ve su armería.",
+        // A partir del segundo sector: en el primero, 6 enemigos de golpe serían demasiado pronto
+        disponible: () => sectorActual >= 2,
+        opciones: () => [
+            { texto: "Asaltar el puesto", detalle: "6 enemigos, pillados por sorpresa: no reaccionan en 2 rondas · +50% de XP",
+              efecto: () => {
+                  preparativos.cantidadEnemigos = 6
+                  preparativos.sorpresa = 2
+                  preparativos.xpExtra = 1.5
+                  return { lineas: ["Abrís la compuerta de una patada. ¡Se acabó la partida de cartas!"], combate: true }
+              } },
+            { texto: "Colarse en la armería", detalle: "Os lleváis 2 objetos · 50%: os pillan y os persiguen 4 guardias",
+              efecto: () => {
+                  const lineas = ["Os coláis a gatas por detrás de las mesas.", darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())]
+                  if (Math.random() < 0.5) return { lineas }
+                  preparativos.cantidadEnemigos = 4
+                  return { lineas: [...lineas, "Al salir tiráis una caja de munición... ¡Os han visto! Cuatro guardias van a por vosotros."], combate: true }
+              } },
+            { texto: "Pasar de largo", detalle: "Que sigan con su partida", efecto: () => ({ lineas: ["Cerráis la compuerta sin hacer ruido."] }) }
         ]
     },
     {
@@ -789,7 +867,9 @@ const PRUEBAS_DUELO = {
     ATK:    { reto: "Os reta a mover un contenedor de carga más deprisa que él.", gana: "mueve el contenedor como si fuera de cartón", pierde: "se deja la espalda empujando" },
     DEF:    { reto: "Os reta a aguantar sus golpes sin retroceder.", gana: "aguanta sin inmutarse", pierde: "acaba por los suelos" },
     VEL:    { reto: "Os reta a una carrera por los conductos de ventilación.", gana: "llega el primero y le espera bostezando", pierde: "se queda atascado en un codo del conducto" },
-    LUCK:   { reto: "Os reta a una partida de cartas a todo o nada.", gana: "saca una escalera real", pierde: "se lo juega todo a un farol... y pierde" }
+    LUCK:   { reto: "Os reta a una partida de cartas a todo o nada.", gana: "saca una escalera real", pierde: "se lo juega todo a un farol... y pierde" },
+    PRE:    { reto: "Os reta a darle a una lata con un láser desde la otra punta del hangar.", gana: "le da a la lata a la primera", pierde: "le da a todo menos a la lata" },
+    EVA:    { reto: "Os reta a esquivar las pelotas de goma de su cañón de entrenamiento.", gana: "las esquiva todas sin despeinarse", pierde: "se lleva un pelotazo detrás de otro" }
 }
 let anteriorX = paku.x
 let anteriorY = paku.y
@@ -803,6 +883,15 @@ let accionesGuardadas = []
 let tiempoInicio = 0   // se fija en empezarPartida(), al salir del menú
 let tiempoPartida = 0
 const enemigosDerrotados = {}  // { "Bisotuf": 3, ... }
+
+// Enemigos cobardes: con esta fracción de vida o menos, en su turno huyen en vez de atacar. Se apuntan
+// aquí y cada uno vuelve, con la misma vida con la que se fue, en uno de los combates siguientes con
+// REFUERZOS_FUGITIVO enemigos más (nunca de su mismo tipo). Al volver ya no huye: pelea hasta el final.
+// Uno por combate, y solo en combates normales: si un evento ha fijado cuántos enemigos salen
+// (patrulla de 3, un solo enemigo...), el fugitivo espera al siguiente.
+const UMBRAL_HUIDA = 0.3
+const REFUERZOS_FUGITIVO = 2
+const fugitivos = []   // { base: plantilla de poolEnemigos, hp: vida al huir }, en el orden en que huyeron
 
 let historial = []
 // Todo el rastro en la posición de Paku (al empezar, y tras cada combate)
@@ -838,16 +927,30 @@ const mapa = [
     [1,0,1,1,0,0,0,1,1,0,1,1,0,1,1,0,0,0,1,1,0,1,1,0,1,0,1,1,0,0,0,1],
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
 ]
-for (let fila = 0; fila < mapa.length; fila++) {
-    for (let col = 0; col < mapa[fila].length; col++) {
-        if (mapa[fila][col] === 0) {
-        const roll = Math.random()
-if (roll < 0.80) mapa[fila][col] = 0
-else if (roll < 0.90) mapa[fila][col] = 2
-else if (roll < 0.98) mapa[fila][col] = 3
-else mapa[fila][col] = 4}}}
+// Reparte casillas especiales por el pasillo vacío: 80% vacío, 10% combate, 8% descanso, 2% evento.
+// "libre" es una casilla que se deja vacía (donde está Paku, para no caer en algo nada más empezar).
+function generarCasillas(libre) {
+    for (let fila = 0; fila < mapa.length; fila++) {
+        for (let col = 0; col < mapa[fila].length; col++) {
+            if (mapa[fila][col] !== 0 || (fila === libre.fila && col === libre.col)) continue
+            const roll = Math.random()
+            if (roll < 0.80) mapa[fila][col] = 0
+            else if (roll < 0.90) mapa[fila][col] = 2
+            else if (roll < 0.98) mapa[fila][col] = 3
+            else mapa[fila][col] = 4
+        }
+    }
+}
+generarCasillas({ fila: 3, col: 2 })
 
-mapa[3][2] = 0
+// Sectores: cuando no queda ninguna casilla especial, el mapa se vuelve a llenar y se pasa al siguiente.
+// Cada sector por encima del primero endurece a los enemigos, y dan algo más de XP (por sector, sumado).
+// Es suave porque los grupos también crecen con el sector (PESOS_GRUPO): con +10% vida y +8% ATK por
+// sector, sumado a los grupos grandes, en el sector 8 casi 1 de cada 4 combates acababa en derrota.
+let sectorActual = 1
+const ESCALADO_SECTOR = { vida: 0.05, ataque: 0.04, xp: 0.10 }
+let avisoSectorHasta = 0              // hasta cuándo se ve el aviso de "Sector despejado"
+const DURACION_AVISO_SECTOR = 3500    // ms
 
 // Una vez fijados los tipos de casilla: para cada pared, en qué lados limita con algo que no es
 // pared (ahí se marca el borde). Entre paredes contiguas no hay borde, así que se ven como un bloque.
@@ -874,6 +977,11 @@ function bloquearTeclas() {
 }
 
 document.addEventListener("keydown", function(e) {
+    // Con el panel de reportes abierto, las teclas son para escribir: el juego no las ve (Esc lo cierra)
+    if (reporteAbierto()) {
+        if (e.key === "Escape") cerrarReporte()
+        return
+    }
     // Una tecla mantenida repite keydown: fuera de exploración y del menú solo cuenta la pulsación
     // inicial, salvo Enter/espacio en combate, que confirman en cadena con un pequeño retraso.
     // Además, las pantallas nuevas ignoran teclas un instante para que no se salten sin verlas.
@@ -891,6 +999,11 @@ document.addEventListener("keydown", function(e) {
     const confirmar = e.key === "Enter" || e.key === " "
 
     if (estado === "menu") {
+        if (tecla === "r" && !e.repeat) {
+            e.preventDefault()   // que la "r" no se escriba en el cuadro de texto al abrirlo
+            abrirReporte()
+            return
+        }
         menuTecla(izquierda, derecha, confirmar)
         return
     }
@@ -905,6 +1018,11 @@ document.addEventListener("keydown", function(e) {
     }
     if (estado === "estadisticas") {
         if (tecla === "m" || tecla === "escape") { estado = "exploracion"; return }
+        if (tecla === "r") {
+            e.preventDefault()
+            abrirReporte()
+            return
+        }
         if (arriba) personajeSeleccionado = Math.max(0, personajeSeleccionado - 1)
         if (abajo) personajeSeleccionado = Math.min(equipoJugador.length - 1, personajeSeleccionado + 1)
         return
@@ -963,7 +1081,6 @@ document.addEventListener("keydown", function(e) {
             }
         }
     }
-    if (e.key === "c") iniciarCombate()
 })
 document.addEventListener("keyup", function(e) {
     teclas[e.key.toLowerCase()] = false
@@ -991,20 +1108,36 @@ function coordsRaton(e) {
 function zonaEnPunto(lista, x, y) {
     return lista.find(z => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h)
 }
+// Para el hover: la zona bajo el ratón o, si está en el hueco entre dos, la más cercana (hasta
+// "margen" px). Sin esto, al mover el ratón deprisa o pararlo entre dos recuadros, el último
+// movimiento caía en un hueco y la selección se quedaba en el recuadro anterior.
+const MARGEN_HOVER = 20
+function zonaCercana(lista, x, y) {
+    const dentro = zonaEnPunto(lista, x, y)
+    if (dentro) return dentro
+    let mejor = null, mejorDistancia = MARGEN_HOVER
+    for (const z of lista) {
+        const dx = Math.max(z.x - x, 0, x - (z.x + z.w))
+        const dy = Math.max(z.y - y, 0, y - (z.y + z.h))
+        const distancia = Math.hypot(dx, dy)
+        if (distancia <= mejorDistancia) { mejor = z; mejorDistancia = distancia }
+    }
+    return mejor
+}
 canvas.addEventListener("mousemove", function(e) {
     const p = coordsRaton(e)
     let z = null
     if (estado === "menu") {
         // Pasar el ratón por un recuadro lo elige. Como mousemove solo salta al mover el ratón, si
         // después se usan las flechas, la selección se queda donde la dejan ellas hasta que se mueva.
-        z = zonaEnPunto(zonasMenu, p.x, p.y)
-        if (z) dificultadElegida = z.indice
+        z = zonaCercana(zonasMenu, p.x, p.y)
+        if (z && z.tipo === "dificultad") dificultadElegida = z.indice
     } else if (estado === "estadisticas") {
-        z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
-        if (z) personajeSeleccionado = z.indice
+        z = zonaCercana(zonasEstadisticas, p.x, p.y)
+        if (z && z.tipo !== "reportar") personajeSeleccionado = z.indice
     } else if (estado === "evento" && !eventoEnCurso.resultado) {
         // Como en el menú de inicio: pasar el ratón por una opción la elige
-        z = zonaEnPunto(zonasEvento, p.x, p.y)
+        z = zonaCercana(zonasEvento, p.x, p.y)
         if (z) eventoEnCurso.seleccion = z.indice
     }
     // Manita sobre lo que se puede clicar, para que se note
@@ -1019,12 +1152,17 @@ canvas.addEventListener("click", function(e) {
         // Clic en un recuadro: confirma esa dificultad y empieza la partida
         const z = zonaEnPunto(zonasMenu, p.x, p.y)
         if (!z) return
+        if (z.tipo === "reportar") {
+            abrirReporte()
+            return
+        }
         dificultadElegida = z.indice
         empezarPartida()
         canvas.style.cursor = "default"
     } else if (estado === "estadisticas") {
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
-        if (z) personajeSeleccionado = z.indice
+        if (z && z.tipo === "reportar") abrirReporte()
+        else if (z) personajeSeleccionado = z.indice
     } else if (estado === "evento") {
         if (eventoEnCurso.resultado) {
             // Clic en cualquier sitio para continuar (no justo después de decidir, por si es un doble clic)
@@ -1069,25 +1207,30 @@ function crearEnemigo(base) {
     // Efectos de eventos: sabotajes (permanentes) y enemigos hambrientos (unos cuantos combates)
     const maquina = base.clase === "maquina"
     const hambre = mejorasPartida.combatesHambrientos > 0 ? HAMBRE : 1
-    let vida = base.stats.HP_MAX * escala("HP_MAX") * mejorasPartida.vidaEnemigos
+    const sector = sectorActual - 1   // sectores por encima del primero
+    let vida = base.stats.HP_MAX * escala("HP_MAX") * mejorasPartida.vidaEnemigos * (1 + ESCALADO_SECTOR.vida * sector)
     if (maquina) vida *= mejorasPartida.vidaMaquinas
     stats.HP_MAX = Math.max(1, Math.round(vida))
     stats.HP = stats.HP_MAX
-    let ataque = base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n) * hambre
+    let ataque = base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n) * hambre * (1 + ESCALADO_SECTOR.ataque * sector)
     if (maquina) ataque *= mejorasPartida.ataqueMaquinas
     stats.ATK = Math.round(ataque)
     stats.DEF = Math.round(base.stats.DEF * escala("DEF"))
     // Hacia abajo, para que el sabotaje se note también con defensas pequeñas (2 → 1)
     if (mejorasPartida.defensaEnemiga < 1) stats.DEF = Math.floor(stats.DEF * mejorasPartida.defensaEnemiga)
     stats.VEL = Math.round(base.stats.VEL * escala("VEL") * hambre)
-    const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp)
+    stats.PRE = Math.round(base.stats.PRE * escala("PRE"))
+    stats.EVA = Math.round(base.stats.EVA * escala("EVA"))
+    const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp * (1 + ESCALADO_SECTOR.xp * sector))
     return { ...base, tipo: base.nombre, xp: xp, stats: stats }
 }
 
 // Elige una plantilla de poolEnemigos al azar, respetando su "peso" (los de más peso salen más);
-// si se pide una clase ("humano"/"maquina"), solo entre las de esa clase
-function elegirEnemigoDelPool(clase = null) {
-    const pool = clase ? poolEnemigos.filter(en => en.clase === clase) : poolEnemigos
+// si se pide una clase ("humano"/"maquina"), solo entre las de esa clase; excluir = nombre de un tipo que no puede salir
+function elegirEnemigoDelPool(clase = null, excluir = null) {
+    return elegirPorPeso(poolEnemigos.filter(en => (!clase || en.clase === clase) && en.nombre !== excluir))
+}
+function elegirPorPeso(pool) {
     const total = pool.reduce((suma, en) => suma + en.peso, 0)
     let tirada = Math.random() * total
     for (const en of pool) {
@@ -1097,15 +1240,75 @@ function elegirEnemigoDelPool(clase = null) {
     return pool[pool.length - 1]
 }
 
-// 1 enemigo (50%), 2 (35%) o 3 (15%), salvo que se pida una cantidad fija;
+// De 1 a 5 enemigos según el sector (ver PESOS_GRUPO)
+function tamañoGrupoAlAzar() {
+    const sectores = Math.min(sectorActual - 1, SECTORES_CRECE_GRUPO)
+    const pesos = PESOS_GRUPO.map((peso, i) => peso + CRECE_GRUPO[i] * sectores)
+    let tirada = Math.random() * pesos.reduce((suma, p) => suma + p, 0)
+    for (let i = 0; i < pesos.length; i++) {
+        tirada -= pesos[i]
+        if (tirada < 0) return i + 1
+    }
+    return pesos.length
+}
+
+// Tamaño al azar (según el sector), salvo que se pida una cantidad fija;
 // los repetidos se distinguen con una letra
 function generarEnemigos(cantidadFija = null, clase = null) {
-    const roll = Math.random()
-    const cantidad = cantidadFija !== null ? cantidadFija : roll < 0.50 ? 1 : roll < 0.85 ? 2 : 3
+    const cantidad = cantidadFija !== null ? Math.min(cantidadFija, MAX_ENEMIGOS) : tamañoGrupoAlAzar()
     const lista = []
     for (let i = 0; i < cantidad; i++) {
         lista.push(crearEnemigo(elegirEnemigoDelPool(clase)))
     }
+    acompañarFragiles(lista, clase, cantidadFija === null)
+    return nombrarRepetidos(lista)
+}
+
+// Cada enemigo "acompañado" puede traer un prioritario, un tanque o los dos (ver ACOMPAÑANTES).
+// Si se puede ampliar el grupo (sin cantidad fijada por un evento) y cabe, se añade; si no, sustituye
+// al último que no sea ya un acompañante, ni el propio frágil, ni un fugitivo que vuelve.
+function acompañarFragiles(lista, clase = null, ampliar = true) {
+    const acompañantes = [...ACOMPAÑANTES.prioritarios, ...ACOMPAÑANTES.tanques]
+    for (const fragil of lista.filter(en => en.acompañado)) {
+        if (!lista.includes(fragil)) continue   // lo ha sustituido el acompañante de otro frágil
+        if (Math.random() >= ACOMPAÑANTES.probabilidad) continue
+        const tirada = Math.random()
+        const reparto = ACOMPAÑANTES.reparto
+        const tipos = tirada < reparto.prioritario ? ["prioritarios"]
+            : tirada < reparto.prioritario + reparto.tanque ? ["tanques"]
+            : ["prioritarios", "tanques"]
+        for (const tipo of tipos) {
+            const nombres = ACOMPAÑANTES[tipo]
+            if (lista.some(en => nombres.includes(en.tipo))) continue
+            const candidatos = poolEnemigos.filter(b => nombres.includes(b.nombre) && (!clase || b.clase === clase))
+            if (candidatos.length === 0) continue
+            const nuevo = crearEnemigo(elegirPorPeso(candidatos))
+            if (ampliar && lista.length < ACOMPAÑANTES.ampliarHasta) {
+                lista.push(nuevo)
+                continue
+            }
+            const i = lista.findLastIndex(en => en !== fragil && !en.regresado && !acompañantes.includes(en.tipo))
+            if (i >= 0) lista[i] = nuevo
+        }
+    }
+}
+
+// El fugitivo más antiguo vuelve con refuerzos (ninguno de su tipo, así que su nombre no se repite).
+// Sus stats se recalculan para el nivel y el sector de ahora, pero la vida es la misma con la que huyó.
+function generarRegresoFugitivo() {
+    const fugitivo = fugitivos.shift()
+    const regresado = crearEnemigo(fugitivo.base)
+    regresado.stats.HP = Math.min(fugitivo.hp, regresado.stats.HP_MAX)
+    regresado.regresado = true
+    const lista = [regresado]
+    for (let i = 0; i < REFUERZOS_FUGITIVO; i++) {
+        lista.push(crearEnemigo(elegirEnemigoDelPool(null, fugitivo.base.nombre)))
+    }
+    acompañarFragiles(lista, null, false)
+    return nombrarRepetidos(lista)
+}
+
+function nombrarRepetidos(lista) {
     const repetidos = {}
     lista.forEach(en => repetidos[en.nombre] = (repetidos[en.nombre] || 0) + 1)
     const usados = {}
@@ -1136,7 +1339,9 @@ function iniciarCombate() {
     })
     personajeActual = siguienteVivo(0)
     dronAliadoActivo = false
-    enemigosCombate = generarEnemigos(preparativos.cantidadEnemigos, preparativos.claseEnemigos)
+    const regresa = fugitivos.length > 0 && preparativos.cantidadEnemigos === null && preparativos.claseEnemigos === null
+    enemigosCombate = regresa ? generarRegresoFugitivo() : generarEnemigos(preparativos.cantidadEnemigos, preparativos.claseEnemigos)
+    if (regresa) logCombate.push("¡" + enemigosCombate[0].nombre + " ha vuelto, y esta vez no viene solo!")
     aplicarPreparativos()
     reiniciarHistorial()
 }
@@ -1149,6 +1354,11 @@ function aplicarPreparativos() {
         logCombate.push("Empezáis con " + preparativos.orbesExtra + " orbe(s) más cada uno.")
     }
     if (preparativos.cantidadEnemigos === 3) logCombate.push("Os topáis con una patrulla completa.")
+    if (preparativos.cantidadEnemigos > 3) logCombate.push("¡Os enfrentáis a " + preparativos.cantidadEnemigos + " enemigos a la vez!")
+    if (preparativos.sorpresa > 0) {
+        enemigosCombate.forEach(en => en.aturdido = Math.max(en.aturdido || 0, preparativos.sorpresa))
+        logCombate.push("Los pilláis por sorpresa: tardarán " + preparativos.sorpresa + " rondas en reaccionar.")
+    }
     if (preparativos.emp) {
         enemigosCombate.filter(en => en.clase === "maquina").forEach(en => en.aturdido = 1)
         logCombate.push("¡Disparáis el pulso EMP! Las máquinas enemigas quedan aturdidas.")
@@ -1248,16 +1458,27 @@ function repartirXP(total) {
     })
 }
 
-// opciones: multiplicadorATK, multiplicadorDaño, ignorarDEF, critico (forzado), probabilidadCritico (%, sustituye a LUCK*5)
+// % de que un golpe de "atacante" a "defensor" salga de refilón (ver REFILON_MAXIMO)
+function probabilidadRefilon(atacante, defensor) {
+    const eva = defensor.stats.EVA
+    const proporcion = eva / Math.max(1, eva + atacante.stats.PRE)
+    return Math.round(REFILON_MAXIMO * proporcion + (defensor.defendiendo ? ESQUIVA_DEFENDER : 0))
+}
+
+// opciones: multiplicadorATK, multiplicadorDaño, ignorarDEF, critico (forzado), probabilidadCritico (%, sustituye a LUCK*5),
+// infalible (golpes de área: nunca salen de refilón)
 // Fórmula proporcional (ATK²/(ATK+DEF)): la DEF reduce el daño sin anularlo, a cualquier nivel.
+// Si sale de refilón, hace la mitad y no puede ser crítico (ni siquiera uno forzado, como el de Apuesta).
 function calcularDaño(atacante, defensor, opciones = {}) {
     const def = opciones.ignorarDEF ? 0 : defensor.stats.DEF * (defensor.defendiendo ? 2 : 1)
     const ataque = Math.floor(atacante.stats.ATK * (opciones.multiplicadorATK || 1))
     const proporcional = (ataque * ataque) / Math.max(1, ataque + def)
     const base = Math.max(1, Math.floor(proporcional * (opciones.multiplicadorDaño || 1)))
+    const refilon = !opciones.infalible && Math.random() * 100 < probabilidadRefilon(atacante, defensor)
+    if (refilon) return { daño: Math.max(1, Math.floor(base * DAÑO_REFILON)), critico: false, refilon: true }
     const probabilidadCritico = opciones.probabilidadCritico !== undefined ? opciones.probabilidadCritico : atacante.stats.LUCK * 5
     const esCritico = opciones.critico === true || Math.random() * 100 < probabilidadCritico
-    return { daño: esCritico ? base * 2 : base, critico: esCritico }
+    return { daño: esCritico ? base * 2 : base, critico: esCritico, refilon: false }
 }
 
 function comprobarTile() {
@@ -1416,14 +1637,19 @@ function golpearEnemigo(personaje, objetivo, opciones = {}, habilidad = null, ad
     dañarEnemigo(objetivo, resultado.daño)
     let msg
     if (habilidad) {
-        msg = personaje.nombre + " usa " + habilidad + (resultado.critico ? " (¡crítico!)" : "") + ": " + resultado.daño + " daño a " + objetivo.nombre
+        const extra = resultado.critico ? " (¡crítico!)" : resultado.refilon ? " (de refilón)" : ""
+        msg = personaje.nombre + " usa " + habilidad + extra + ": " + resultado.daño + " daño a " + objetivo.nombre
     } else if (adicional) {
         msg = resultado.critico
             ? personaje.nombre + " le ha dado un golpe crítico adicional a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+            : resultado.refilon
+            ? personaje.nombre + " le ha dado un golpe adicional de refilón a " + objetivo.nombre + " (" + resultado.daño + " daño)"
             : personaje.nombre + " ha dado un golpe adicional a " + objetivo.nombre + " (" + resultado.daño + " daño)"
     } else {
         msg = resultado.critico
             ? personaje.nombre + " le ha dado un golpe crítico a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+            : resultado.refilon
+            ? personaje.nombre + " le ha dado de refilón a " + objetivo.nombre + " (" + resultado.daño + " daño)"
             : personaje.nombre + " ha golpeado a " + objetivo.nombre + " (" + resultado.daño + " daño)"
     }
     logCombate.push(msg)
@@ -1474,7 +1700,7 @@ function usarObjeto(personaje, id, objetivo) {
 // y solo si el golpe anterior fue crítico: su probabilidad de crítico es LUCK x5 (p. ej. 420%) y, cada
 // vez que sale crítico, se le restan 100 puntos para el siguiente golpe (320%, 220%...), hasta que uno no
 // sea crítico o se llegue al tope de golpes. Si un golpe mata a su objetivo, el siguiente va a otro
-// enemigo al azar.
+// enemigo al azar. Un golpe de refilón nunca es crítico, así que también corta la cadena.
 function ataqueBasico(personaje, objetivo, probabilidadExtra = 0) {
     let probabilidad = personaje.stats.LUCK * 5 + probabilidadExtra
     let objetivoActual = objetivo
@@ -1493,57 +1719,82 @@ function ataqueBasico(personaje, objetivo, probabilidadExtra = 0) {
     }
 }
 
-// Cada habilidad mejora con el nivel del personaje (más 5 niveles por cada rango de la Biblioteca)
+// Números de cada habilidad según su nivel (el del personaje, más 5 por cada rango de la Biblioteca).
+// Los usan tanto el combate como la descripción que se ve al elegirla, para que nunca digan cosas distintas.
+function valoresHabilidad(id, nv) {
+    switch (id) {
+        case "embestida":   return { atk: 1.5 + 0.02 * (nv - 1) }                    // ATK x1.5 (+2% por nivel), ignora DEF
+        case "rafaga":      return { golpes: 3 + Math.floor(nv / 10), atk: 0.8 }     // 3 golpes (+1 cada 10 niveles)
+        case "golpePesado": return { daño: 2 + 0.03 * (nv - 1) }                     // daño x2 (+3% por nivel)
+        case "terremoto":   return { daño: 1 + 0.02 * (nv - 1) }                     // a todos (+2% por nivel)
+        case "apuesta":     return { coste: Math.max(0.02, 0.10 - 0.005 * (nv - 1)) } // 10% de vida, bajando hasta el 2%
+        case "racha":       return { extra: 100 + 5 * (nv - 1) }                     // +100% (+5% por nivel) de crítico
+        case "reparacion":  return { cura: 10 + 2 * (nv - 1) }                       // 10 HP (+2 por nivel)
+        case "oleada":      return { cura: 6 + Math.floor(1.5 * (nv - 1)) }          // 6 HP (+1,5 por nivel) a todos
+    }
+    return {}
+}
+
+// Frase corta con lo que hace la habilidad ahora mismo, con sus números reales
+function descripcionHabilidad(p, h) {
+    const v = valoresHabilidad(h.id, nivelHabilidad(p, h))
+    const num = n => String(Math.round(n * 100) / 100).replace(".", ",")
+    switch (h.id) {
+        case "embestida":   return "Golpe con ATK x" + num(v.atk) + " que ignora la defensa"
+        case "rafaga":      return v.golpes + " golpes de ATK x" + num(v.atk) + "; si cae el objetivo, siguen con otro"
+        case "golpePesado": return "Daño x" + num(v.daño) + ", pero la ronda siguiente actúa el último"
+        case "terremoto":   return "Golpea a todos los enemigos (daño x" + num(v.daño) + "); nunca sale de refilón"
+        case "apuesta":     return "Crítico asegurado si no sale de refilón; pierde un " + Math.round(v.coste * 100) + "% de su vida máxima"
+        case "racha":       return "Encadena golpes con un +" + v.extra + "% de probabilidad de crítico"
+        case "reparacion":  return "Cura " + v.cura + " HP al aliado más herido"
+        case "oleada":      return "Cura " + v.cura + " HP a todo el equipo"
+    }
+    return ""
+}
+
 function usarHabilidad(personaje, h, objetivo) {
     personaje.energia -= h.coste
-    const nv = nivelHabilidad(personaje, h)
+    const v = valoresHabilidad(h.id, nivelHabilidad(personaje, h))
 
     if (h.id === "embestida") {
-        // ATK x1.5 (+2% por nivel) ignorando la DEF del enemigo
-        golpearEnemigo(personaje, objetivo, { multiplicadorATK: 1.5 + 0.02 * (nv - 1), ignorarDEF: true }, h.nombre)
+        golpearEnemigo(personaje, objetivo, { multiplicadorATK: v.atk, ignorarDEF: true }, h.nombre)
     } else if (h.id === "rafaga") {
-        // 3 golpes (+1 cada 10 niveles) de ATK x0.8; si el objetivo cae, siguen contra otro enemigo al azar
-        const golpes = 3 + Math.floor(nv / 10)
+        // Si el objetivo cae, los golpes que quedan van contra otro enemigo al azar
         let objetivoActual = objetivo
-        for (let i = 0; i < golpes; i++) {
+        for (let i = 0; i < v.golpes; i++) {
             if (objetivoActual.stats.HP <= 0) {
                 objetivoActual = enemigoAlAzar()
                 if (objetivoActual === null) break
             }
-            golpearEnemigo(personaje, objetivoActual, { multiplicadorATK: 0.8 }, h.nombre)
+            golpearEnemigo(personaje, objetivoActual, { multiplicadorATK: v.atk }, h.nombre)
         }
     } else if (h.id === "golpePesado") {
-        // Daño x2 (+3% por nivel), pero en la siguiente ronda actúa el último
-        golpearEnemigo(personaje, objetivo, { multiplicadorDaño: 2 + 0.03 * (nv - 1) }, h.nombre)
+        // En la siguiente ronda actúa el último
+        golpearEnemigo(personaje, objetivo, { multiplicadorDaño: v.daño }, h.nombre)
         personaje.retrasado = true
     } else if (h.id === "terremoto") {
-        // Golpe a todos los enemigos vivos
-        enemigosVivos().forEach(en => golpearEnemigo(personaje, en, { multiplicadorDaño: 1 + 0.02 * (nv - 1) }, h.nombre))
+        enemigosVivos().forEach(en => golpearEnemigo(personaje, en, { multiplicadorDaño: v.daño, infalible: true }, h.nombre))
     } else if (h.id === "apuesta") {
-        // Crítico asegurado a cambio de HP (10% del máximo, bajando hasta el 2% con el nivel; nunca lo mata)
+        // Crítico asegurado a cambio de vida (nunca lo mata)
         golpearEnemigo(personaje, objetivo, { critico: true }, h.nombre)
-        const porcentaje = Math.max(0.02, 0.10 - 0.005 * (nv - 1))
-        const coste = Math.ceil(personaje.stats.HP_MAX * porcentaje)
+        const coste = Math.ceil(personaje.stats.HP_MAX * v.coste)
         personaje.stats.HP = Math.max(1, personaje.stats.HP - coste)
         logCombate.push(personaje.nombre + " pierde " + coste + " HP por la apuesta")
     } else if (h.id === "racha") {
-        // Ataque encadenado con +100% (+5% por nivel) de probabilidad de golpes extra
         logCombate.push(personaje.nombre + " usa " + h.nombre)
-        ataqueBasico(personaje, objetivo, 100 + 5 * (nv - 1))
+        ataqueBasico(personaje, objetivo, v.extra)
     } else if (h.id === "reparacion") {
-        // Cura 10 HP (+2 por nivel) al aliado vivo con menor proporción de vida
+        // Al aliado vivo con menor proporción de vida
         const aliados = equipoJugador.filter(p => p.stats.HP > 0)
         const herido = aliados.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
-        const cura = Math.min(10 + 2 * (nv - 1), herido.stats.HP_MAX - herido.stats.HP)
+        const cura = Math.min(v.cura, herido.stats.HP_MAX - herido.stats.HP)
         herido.stats.HP += cura
         logCombate.push(personaje.nombre + " usa " + h.nombre + ": " + herido.nombre + " recupera " + cura + " HP")
     } else if (h.id === "oleada") {
-        // Cura a todo el equipo vivo: 6 HP (+1.5 por nivel)
-        const cura = 6 + Math.floor(1.5 * (nv - 1))
         equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
-            p.stats.HP = Math.min(p.stats.HP_MAX, p.stats.HP + cura)
+            p.stats.HP = Math.min(p.stats.HP_MAX, p.stats.HP + v.cura)
         })
-        logCombate.push(personaje.nombre + " usa " + h.nombre + ": el equipo recupera hasta " + cura + " HP")
+        logCombate.push(personaje.nombre + " usa " + h.nombre + ": el equipo recupera hasta " + v.cura + " HP")
     }
 }
 
@@ -1604,8 +1855,8 @@ function ejecutarRonda() {
             const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
             const col = Math.floor((paku.x + paku.width / 2) / tamTile)
             mapa[fila][col] = 0
-            // Los kamikazes que han estallado no dan XP: no los has destruido tú
-            xpTotalVictoria = Math.round(enemigosCombate.filter(en => !en.estallo).reduce((suma, en) => suma + en.xp, 0) * xpCombate)
+            // Los kamikazes que han estallado y los que han huido no dan XP: no los has derrotado tú
+            xpTotalVictoria = Math.round(enemigosCombate.filter(en => !en.estallo && !en.huyo).reduce((suma, en) => suma + en.xp, 0) * xpCombate)
             xpCombate = 1
             resumenVictoria = repartirXP(xpTotalVictoria)
             // Robot de servicio: cura a los que siguen en pie al acabar el combate
@@ -1684,13 +1935,13 @@ function turnoKamikaze(enemigo, contraEnemigos = false) {
     logCombate.push("¡" + enemigo.nombre + " estalla!")
     if (contraEnemigos) {
         enemigosVivos().filter(en => en !== enemigo).forEach(en => {
-            const r = calcularDaño(enemigo, en, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0 })
+            const r = calcularDaño(enemigo, en, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0, infalible: true })
             dañarEnemigo(en, r.daño)
             logCombate.push(en.nombre + " recibe " + r.daño + " de daño de la explosión")
         })
     } else {
         equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
-            const r = calcularDaño(enemigo, p, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0 })
+            const r = calcularDaño(enemigo, p, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0, infalible: true })
             p.stats.HP = Math.max(0, p.stats.HP - r.daño)
             logCombate.push(p.nombre + " recibe " + r.daño + " de daño de la explosión")
         })
@@ -1727,7 +1978,15 @@ function accionDronPirateado(dron) {
     const objetivo = otros[Math.floor(Math.random() * otros.length)]
     const r = calcularDaño(dron, objetivo)
     dañarEnemigo(objetivo, r.daño)
-    logCombate.push(dron.nombre + " (pirateado) ataca a " + objetivo.nombre + " (" + r.daño + " daño)")
+    logCombate.push(dron.nombre + " (pirateado) ataca" + (r.refilon ? " de refilón" : "") + " a " + objetivo.nombre + " (" + r.daño + " daño)")
+}
+
+// Sale del combate (como si cayera, pero sin dar XP ni contar como derrotado) y se apunta para volver
+function huir(enemigo) {
+    fugitivos.push({ base: poolEnemigos.find(base => base.nombre === enemigo.tipo), hp: enemigo.stats.HP })
+    enemigo.stats.HP = 0
+    enemigo.huyo = true
+    logCombate.push("¡" + enemigo.nombre + " huye despavorido! Volverá con refuerzos...")
 }
 
 function accionEnemigo(enemigo) {
@@ -1758,8 +2017,9 @@ function accionEnemigo(enemigo) {
         objetivo = vivos[Math.floor(Math.random() * vivos.length)]
     }
     else if (enemigo.ia === "cobarde") {
-        if (enemigo.stats.HP <= enemigo.stats.HP_MAX * 0.3) {
-            console.log(enemigo.nombre + " huye despavorido")
+        // El que ya huyó una vez y ha vuelto con refuerzos no se va otra vez: pelea hasta el final
+        if (!enemigo.regresado && enemigo.stats.HP <= enemigo.stats.HP_MAX * UMBRAL_HUIDA) {
+            huir(enemigo)
             return
         }
         objetivo = vivos.reduce((min, p) => p.stats.HP < min.stats.HP ? p : min)
@@ -1769,6 +2029,8 @@ function accionEnemigo(enemigo) {
     objetivo.stats.HP = Math.max(0, objetivo.stats.HP - resultado.daño)
     const msg = resultado.critico
         ? "¡" + enemigo.nombre + " ha dado un golpe crítico a " + objetivo.nombre + "! (" + resultado.daño + " daño)"
+        : resultado.refilon
+        ? enemigo.nombre + " le ha dado de refilón a " + objetivo.nombre + " (" + resultado.daño + " daño)"
         : enemigo.nombre + " ha atacado a " + objetivo.nombre + " (" + resultado.daño + " daño)"
     logCombate.push(msg)
     comprobarDerrota()
@@ -1993,23 +2255,36 @@ function quitarCombatesAlAzar(n) {
     elegidas.forEach(c => mapa[c.fila][c.col] = 0)
     return elegidas.length
 }
-// Mapa estelar: n casillas nuevas, solo sobre pasillo vacío (nunca encima de Paku). Si no se pide
-// un tipo, se reparten como al generar el mapa: combate 50%, descanso 40%, evento 10%.
-function crearCasillasNuevas(n, tipo) {
+// Pinta exactamente cuenta[tipo] casillas de cada tipo sobre pasillo vacío, nunca debajo de Paku
+// (su casilla es lo único que importa: al cambiar de sector conserva su posición)
+function pintarCasillas(cuenta) {
     const p = casillaPaku()
-    const libres = mezclar(casillasDeTipo(0).filter(c => c.fila !== p.fila || c.col !== p.col)).slice(0, n)
+    const libres = mezclar(casillasDeTipo(0).filter(c => c.fila !== p.fila || c.col !== p.col))
+    let i = 0
+    for (const tipo of [2, 3, 4]) {
+        for (let k = 0; k < (cuenta[tipo] || 0) && i < libres.length; k++, i++) {
+            mapa[libres[i].fila][libres[i].col] = tipo
+        }
+    }
+}
+
+// Mapa estelar: n casillas nuevas, de un tipo o al azar como al generar el mapa (combate 50%,
+// descanso 40%, evento 10%). Se pintan ya y además se guardan: cada sector nuevo las vuelve a pintar,
+// tal cual salieron, después del reparto normal.
+function crearCasillasNuevas(n, tipo) {
     const cuenta = { 2: 0, 3: 0, 4: 0 }
-    libres.forEach(c => {
+    for (let i = 0; i < n; i++) {
         let t = tipo
         if (t === null) {
             const r = Math.random()
             t = r < 0.5 ? 2 : r < 0.9 ? 3 : 4
         }
-        mapa[c.fila][c.col] = t
         cuenta[t]++
-    })
+    }
+    pintarCasillas(cuenta)
+    for (const t in cuenta) mejorasPartida.casillasExtra[t] += cuenta[t]
     if (tipo === 4) return "Aparecen " + cuenta[4] + " casillas de evento nuevas en el mapa."
-    return "Aparecen " + libres.length + " casillas nuevas: " + cuenta[2] + " de combate, " + cuenta[3] + " de descanso y " + cuenta[4] + " de evento."
+    return "Aparecen " + n + " casillas nuevas: " + cuenta[2] + " de combate, " + cuenta[3] + " de descanso y " + cuenta[4] + " de evento."
 }
 
 // --- Eventos: flujo ---------------------------------------------------------
@@ -2171,7 +2446,173 @@ function dibujarMenu() {
     ctx.fillStyle = "rgb(150, 150, 160)"
     ctx.font = "15px sans-serif"
     ctx.fillText("Elige con el ratón o con ← →  ·  Clic o Enter para empezar", 512, 400)
+
+    zonasMenu.push(dibujarBotonReporte("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", 512, 600))
+    dibujarVersion()
     ctx.textAlign = "left"
+}
+
+// Botón para abrir el panel de reportes, centrado en x; devuelve su zona clicable
+function dibujarBotonReporte(texto, centroX, y) {
+    const alineacion = ctx.textAlign
+    ctx.textAlign = "center"
+    ctx.font = "15px sans-serif"
+    const ancho = ctx.measureText(texto).width + 32
+    const zona = { tipo: "reportar", x: centroX - ancho / 2, y: y, w: ancho, h: 36 }
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)"
+    ctx.fillRect(zona.x, zona.y, zona.w, zona.h)
+    ctx.strokeStyle = "rgba(120, 200, 255, 0.5)"
+    ctx.lineWidth = 1
+    ctx.strokeRect(zona.x, zona.y, zona.w, zona.h)
+    ctx.fillStyle = "rgb(120, 200, 255)"
+    ctx.fillText(texto, centroX, zona.y + 23)
+    ctx.textAlign = alineacion
+    return zona
+}
+
+// Versión en la esquina inferior derecha
+function dibujarVersion() {
+    const alineacion = ctx.textAlign
+    ctx.textAlign = "right"
+    ctx.fillStyle = "rgb(120, 120, 135)"
+    ctx.font = "12px sans-serif"
+    ctx.fillText("v" + VERSION, 1014, 696)
+    ctx.textAlign = alineacion
+}
+
+// --- Panel de reportes ----------------------------------------------------------
+// Es HTML encima del canvas (el canvas no tiene cuadros de texto). Mientras está abierto, el juego
+// no recibe teclas (ver el principio del keydown) y los clics fuera del recuadro no llegan al canvas.
+let panelReporte = null
+let ultimoReporte = -Infinity
+
+function crearPanelReporte() {
+    const fondo = document.createElement("div")
+    fondo.className = "reporte-fondo"
+    fondo.innerHTML = `
+        <form class="reporte" novalidate>
+            <h2>Reportar un bug o una idea</h2>
+            <div class="reporte-tipos">
+                <label><input type="radio" name="tipo" value="Bug" checked> Bug</label>
+                <label><input type="radio" name="tipo" value="Idea"> Idea</label>
+                <label><input type="radio" name="tipo" value="Otra cosa"> Otra cosa</label>
+            </div>
+            <label class="reporte-campo reporte-nombre">Tu nombre <span>(opcional)</span>
+                <input type="text" name="nombre" maxlength="40" autocomplete="off">
+            </label>
+            <label class="reporte-campo">Cuéntame qué ha pasado
+                <textarea name="mensaje" maxlength="2000" rows="5"></textarea>
+            </label>
+            <label class="reporte-campo reporte-esperado">¿Qué esperabas que pasara? <span>(opcional)</span>
+                <textarea name="esperado" maxlength="2000" rows="3"></textarea>
+            </label>
+            <p class="reporte-info"></p>
+            <p class="reporte-estado" aria-live="polite"></p>
+            <div class="reporte-botones">
+                <button type="button" class="reporte-cancelar">Cancelar (Esc)</button>
+                <button type="submit" class="reporte-enviar">Enviar</button>
+            </div>
+        </form>`
+    // Sin pregunta en el formulario, el campo no sale (no se pide algo que luego no se guarda)
+    if (!REPORTES.campos.nombre) fondo.querySelector(".reporte-nombre").remove()
+    if (!REPORTES.campos.esperado) fondo.querySelector(".reporte-esperado").remove()
+    fondo.querySelector(".reporte-cancelar").addEventListener("click", cerrarReporte)
+    fondo.querySelector("form").addEventListener("submit", e => {
+        e.preventDefault()
+        enviarReporte()
+    })
+    // Clic en el fondo oscuro (fuera del recuadro): cierra
+    fondo.addEventListener("mousedown", e => { if (e.target === fondo) cerrarReporte() })
+    document.body.appendChild(fondo)
+    return fondo
+}
+
+// Lo que se manda solo, además de lo que escribe el jugador
+function datosAutomaticosReporte() {
+    let partida = "Desde el menú, sin partida empezada"
+    if (tiempoInicio > 0) {
+        partida = "Sector " + sectorActual + " · nivel medio " + Math.round(nivelMedio() * 10) / 10 +
+            " · " + formatearTiempo(performance.now() - tiempoInicio) + " de partida"
+    }
+    return { version: "v" + VERSION, dificultad: DIFICULTADES[dificultadElegida].nombre, partida: partida }
+}
+
+function reporteAbierto() {
+    return panelReporte !== null && panelReporte.classList.contains("abierto")
+}
+
+function abrirReporte() {
+    if (!panelReporte) panelReporte = crearPanelReporte()
+    const datos = datosAutomaticosReporte()
+    panelReporte.querySelector(".reporte-info").textContent =
+        "Se envía también: versión " + datos.version + " · dificultad " + datos.dificultad +
+        (REPORTES.campos.partida ? " · " + datos.partida : "")
+    panelReporte.querySelector(".reporte-estado").textContent = ""
+    panelReporte.querySelector(".reporte-enviar").disabled = false
+    panelReporte.classList.add("abierto")
+    // Que Paku no siga andando con una tecla que estaba pulsada al abrirlo
+    for (const t in teclas) teclas[t] = false
+    canvas.style.cursor = "default"
+    panelReporte.querySelector("textarea").focus()
+}
+
+function cerrarReporte() {
+    if (panelReporte) panelReporte.classList.remove("abierto")
+}
+
+function enviarReporte() {
+    const form = panelReporte.querySelector("form")
+    const estadoTexto = panelReporte.querySelector(".reporte-estado")
+    const boton = panelReporte.querySelector(".reporte-enviar")
+    const mensaje = form.mensaje.value.trim()
+    if (mensaje === "") {
+        estadoTexto.textContent = "Escribe qué ha pasado antes de enviarlo."
+        form.mensaje.focus()
+        return
+    }
+    if (!REPORTES.url) {
+        estadoTexto.textContent = "Los reportes todavía no están configurados: no se ha enviado nada."
+        return
+    }
+    if (performance.now() - ultimoReporte < ESPERA_ENTRE_REPORTES) {
+        estadoTexto.textContent = "Acabas de enviar uno: espera unos segundos antes del siguiente."
+        return
+    }
+    const valores = {
+        ...datosAutomaticosReporte(),
+        tipo: form.tipo.value,
+        nombre: form.nombre ? form.nombre.value.trim() || "Anónimo" : "",
+        mensaje: mensaje,
+        esperado: form.esperado ? form.esperado.value.trim() : ""
+    }
+    const cuerpo = new URLSearchParams()
+    for (const clave in REPORTES.campos) {
+        const entrada = REPORTES.campos[clave]
+        if (!entrada || valores[clave] === "") continue
+        if (clave === "tipo" && valores.tipo === "Otra cosa") {
+            // La opción "Otro" de una pregunta de opción múltiple se manda así en Google Forms
+            cuerpo.append(entrada, "__other_option__")
+            cuerpo.append(entrada + ".other_option_response", "Otra cosa")
+        } else {
+            cuerpo.append(entrada, valores[clave])
+        }
+    }
+    boton.disabled = true
+    estadoTexto.textContent = "Enviando..."
+    // Google Forms no deja leer su respuesta desde otra web ("no-cors"): solo se sabe si ha fallado la
+    // conexión. Si llega, la respuesta queda guardada en el formulario.
+    fetch(REPORTES.url, { method: "POST", mode: "no-cors", body: cuerpo })
+        .then(() => {
+            ultimoReporte = performance.now()
+            form.mensaje.value = ""
+            if (form.esperado) form.esperado.value = ""
+            estadoTexto.textContent = "¡Enviado! Gracias por ayudar a mejorar el juego."
+            setTimeout(cerrarReporte, 1800)
+        })
+        .catch(() => {
+            boton.disabled = false
+            estadoTexto.textContent = "No se ha podido enviar. Revisa tu conexión e inténtalo otra vez."
+        })
 }
 
 function dibujarPared(x, y, b) {
@@ -2187,6 +2628,17 @@ function dibujarPared(x, y, b) {
     if (b.esqNE) ctx.fillRect(x + tamTile - g, y, g, g)
     if (b.esqSO) ctx.fillRect(x, y + tamTile - g, g, g)
     if (b.esqSE) ctx.fillRect(x + tamTile - g, y + tamTile - g, g, g)
+}
+
+// Si ya no queda ninguna casilla de combate, descanso ni evento, la nave manda nuevas patrullas:
+// se vuelven a repartir casillas por el pasillo (nunca debajo de Paku) y sube el contador de sector
+function comprobarSectorDespejado() {
+    const quedan = mapa.some(filaMapa => filaMapa.some(t => t === 2 || t === 3 || t === 4))
+    if (quedan) return
+    sectorActual++
+    generarCasillas(casillaPaku())
+    pintarCasillas(mejorasPartida.casillasExtra)   // las de más del Mapa estelar, después del reparto
+    avisoSectorHasta = performance.now() + DURACION_AVISO_SECTOR
 }
 
 function dibujarExploracion() {
@@ -2232,6 +2684,27 @@ function dibujarExploracion() {
         ctx.fillText(msg, 320, 270 + i * 25)
     })
 }
+    // Contador de sector (arriba a la izquierda, sobre el muro) y aviso al despejar uno
+    ctx.textAlign = "left"
+    ctx.font = "bold 14px sans-serif"
+    ctx.fillStyle = "rgb(220, 220, 235)"
+    ctx.fillText("Sector " + sectorActual, 8, 21)
+    if (performance.now() < avisoSectorHasta) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
+        ctx.fillRect(262, 60, 500, 80)
+        ctx.strokeStyle = "rgb(120, 220, 140)"
+        ctx.lineWidth = 2
+        ctx.strokeRect(262, 60, 500, 80)
+        ctx.lineWidth = 1
+        ctx.textAlign = "center"
+        ctx.fillStyle = "rgb(120, 220, 140)"
+        ctx.font = "bold 24px sans-serif"
+        ctx.fillText("¡Sector despejado!", 512, 95)
+        ctx.fillStyle = "white"
+        ctx.font = "15px sans-serif"
+        ctx.fillText("La nave manda patrullas más duras  ·  Sector " + sectorActual, 512, 124)
+        ctx.textAlign = "left"
+    }
 }
 
 function colorNombre(p) {
@@ -2354,6 +2827,7 @@ function dibujarMarcador(x, y, direccion) {
 
 function estadoEspecialEnemigo(en) {
     if (en.estallo) return { texto: "Ha estallado", color: "gray" }
+    if (en.huyo) return { texto: "Ha huido", color: "gray" }
     if (en.stats.HP <= 0) return null
     const pirateado = en.dron && mejorasPartida.dronesPirateados
     if (en.aturdido > 0) return { texto: "Aturdido", color: "rgb(240, 220, 90)" }
@@ -2368,6 +2842,71 @@ function estadoEspecialEnemigo(en) {
     return null
 }
 
+// Enemigos a la derecha. Hasta 3, en una columna; de 4 a 6, en formación escalonada: dos columnas en
+// zigzag (1º arriba a la izquierda, 2º un poco más abajo a la derecha, 3º debajo del 1º...), con la
+// vida y el estado en líneas separadas para que no se pisen. Si no caben, todos los sprites se reducen
+// por igual (Bisotuf es más grande).
+const COLUMNAS_FORMACION = [740, 880]   // borde izquierdo de cada columna (el log acaba en 732)
+const ANCHO_COLUMNA_FORMACION = 138
+const Y_MAXIMA_ENEMIGOS = 550           // justo encima del panel inferior
+function dibujarEnemigosCombate() {
+    const n = enemigosCombate.length
+    const tamanos = enemigosCombate.map(en => 96 * (ESCALA_ENEMIGO[en.tipo] || 1))
+    const formacion = n > 3
+    let factor, paso
+    if (formacion) {
+        // Cada enemigo ocupa su sprite más ~70 px de texto; entre columnas van desfasados medio hueco
+        const ALTO_TEXTO = 74
+        const tamMax = Math.max(...tamanos)
+        const cabe = (Y_MAXIMA_ENEMIGOS - 20 - ALTO_TEXTO + 4 - (ALTO_TEXTO / 2) * (n - 1)) / ((n + 1) / 2)
+        factor = Math.min(1, cabe / tamMax, (ANCHO_COLUMNA_FORMACION - 20) / tamMax)
+        paso = (tamMax * factor + ALTO_TEXTO) / 2
+    } else {
+        const sumaTamanos = tamanos.reduce((suma, t) => suma + t, 0)
+        factor = Math.min(1, (520 + 12 - 62 * n) / sumaTamanos)
+    }
+    const fuenteAnterior = ctx.font
+    if (formacion) ctx.font = "13px sans-serif"
+    let cursor = 20
+    enemigosCombate.forEach((en, i) => {
+        const tam = Math.round(tamanos[i] * factor)
+        const x = formacion ? COLUMNAS_FORMACION[i % 2] : 850 - tam / 2
+        const y = formacion ? 20 + i * paso : cursor
+        const muerto = en.stats.HP <= 0
+        const elegido = faseCombate === "objetivo" && i === objetivoSeleccionado
+        ctx.globalAlpha = muerto ? 0.25 : 1
+        dibujarSprite(en.tipo, x, y, tam, true)
+        ctx.globalAlpha = 1
+        dibujarBarraHP(x, y + tam + 6, tam, en.stats)
+        ctx.fillStyle = muerto ? "gray" : elegido ? "orange" : "white"
+        const textoHP = en.stats.HP + "/" + en.stats.HP_MAX + " HP"
+        // Estado especial (cuenta atrás del kamikaze, protección del Escolta...): a continuación de la
+        // vida en la columna; en la formación, en su propia línea
+        const especial = estadoEspecialEnemigo(en)
+        if (formacion) {
+            // Un nombre que no quepa en la columna (p. ej. "Androide de asalto B") va un punto más pequeño
+            if (ctx.measureText(en.nombre).width > ANCHO_COLUMNA_FORMACION) ctx.font = "12px sans-serif"
+            ctx.fillText(en.nombre, x, y + tam + 28)
+            ctx.font = "13px sans-serif"
+            ctx.fillText(textoHP, x, y + tam + 45)
+            if (especial) {
+                ctx.fillStyle = especial.color
+                ctx.fillText(especial.texto, x, y + tam + 62)
+            }
+        } else {
+            ctx.fillText(en.nombre, x, y + tam + 30)
+            ctx.fillText(textoHP, x, y + tam + 48)
+            if (especial) {
+                ctx.fillStyle = especial.color
+                ctx.fillText("  · " + especial.texto, x + ctx.measureText(textoHP).width, y + tam + 48)
+            }
+        }
+        if (elegido) dibujarMarcador(x + tam + 4, y + tam / 2, "izquierda")
+        cursor += tam + 62
+    })
+    ctx.font = fuenteAnterior
+}
+
 function dibujarCombate() {
     dibujarFondo("fondoCombate")
     ctx.font = "14px sans-serif"
@@ -2375,7 +2914,7 @@ function dibujarCombate() {
     // Equipo: columna vertical a la izquierda
     equipoJugador.forEach((p, i) => {
         const tam = 64
-        const x = 118
+        const x = 60
         const y = 45 + i * 120
         ctx.globalAlpha = p.stats.HP <= 0 ? 0.35 : 1
         dibujarSprite(p.nombre, x, y, tam)
@@ -2387,35 +2926,7 @@ function dibujarCombate() {
         if (equipoJugador[personajeActual] === p) dibujarMarcador(x - 4, y + tam / 2, "derecha")
     })
 
-    // Enemigos: columna vertical a la derecha
-    // Si no caben (p. ej. 3 enemigos grandes), se reducen todos los sprites por igual
-    const tamanos = enemigosCombate.map(en => 96 * (ESCALA_ENEMIGO[en.tipo] || 1))
-    const sumaTamanos = tamanos.reduce((suma, t) => suma + t, 0)
-    const factor = Math.min(1, (520 + 12 - 62 * enemigosCombate.length) / sumaTamanos)
-    let cursor = 20
-    enemigosCombate.forEach((en, i) => {
-        const tam = Math.round(tamanos[i] * factor)
-        const x = 850 - tam / 2
-        const y = cursor
-        const muerto = en.stats.HP <= 0
-        const elegido = faseCombate === "objetivo" && i === objetivoSeleccionado
-        ctx.globalAlpha = muerto ? 0.25 : 1
-        dibujarSprite(en.tipo, x, y, tam, true)
-        ctx.globalAlpha = 1
-        dibujarBarraHP(x, y + tam + 6, tam, en.stats)
-        ctx.fillStyle = muerto ? "gray" : elegido ? "orange" : "white"
-        ctx.fillText(en.nombre, x, y + tam + 30)
-        const textoHP = en.stats.HP + "/" + en.stats.HP_MAX + " HP"
-        ctx.fillText(textoHP, x, y + tam + 48)
-        // Estado especial a continuación de la vida: cuenta atrás del kamikaze o protección del Escolta
-        const especial = estadoEspecialEnemigo(en)
-        if (especial) {
-            ctx.fillStyle = especial.color
-            ctx.fillText("  · " + especial.texto, x + ctx.measureText(textoHP).width, y + tam + 48)
-        }
-        if (elegido) dibujarMarcador(x + tam + 4, y + tam / 2, "izquierda")
-        cursor += tam + 62
-    })
+    dibujarEnemigosCombate()
 
     // Panel inferior
     ctx.fillStyle = "rgb(52, 52, 54)"
@@ -2475,29 +2986,47 @@ function dibujarCombate() {
     ctx.font = "14px sans-serif"
     if (faseCombate === "objetivo") {
         ctx.fillStyle = "orange"
-        ctx.fillText("Elige objetivo: W/S o flechas, Enter confirma, Esc vuelve", 280, 352)
-    } else if (faseCombate === "habilidad") {
-        ctx.fillStyle = "orange"
-        ctx.fillText("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", 280, 352)
+        ctx.fillText("Elige objetivo: W/S o flechas, Enter confirma, Esc vuelve", 222, 352)
+        // Probabilidad de dar de refilón al marcado (si el Escolta está protegido, ya cuenta)
+        const marcado = enemigosCombate[objetivoSeleccionado]
+        if (marcado && marcado.stats.HP > 0) {
+            ctx.fillStyle = "rgb(180, 180, 190)"
+            ctx.fillText("Probabilidad de refilón contra " + marcado.nombre + ": " + probabilidadRefilon(personaje, marcado) + "%", 222, 332)
+        }
+    } else if (faseCombate === "habilidad" && disponibles[habilidadSeleccionada]) {
+        // Qué hace la habilidad marcada (en gris si no hay orbes para usarla)
+        const h = disponibles[habilidadSeleccionada]
+        ctx.fillStyle = "rgb(180, 180, 190)"
+        ctx.fillText("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", 222, 332)
+        ctx.fillStyle = personaje.energia >= h.coste ? "orange" : "gray"
+        ctx.fillText(h.nombre + ": " + descripcionHabilidad(personaje, h), 222, 352)
+    } else if (faseCombate === "seleccion" && accionSeleccionada === 1 && disponibles.length === 1) {
+        // Con una sola habilidad no hay submenú: se describe al marcar "Habilidad"
+        const h = disponibles[0]
+        ctx.fillStyle = personaje.energia >= h.coste ? "orange" : "gray"
+        ctx.fillText(h.nombre + ": " + descripcionHabilidad(personaje, h), 222, 352)
+    } else if (faseCombate === "seleccion" && accionSeleccionada === 2) {
+        ctx.fillStyle = "rgb(120, 190, 220)"
+        ctx.fillText("Defender: DEF doble y +" + ESQUIVA_DEFENDER + "% de que te den de refilón esta ronda", 222, 352)
     } else if (faseCombate === "objeto" && objetos[objetoSeleccionado]) {
         // Qué hace el objeto marcado
         ctx.fillStyle = "rgb(120, 220, 140)"
-        ctx.fillText(OBJETOS[objetos[objetoSeleccionado].id].descripcion + " · Esc vuelve", 280, 352)
+        ctx.fillText(OBJETOS[objetos[objetoSeleccionado].id].descripcion + " · Esc vuelve", 222, 352)
     }
     if (logCombate.length > 0) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
-        ctx.fillRect(270, 368, 520, 186)
+        ctx.fillRect(212, 368, 520, 186)
     }
     ctx.fillStyle = "white"
     // El log cabe en 9 líneas: si hay más (golpes encadenados), se ven las últimas
     logCombate.slice(-9).forEach((msg, i) => {
-        ctx.fillText(msg, 280, 385 + i * 20)
+        ctx.fillText(msg, 222, 385 + i * 20)
     })
 }
-const ETIQUETAS_STATS = { HP_MAX: "HP", ATK: "ATK", DEF: "DEF", VEL: "VEL", LUCK: "LUCK" }
-const ORDEN_STATS = ["HP_MAX", "ATK", "DEF", "VEL", "LUCK"]
+const ETIQUETAS_STATS = { HP_MAX: "HP", ATK: "ATK", DEF: "DEF", VEL: "VEL", LUCK: "LUCK", PRE: "PRE", EVA: "EVA" }
+const ORDEN_STATS = ["HP_MAX", "ATK", "DEF", "VEL", "LUCK", "PRE", "EVA"]
 
-// Los cinco stats en una fila; si "mejoras" trae un valor para alguno, se resalta en verde justo detrás
+// Los siete stats en una fila; si "mejoras" trae un valor para alguno, se resalta en verde justo detrás
 // (con measureText, para poder ir "pegando" texto de colores distintos), y al final el total subido.
 function dibujarFilaStats(x, y, stats, mejoras) {
     const fuenteAnterior = ctx.font
@@ -2515,7 +3044,7 @@ function dibujarFilaStats(x, y, stats, mejoras) {
             ctx.fillText(extra, cursor, y)
             cursor += ctx.measureText(extra).width
         }
-        cursor += 18
+        cursor += 14
     })
     const total = Object.values(mejoras).reduce((suma, v) => suma + v, 0)
     if (total > 0) {
@@ -2654,6 +3183,7 @@ function dibujarEstadisticas() {
 
         zonasEstadisticas.push({ indice: i, x: 20, y: y, w: 260, h: 78 })
     })
+    zonasEstadisticas.push(dibujarBotonReporte("Reportar un bug o una idea (R)", 880, 22))
 
     // Panel de detalle de la derecha: el personaje resaltado en la lista
     const p = equipoJugador[personajeSeleccionado]
@@ -2722,10 +3252,12 @@ function dibujarEstadisticas() {
     ctx.fillText(
         "Tiempo: " + formatearTiempo(tiempoActual) +
         "   Enemigos derrotados: " + totalDerrotados +
-        "   Dificultad: " + DIFICULTADES[dificultadElegida].nombre,
+        "   Dificultad: " + DIFICULTADES[dificultadElegida].nombre +
+        "   Sector: " + sectorActual,
         340, 670)
 
     dibujarResumenPartida(20, 470, 260, 696)
+    dibujarVersion()
 }
 
 // Columna bajo la lista de personajes: objetos, lo preparado para el próximo combate y lo que
@@ -2733,11 +3265,16 @@ function dibujarEstadisticas() {
 function dibujarResumenPartida(x, y, ancho, yMaximo) {
     const preparado = []
     if (preparativos.orbesExtra > 0) preparado.push("+" + preparativos.orbesExtra + " orbe(s)")
-    if (preparativos.cantidadEnemigos === 3) preparado.push("patrulla de 3")
+    if (preparativos.cantidadEnemigos > 1) preparado.push("patrulla de " + preparativos.cantidadEnemigos)
     if (preparativos.cantidadEnemigos === 1) preparado.push("un solo enemigo")
     if (preparativos.xpExtra > 1) preparado.push("+" + Math.round((preparativos.xpExtra - 1) * 100) + "% XP")
     if (preparativos.emp) preparado.push("pulso EMP")
+    if (preparativos.sorpresa > 0) preparado.push("por sorpresa")
     if (preparativos.dronAliado) preparado.push("dron aliado")
+    // Sin cantidad fijada por un evento, el próximo combate es el del fugitivo más antiguo
+    if (fugitivos.length > 0 && preparativos.cantidadEnemigos === null && preparativos.claseEnemigos === null) {
+        preparado.push("vuelve " + fugitivos[0].base.nombre + " con " + REFUERZOS_FUGITIVO + " más")
+    }
 
     const pct = m => Math.round((1 - m) * 100) + "%"
     const partida = []
@@ -2749,6 +3286,12 @@ function dibujarResumenPartida(x, y, ancho, yMaximo) {
     if (mejorasPartida.dronesPirateados) partida.push("drones pirateados")
     if (mejorasPartida.robots > 0) partida.push("robot: +" + Math.round(CURA_ROBOT * mejorasPartida.robots * 100) + "% vida tras combate")
     if (mejorasPartida.combatesHambrientos > 0) partida.push("enemigos hambrientos (" + mejorasPartida.combatesHambrientos + ")")
+    const extra = mejorasPartida.casillasExtra
+    if (extra[2] + extra[3] + extra[4] > 0) partida.push("por sector: +" + extra[2] + " combate, +" + extra[3] + " descanso, +" + extra[4] + " evento")
+    if (sectorActual > 1) {
+        const s = sectorActual - 1
+        partida.push("sector " + sectorActual + ": enemigos +" + Math.round(ESCALADO_SECTOR.vida * s * 100) + "% vida, +" + Math.round(ESCALADO_SECTOR.ataque * s * 100) + "% ATK")
+    }
 
     let cursor = y
     const linea = (texto, color, maxLineas = 2) => {
@@ -2789,9 +3332,11 @@ function dibujarDerrota() {
     ctx.fillText("Derrota", 450, 120)
     ctx.fillStyle = "white"
     ctx.font = "18px sans-serif"
-    ctx.fillText("Tiempo de partida: " + formatearTiempo(tiempoPartida), 380, 180)
+    ctx.fillText("Tiempo de partida: " + formatearTiempo(tiempoPartida) + "   ·   Sector " + sectorActual, 380, 180)
 
+    // De más a menos derrotados (a igualdad, por orden alfabético)
     const tipos = Object.keys(enemigosDerrotados)
+        .sort((a, b) => enemigosDerrotados[b] - enemigosDerrotados[a] || a.localeCompare(b))
     const total = tipos.reduce((suma, t) => suma + enemigosDerrotados[t], 0)
     ctx.fillText("Enemigos derrotados: " + total, 380, 220)
 
@@ -2800,11 +3345,16 @@ function dibujarDerrota() {
         ctx.fillStyle = "gray"
         ctx.fillText("Ninguno", 380, 270)
     }
+    // Dos columnas (la primera se llena antes): con todos los tipos del juego caben de sobra
+    // por encima del "Pulsa Enter"
+    const porColumna = Math.ceil(tipos.length / 2)
+    const altoFila = Math.min(46, Math.floor(330 / Math.max(1, porColumna)))
     tipos.forEach((tipo, i) => {
-        const y = 250 + i * 46
+        const x = i < porColumna ? 110 : 540
+        const y = 245 + (i % porColumna) * altoFila
         ctx.fillStyle = "white"
-        ctx.fillText(tipo + ": " + enemigosDerrotados[tipo], 200, y + 20)
-        dibujarPilaSprites(tipo, enemigosDerrotados[tipo], 470, y, 500)
+        ctx.fillText(tipo + ": " + enemigosDerrotados[tipo], x, y + 20)
+        dibujarPilaSprites(tipo, enemigosDerrotados[tipo], x + 210, y, 170)
     })
 
     ctx.fillStyle = "white"
@@ -2843,6 +3393,7 @@ function loop(marca) {
         comprobarTile()
         bordes()
         actualizarRastro(deltaMs)
+        if (estado === "exploracion") comprobarSectorDespejado()
         dibujarExploracion()
     }
     else if (estado === "combate") {
