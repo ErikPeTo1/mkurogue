@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.6.0"
+const VERSION = "0.7.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -23,11 +23,42 @@ const REPORTES = {
 }
 const ESPERA_ENTRE_REPORTES = 30000   // ms, para que un doble clic no mande el mismo reporte dos veces
 
+// --- Idiomas -----------------------------------------------------------------------
+// Castellano o inglés; se elige en el menú de inicio. Empieza en el del navegador (en español,
+// castellano; en cualquier otro, inglés) y no se guarda nada. Durante la partida no cambia.
+// Los textos fijos (nombres, menús, descripciones) se guardan como { es, en } y se leen con tr();
+// los que se escriben al momento, dentro de funciones, con L(castellano, inglés).
+const IDIOMAS = [{ id: "es", nombre: "Castellano" }, { id: "en", nombre: "English" }]
+let idioma = typeof navigator === "undefined" || /^es/i.test(navigator.language || "es") ? "es" : "en"
+function L(es, en) { return idioma === "en" ? en : es }
+function tr(texto) {
+    if (texto && typeof texto === "object") return texto[idioma] !== undefined ? texto[idioma] : texto.es
+    return texto
+}
+
 const canvas = document.getElementById("juegonave")
 const ctx = canvas.getContext("2d")
 
-canvas.width = 1024
-canvas.height = 704
+// El juego se dibuja siempre en coordenadas de 1024 x 704, pero el canvas tiene la resolución real con
+// la que se ve en pantalla (tamaño en la ventana x densidad de píxeles): así el texto sale nítido en vez
+// de estirado y borroso. Además mantiene la proporción, con bandas a los lados o arriba y abajo, en vez
+// de deformarse (por ejemplo, en pantalla completa en un monitor 16:9).
+const ANCHO_JUEGO = 1024, ALTO_JUEGO = 704
+function ajustarTamaño() {
+    const ventanaAncho = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : ANCHO_JUEGO
+    const ventanaAlto = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : ALTO_JUEGO
+    const escala = Math.min(ventanaAncho / ANCHO_JUEGO, ventanaAlto / ALTO_JUEGO)
+    const cssAncho = Math.floor(ANCHO_JUEGO * escala), cssAlto = Math.floor(ALTO_JUEGO * escala)
+    const densidad = (typeof window !== "undefined" && window.devicePixelRatio) || 1
+    canvas.style.width = cssAncho + "px"
+    canvas.style.height = cssAlto + "px"
+    canvas.width = Math.round(cssAncho * densidad)
+    canvas.height = Math.round(cssAlto * densidad)
+    // Cambiar el tamaño del canvas lo borra y le quita la transformación: se vuelve a poner
+    ctx.setTransform(canvas.width / ANCHO_JUEGO, 0, 0, canvas.height / ALTO_JUEGO, 0, 0)
+}
+ajustarTamaño()
+if (typeof window !== "undefined" && window.addEventListener) window.addEventListener("resize", ajustarTamaño)
 const tamTile = 32
 
 // --- Imágenes -------------------------------------------------------------
@@ -137,9 +168,15 @@ const DAÑO_REFILON = 0.5
 // multiplicador = sobre el ATK base de poolEnemigos; crecimiento = % de ese ATK por nivel medio del
 // equipo; xp = multiplicador de la experiencia que dan los enemigos.
 const DIFICULTADES = [
-    { nombre: "Fácil",   descripcion: ["Enemigos más flojos", "Subes de nivel más rápido"],     multiplicador: 1.1,  crecimiento: 0.14, xp: 1.5 },
-    { nombre: "Normal",  descripcion: ["El reto pensado", "para el juego"],                     multiplicador: 1.35, crecimiento: 0.18, xp: 1 },
-    { nombre: "Difícil", descripcion: ["Enemigos más duros", "Subes de nivel más despacio"],    multiplicador: 1.7,  crecimiento: 0.24, xp: 0.75 }
+    { nombre: { es: "Fácil", en: "Easy" },
+      descripcion: { es: ["Enemigos más flojos", "Subes de nivel más rápido"], en: ["Weaker enemies", "You level up faster"] },
+      multiplicador: 1.1,  crecimiento: 0.14, xp: 1.5 },
+    { nombre: { es: "Normal", en: "Normal" },
+      descripcion: { es: ["El reto pensado", "para el juego"], en: ["The challenge the game", "was designed for"] },
+      multiplicador: 1.35, crecimiento: 0.18, xp: 1 },
+    { nombre: { es: "Difícil", en: "Hard" },
+      descripcion: { es: ["Enemigos más duros", "Subes de nivel más despacio"], en: ["Tougher enemies", "You level up slower"] },
+      multiplicador: 1.7,  crecimiento: 0.24, xp: 0.75 }
 ]
 let dificultadElegida = 1   // índice en DIFICULTADES; por defecto, Normal
 
@@ -186,33 +223,33 @@ let zonasEstadisticas = []      // zonas clicables de esa lista, recalculadas ca
 const teclas = {}
 // crecimiento = lo que gana cada stat por nivel (admite decimales; el valor final se redondea)
 // habilidades = lista ordenada por nivelMin; objetivo: "enemigo" (se elige), "enemigos" (todos), "aliado" (el más herido), "aliados" (todos)
-const paku   = { nombre: "Paku",   x: 2*tamTile+7, y: 3*tamTile+7, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 2,
+const paku   = { id: "Paku",   nombre: "Paku",   x: 2*tamTile+7, y: 3*tamTile+7, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 2,
     crecimiento: { HP_MAX: 3, ATK: 1, DEF: 0.5, VEL: 0.6, LUCK: 0.3, PRE: 0.4, EVA: 0.3 },
     habilidades: [
-        { id: "embestida", nombre: "Embestida", coste: 2, objetivo: "enemigo", nivelMin: 1 },
-        { id: "rafaga",    nombre: "Ráfaga",    coste: 3, objetivo: "enemigo", nivelMin: 5 }
+        { id: "embestida", nombre: { es: "Embestida", en: "Charge" }, coste: 2, objetivo: "enemigo", nivelMin: 1 },
+        { id: "rafaga",    nombre: { es: "Ráfaga", en: "Barrage" }, coste: 3, objetivo: "enemigo", nivelMin: 5 }
     ],
     stats: { HP:20, HP_MAX:20, ATK:5, DEF:3, VEL:8, LUCK:3, PRE:6, EVA:5 }}
-const mamuri = { nombre: "Mamuri", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
+const mamuri = { id: "Mamuri", nombre: "Mamuri", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
     crecimiento: { HP_MAX: 4, ATK: 2, DEF: 1, VEL: 0.3, LUCK: 0.3, PRE: 0.4, EVA: 0.2 },
     habilidades: [
-        { id: "golpePesado", nombre: "Golpe pesado", coste: 2, objetivo: "enemigo",  nivelMin: 1 },
-        { id: "terremoto",   nombre: "Terremoto",    coste: 3, objetivo: "enemigos", nivelMin: 5 }
+        { id: "golpePesado", nombre: { es: "Golpe pesado", en: "Heavy Blow" }, coste: 2, objetivo: "enemigo",  nivelMin: 1 },
+        { id: "terremoto",   nombre: { es: "Terremoto", en: "Earthquake" }, coste: 3, objetivo: "enemigos", nivelMin: 5 }
     ],
     stats: { HP:30, HP_MAX:30, ATK:10, DEF:6, VEL:4, LUCK:10, PRE:5, EVA:3 }}
 // golpeMultiple: su LUCK x5 (puede pasar de 100%) da golpes encadenados en cada ataque
-const vbz    = { nombre: "VBZ",    x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
+const vbz    = { id: "VBZ",    nombre: "VBZ",    x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
     crecimiento: { HP_MAX: 6, ATK: 0.7, DEF: 1.2, VEL: 0.2, LUCK: 1, PRE: 0.4, EVA: 0.2 },
     habilidades: [
-        { id: "apuesta", nombre: "Apuesta", coste: 2, objetivo: "enemigo", nivelMin: 1 },
-        { id: "racha",   nombre: "Racha",   coste: 3, objetivo: "enemigo", nivelMin: 5 }
+        { id: "apuesta", nombre: { es: "Apuesta", en: "Gamble" }, coste: 2, objetivo: "enemigo", nivelMin: 1 },
+        { id: "racha",   nombre: { es: "Racha", en: "Streak" }, coste: 3, objetivo: "enemigo", nivelMin: 5 }
     ],
     stats: { HP:40, HP_MAX:40, ATK:3,  DEF:6, VEL:2, LUCK:22, PRE:7, EVA:2 }}
-const imanps = { nombre: "Imanps", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
+const imanps = { id: "Imanps", nombre: "Imanps", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
     crecimiento: { HP_MAX: 3.5, ATK: 1.2, DEF: 0.7, VEL: 0.5, LUCK: 0.4, PRE: 0.3, EVA: 0.4 },
     habilidades: [
-        { id: "reparacion", nombre: "Reparación", coste: 2, objetivo: "aliado",  nivelMin: 1 },
-        { id: "oleada",     nombre: "Oleada",     coste: 3, objetivo: "aliados", nivelMin: 5 }
+        { id: "reparacion", nombre: { es: "Reparación", en: "Repair" }, coste: 2, objetivo: "aliado",  nivelMin: 1 },
+        { id: "oleada",     nombre: { es: "Oleada", en: "Healing Wave" }, coste: 3, objetivo: "aliados", nivelMin: 5 }
     ],
     stats: { HP:25, HP_MAX:25, ATK:7,  DEF:4, VEL:5, LUCK:8, PRE:5, EVA:6 }}
 // Stats de nivel 1 (base) y extras permanentes (HP de los descansos, mejoras del Taller de armas)
@@ -249,6 +286,28 @@ const poolEnemigos = [
     // El tanque: muchísima vida y poco daño. Raro (peso 4), pero da mucha XP
     { nombre: "Bisotuf", xp: 40, peso: 4, clase: "maquina", ia: "defensivo", defendiendo: false, stats: { HP: 200, HP_MAX: 200, ATK: 3, DEF: 4, VEL: 1, LUCK: 0, PRE: 3, EVA: 0 } }
 ]
+// Nombres que se ven en el juego, en cada idioma, de la tripulación y de los enemigos. Son provisionales:
+// para cambiar un nombre basta con cambiarlo aquí. La clave es el identificador interno (el "nombre" de
+// poolEnemigos y el "id" de la tripulación), que no se toca porque lo usa todo el código.
+const NOMBRES = {
+    "Paku":   { es: "Paku",   en: "Paku" },
+    "Mamuri": { es: "Mamuri", en: "Mamuri" },
+    "VBZ":    { es: "VBZ",    en: "VBZ" },
+    "Imanps": { es: "Imanps", en: "Imanps" },
+    "Corsario Espacial":  { es: "Corsario Espacial",  en: "Space Corsair" },
+    "Moto Pirata":        { es: "Moto Pirata",        en: "Pirate Biker" },
+    "Cañón de cristal":   { es: "Cañón de cristal",   en: "Glass Cannon" },
+    "Dron vigía":         { es: "Dron vigía",         en: "Watch Drone" },
+    "Mercenario":         { es: "Mercenario",         en: "Mercenary" },
+    "Francotirador":      { es: "Francotirador",      en: "Sniper" },
+    "Androide de asalto": { es: "Androide de asalto", en: "Assault Android" },
+    "Dron reparador":     { es: "Dron reparador",     en: "Repair Drone" },
+    "Dron kamikaze":      { es: "Dron kamikaze",      en: "Kamikaze Drone" },
+    "Escolta acorazado":  { es: "Escolta acorazado",  en: "Armored Escort" },
+    "Bisotuf":            { es: "Bisotuf",            en: "Bisotuf" }
+}
+function nombreDe(id) { return NOMBRES[id] ? tr(NOMBRES[id]) : id }
+
 // Enemigos "acompañado" (los frágiles, como el Cañón de cristal): con esta probabilidad, su grupo trae
 // un enemigo prioritario (hay que tumbarlo pronto), un tanque que lo cubre, o los dos. Si el grupo ya
 // tiene uno de ese tipo, no se añade otro. Solo amplían el grupo hasta "ampliarHasta" enemigos; si ya
@@ -278,10 +337,14 @@ const MULTIPLICADOR_EXPLOSION = 3
 // Se consiguen en los eventos y se usan en combate con "Objeto" (gasta el turno de quien lo usa).
 // objetivo: como en las habilidades ("aliado" = el más herido; "aliados" / "enemigos" = todos)
 const OBJETOS = {
-    botiquin: { nombre: "Botiquín",         objetivo: "aliado",   descripcion: "Cura la mitad de la vida al aliado más herido" },
-    granada:  { nombre: "Granada de pulso", objetivo: "enemigos", descripcion: "Daña a todos los enemigos, ignorando su defensa" },
-    bateria:  { nombre: "Batería",          objetivo: "aliados",  descripcion: "+2 orbes de energía a todo el equipo" },
-    reanimador: { nombre: "Kit de reanimación", objetivo: "caido", descripcion: "Revive al primer aliado caído con la mitad de su vida" }
+    botiquin: { nombre: { es: "Botiquín", en: "Medkit" }, objetivo: "aliado",
+                descripcion: { es: "Cura la mitad de la vida al aliado más herido", en: "Heals the most wounded ally for half their HP" } },
+    granada:  { nombre: { es: "Granada de pulso", en: "Pulse Grenade" }, objetivo: "enemigos",
+                descripcion: { es: "Daña a todos los enemigos, ignorando su defensa", en: "Damages every enemy, ignoring their defense" } },
+    bateria:  { nombre: { es: "Batería", en: "Battery" }, objetivo: "aliados",
+                descripcion: { es: "+2 orbes de energía a todo el equipo", en: "+2 energy orbs for the whole team" } },
+    reanimador: { nombre: { es: "Kit de reanimación", en: "Revival Kit" }, objetivo: "caido",
+                  descripcion: { es: "Revive al primer aliado caído con la mitad de su vida", en: "Revives the first fallen ally with half their HP" } }
 }
 const inventario = { botiquin: 0, granada: 0, bateria: 0, reanimador: 0 }
 
@@ -328,131 +391,149 @@ const MINIMO_TALLER = { HP_MAX: 10, ATK: 2, DEF: 2, VEL: 2, LUCK: 2, PRE: 2, EVA
 // --- Eventos de las casillas azules -----------------------------------------
 // opciones() devuelve 2-3 opciones { texto, detalle, efecto }. efecto() aplica lo que pasa y devuelve
 // { lineas } con lo que se cuenta después, y combate: true si al continuar empieza un combate.
+// titulo y texto van en los dos idiomas ({ es, en }, o una función que usa L); lo de dentro de
+// opciones() se escribe con L(castellano, inglés), porque se calcula al abrir el evento.
 const EVENTOS = [
     {
-        titulo: "Caja de suministros",
-        texto: "Una caja sellada con el emblema de la nave. Podría tener algo útil... o una alarma.",
+        titulo: { es: "Caja de suministros", en: "Supply crate" },
+        texto: { es: "Una caja sellada con el emblema de la nave. Podría tener algo útil... o una alarma.",
+                 en: "A sealed crate bearing the ship's emblem. It might hold something useful... or an alarm." },
         opciones: () => [
-            { texto: "Forzarla", detalle: "Dos objetos, pero un 40% de que salte la alarma",
+            { texto: L("Forzarla", "Force it open"), detalle: L("Dos objetos, pero un 40% de que salte la alarma", "Two items, but a 40% chance of setting off the alarm"),
               efecto: () => {
                   const lineas = [darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())]
-                  if (Math.random() < 0.4) return { lineas: [...lineas, "¡Salta la alarma! Llega una patrulla."], combate: true }
+                  if (Math.random() < 0.4) return { lineas: [...lineas, L("¡Salta la alarma! Llega una patrulla.", "The alarm goes off! A patrol is coming.")], combate: true }
                   return { lineas }
               } },
-            { texto: "Abrirla con cuidado", detalle: "Un objeto, sin riesgo",
+            { texto: L("Abrirla con cuidado", "Open it carefully"), detalle: L("Un objeto, sin riesgo", "One item, no risk"),
               efecto: () => ({ lineas: [darObjeto(objetoAlAzar())] }) }
         ]
     },
     {
-        titulo: "Soldado herido",
-        texto: "Un guardia malherido pide clemencia. Dice que conoce las rutas de la patrulla.",
+        titulo: { es: "Soldado herido", en: "Wounded soldier" },
+        texto: { es: "Un guardia malherido pide clemencia. Dice que conoce las rutas de la patrulla.",
+                 en: "A badly wounded guard begs for mercy. He says he knows the patrol routes." },
         opciones: () => {
             const lista = [
-                { texto: "Perdonarle", detalle: "Os chiva la patrulla: 1 orbe más para cada uno en el próximo combate",
+                { texto: L("Perdonarle", "Spare him"), detalle: L("Os chiva la patrulla: 1 orbe más para cada uno en el próximo combate", "He tips you off about the patrol: 1 extra orb each in the next combat"),
                   efecto: () => {
                       preparativos.orbesExtra += 1
-                      return { lineas: ["El guardia os cuenta por dónde pasa la patrulla.", "Próximo combate: empezáis con 1 orbe más cada uno."] }
+                      return { lineas: [L("El guardia os cuenta por dónde pasa la patrulla.", "The guard tells you where the patrol passes."),
+                                        L("Próximo combate: empezáis con 1 orbe más cada uno.", "Next combat: you each start with 1 extra orb.")] }
                   } },
-                { texto: "Rematarle", detalle: "Experiencia para el equipo",
+                { texto: L("Rematarle", "Finish him off"), detalle: L("Experiencia para el equipo", "Experience for the team"),
                   efecto: () => ({ lineas: ganarXPEvento(15) }) }
             ]
             if (inventario.botiquin > 0) {
-                lista.push({ texto: "Curarle (gastas un Botiquín)", detalle: "Agradecido, os da dos objetos",
+                lista.push({ texto: L("Curarle (gastas un Botiquín)", "Heal him (uses a Medkit)"), detalle: L("Agradecido, os da dos objetos", "Grateful, he gives you two items"),
                   efecto: () => {
                       inventario.botiquin--
-                      return { lineas: ["Le curas las heridas y os da lo que lleva encima.", darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())] }
+                      return { lineas: [L("Le curas las heridas y os da lo que lleva encima.", "You patch up his wounds and he hands over what he's carrying."), darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())] }
                   } })
             }
             return lista
         }
     },
     {
-        titulo: "Terminal de seguridad",
-        texto: "Un terminal sigue encendido. VBZ cree que puede colarse en el sistema central de la nave y sabotear algo para siempre.",
+        titulo: { es: "Terminal de seguridad", en: "Security terminal" },
+        texto: { es: "Un terminal sigue encendido. VBZ cree que puede colarse en el sistema central de la nave y sabotear algo para siempre.",
+                 en: "A terminal is still on. VBZ thinks they can sneak into the ship's main system and sabotage something for good." },
         opciones: () => {
             const prob = probabilidadHackeo()
-            const alarma = { lineas: ["El sistema os detecta. ¡Salta la alarma!"], combate: true }
+            const alarma = { lineas: [L("El sistema os detecta. ¡Salta la alarma!", "The system detects you. The alarm goes off!")], combate: true }
             return [
-                { texto: "Sabotear los escudos", detalle: prob + "%: todos los enemigos, un 25% menos de defensa el resto de la partida · si no, alarma",
+                { texto: L("Sabotear los escudos", "Sabotage the shields"),
+                  detalle: prob + L("%: todos los enemigos, un 25% menos de defensa el resto de la partida · si no, alarma", "%: all enemies get 25% less defense for the rest of the run · otherwise, alarm"),
                   efecto: () => {
                       if (Math.random() * 100 >= prob) return alarma
                       mejorasPartida.defensaEnemiga *= SABOTAJE
-                      return { lineas: ["¡Dentro! Desconectas los generadores de escudos de la nave.", "Resto de la partida: los enemigos tienen un 25% menos de defensa."] }
+                      return { lineas: [L("¡Dentro! Desconectas los generadores de escudos de la nave.", "You're in! You shut down the ship's shield generators."),
+                                        L("Resto de la partida: los enemigos tienen un 25% menos de defensa.", "Rest of the run: enemies have 25% less defense.")] }
                   } },
-                { texto: "Sabotear la fábrica de máquinas", detalle: prob + "%: máquinas enemigas, un 25% menos de vida el resto de la partida · si no, alarma",
+                { texto: L("Sabotear la fábrica de máquinas", "Sabotage the machine factory"),
+                  detalle: prob + L("%: máquinas enemigas, un 25% menos de vida el resto de la partida · si no, alarma", "%: enemy machines get 25% less HP for the rest of the run · otherwise, alarm"),
                   efecto: () => {
                       if (Math.random() * 100 >= prob) return alarma
                       mejorasPartida.vidaMaquinas *= SABOTAJE
-                      return { lineas: ["¡Dentro! Saboteas la cadena de montaje.", "Resto de la partida: drones, androides y demás máquinas, un 25% menos de vida."] }
+                      return { lineas: [L("¡Dentro! Saboteas la cadena de montaje.", "You're in! You sabotage the assembly line."),
+                                        L("Resto de la partida: drones, androides y demás máquinas, un 25% menos de vida.", "Rest of the run: drones, androids and other machines have 25% less HP.")] }
                   } },
-                { texto: "Dejarlo estar", detalle: "No pasa nada",
-                  efecto: () => ({ lineas: ["Mejor no tentar a la suerte."] }) }
+                { texto: L("Dejarlo estar", "Leave it"), detalle: L("No pasa nada", "Nothing happens"),
+                  efecto: () => ({ lineas: [L("Mejor no tentar a la suerte.", "Better not to push your luck.")] }) }
             ]
         }
     },
     {
-        titulo: "Taller de armas",
-        texto: "Un taller abandonado, con herramientas y piezas de repuesto. Da para una buena mejora.",
+        titulo: { es: "Taller de armas", en: "Weapons workshop" },
+        texto: { es: "Un taller abandonado, con herramientas y piezas de repuesto. Da para una buena mejora.",
+                 en: "An abandoned workshop with tools and spare parts. Enough for a good upgrade." },
         opciones: () => {
             const lista = mejorasAlAzar(2).map(m => ({
-                texto: m.personaje.nombre + ": " + ETIQUETAS_STATS[m.clave] + " +" + m.cantidad,
-                detalle: "Mejora permanente para " + m.personaje.nombre,
+                texto: m.personaje.nombre + ": " + etiquetaStat(m.clave) + " +" + m.cantidad,
+                detalle: L("Mejora permanente para ", "Permanent upgrade for ") + m.personaje.nombre,
                 efecto: () => {
                     mejorarStat(m.personaje, m.clave, m.cantidad)
-                    return { lineas: [m.personaje.nombre + " gana " + m.cantidad + " de " + ETIQUETAS_STATS[m.clave] + " para el resto de la partida."] }
+                    return { lineas: [textoMejora(m.personaje, m.cantidad, m.clave)] }
                 }
             }))
             const n = factorTaller()
             lista.push({
-                texto: "Todo el equipo: ATK +" + n + " y DEF +" + n,
-                detalle: "Mejora permanente para los cuatro",
+                texto: L("Todo el equipo: ATK +" + n + " y DEF +" + n, "Whole team: ATK +" + n + " and DEF +" + n),
+                detalle: L("Mejora permanente para los cuatro", "Permanent upgrade for all four"),
                 efecto: () => {
                     equipoJugador.forEach(p => { mejorarStat(p, "ATK", n); mejorarStat(p, "DEF", n) })
-                    return { lineas: ["Todo el equipo gana " + n + " de ATK y " + n + " de DEF para el resto de la partida."] }
+                    return { lineas: [L("Todo el equipo gana " + n + " de ATK y " + n + " de DEF para el resto de la partida.",
+                                        "The whole team gains " + n + " ATK and " + n + " DEF for the rest of the run.")] }
                 }
             })
             return lista
         }
     },
     {
-        titulo: "Fuga de plasma",
-        texto: "Una tubería rota escupe plasma en mitad del pasillo.",
+        titulo: { es: "Fuga de plasma", en: "Plasma leak" },
+        texto: { es: "Una tubería rota escupe plasma en mitad del pasillo.",
+                 en: "A broken pipe is spewing plasma in the middle of the corridor." },
         opciones: () => [
-            { texto: "Cruzar corriendo", detalle: "Todo el equipo pierde un 15% de su vida máxima",
-              efecto: () => ({ lineas: ["Cruzáis a la carrera entre chispazos.", ...dañarEquipo(0.15)] }) },
-            { texto: "Dar un rodeo", detalle: "Sin daño, pero el próximo combate será contra 3 enemigos",
+            { texto: L("Cruzar corriendo", "Run through"), detalle: L("Todo el equipo pierde un 15% de su vida máxima", "The whole team loses 15% of their max HP"),
+              efecto: () => ({ lineas: [L("Cruzáis a la carrera entre chispazos.", "You dash through the sparks."), ...dañarEquipo(0.15)] }) },
+            { texto: L("Dar un rodeo", "Take a detour"), detalle: L("Sin daño, pero el próximo combate será contra 3 enemigos", "No damage, but the next combat will be against 3 enemies"),
               efecto: () => {
                   preparativos.cantidadEnemigos = 3
-                  return { lineas: ["Dais un rodeo... justo por la ruta de una patrulla.", "Próximo combate: 3 enemigos."] }
+                  return { lineas: [L("Dais un rodeo... justo por la ruta de una patrulla.", "You take a detour... right into a patrol's route."),
+                                    L("Próximo combate: 3 enemigos.", "Next combat: 3 enemies.")] }
               } }
         ]
     },
     {
-        titulo: "Cápsula de energía",
-        texto: "Una cápsula de energía zumba, inestable. Conectada a vuestros equipos, os daría energía para siempre.",
+        titulo: { es: "Cápsula de energía", en: "Energy capsule" },
+        texto: { es: "Una cápsula de energía zumba, inestable. Conectada a vuestros equipos, os daría energía para siempre.",
+                 en: "An unstable energy capsule hums. Hooked up to your gear, it would give you energy for good." },
         opciones: () => [
-            { texto: "Conectarla al equipo", detalle: "Todos empezáis cada combate con 1 orbe más, toda la partida · 30% de calambrazo",
+            { texto: L("Conectarla al equipo", "Hook it up to your gear"),
+              detalle: L("Todos empezáis cada combate con 1 orbe más, toda la partida · 30% de calambrazo", "You all start every combat with 1 extra orb, for the whole run · 30% chance of a shock"),
               efecto: () => {
                   mejorasPartida.orbesIniciales++
-                  const lineas = ["Resto de la partida: empezáis cada combate con " + mejorasPartida.orbesIniciales + " orbe(s) cada uno."]
-                  if (Math.random() < 0.3) lineas.push("¡Calambrazo!", ...dañarEquipo(0.15))
+                  const lineas = [L("Resto de la partida: empezáis cada combate con " + mejorasPartida.orbesIniciales + " orbe(s) cada uno.",
+                                    "Rest of the run: you each start every combat with " + mejorasPartida.orbesIniciales + " orb(s).")]
+                  if (Math.random() < 0.3) lineas.push(L("¡Calambrazo!", "Zap!"), ...dañarEquipo(0.15))
                   return { lineas }
               } },
-            { texto: "Desmontarla", detalle: "Sin riesgo: os lleváis dos Baterías",
+            { texto: L("Desmontarla", "Take it apart"), detalle: L("Sin riesgo: os lleváis dos Baterías", "No risk: you get two Batteries"),
               efecto: () => ({ lineas: [darObjeto("bateria"), darObjeto("bateria")] }) }
         ]
     },
     {
-        titulo: "Emboscada",
-        texto: "¡Una patrulla os ha visto y os corta el paso!",
+        titulo: { es: "Emboscada", en: "Ambush" },
+        texto: { es: "¡Una patrulla os ha visto y os corta el paso!",
+                 en: "A patrol has spotted you and is blocking your way!" },
         opciones: () => [
-            { texto: "Plantar cara", detalle: "Combate ahora, con un 50% más de experiencia",
+            { texto: L("Plantar cara", "Stand your ground"), detalle: L("Combate ahora, con un 50% más de experiencia", "Fight now, with 50% more experience"),
               efecto: () => {
                   preparativos.xpExtra = 1.5
-                  return { lineas: ["Os preparáis para luchar."], combate: true }
+                  return { lineas: [L("Os preparáis para luchar.", "You get ready to fight.")], combate: true }
               } },
-            { texto: "Huir", detalle: "Escapáis, pero todos pierden un 10% de su vida máxima",
-              efecto: () => ({ lineas: ["Escapáis por los conductos de ventilación.", ...dañarEquipo(0.10)] }) }
+            { texto: L("Huir", "Flee"), detalle: L("Escapáis, pero todos pierden un 10% de su vida máxima", "You escape, but everyone loses 10% of their max HP"),
+              efecto: () => ({ lineas: [L("Escapáis por los conductos de ventilación.", "You escape through the air ducts."), ...dañarEquipo(0.10)] }) }
         ]
     },
     // Campos opcionales de un evento:
@@ -460,304 +541,358 @@ const EVENTOS = [
     //   preparar()   → datos que se fijan al abrirlo y que reciben texto(datos) y opciones(datos)
     //   un efecto que devuelve seguir: true deja el evento abierto, con sus opciones recalculadas
     {
-        titulo: "Taller de reciclaje",
-        texto: "Una recicladora traga chatarra y escupe piezas útiles. Con dos de vuestros objetos podría fabricar una mejora.",
+        titulo: { es: "Taller de reciclaje", en: "Recycling workshop" },
+        texto: { es: "Una recicladora traga chatarra y escupe piezas útiles. Con dos de vuestros objetos podría fabricar una mejora.",
+                 en: "A recycler swallows scrap and spits out useful parts. With two of your items it could build an upgrade." },
         disponible: () => totalObjetos() >= 2,
         opciones: () => [
             ...mejorasAlAzar(2).map(m => ({
-                texto: m.personaje.nombre + ": " + ETIQUETAS_STATS[m.clave] + " +" + m.cantidad,
-                detalle: "Mejora permanente · gastas 2 objetos (de los que más tengáis)",
+                texto: m.personaje.nombre + ": " + etiquetaStat(m.clave) + " +" + m.cantidad,
+                detalle: L("Mejora permanente · gastas 2 objetos (de los que más tengáis)", "Permanent upgrade · uses 2 items (whichever you have most of)"),
                 efecto: () => {
                     const gastados = quitarObjetos(2)
                     mejorarStat(m.personaje, m.clave, m.cantidad)
-                    return { lineas: ["Recicláis: " + gastados.join(" y ") + ".", m.personaje.nombre + " gana " + m.cantidad + " de " + ETIQUETAS_STATS[m.clave] + " para el resto de la partida."] }
+                    return { lineas: [L("Recicláis: ", "You recycle: ") + gastados.join(L(" y ", " and ")) + ".", textoMejora(m.personaje, m.cantidad, m.clave)] }
                 }
             })),
-            { texto: "Salir", detalle: "Os quedáis los objetos", efecto: () => ({ lineas: ["Dejáis la recicladora zumbando."] }) }
+            { texto: L("Salir", "Leave"), detalle: L("Os quedáis los objetos", "You keep your items"),
+              efecto: () => ({ lineas: [L("Dejáis la recicladora zumbando.", "You leave the recycler humming.")] }) }
         ]
     },
     {
-        titulo: "Laboratorio de mutágenos",
-        texto: "Viales de colores burbujean en una vitrina. Prometen hacer más fuerte a quien se los inyecte... a cambio de algo.",
+        titulo: { es: "Laboratorio de mutágenos", en: "Mutagen lab" },
+        texto: { es: "Viales de colores burbujean en una vitrina. Prometen hacer más fuerte a quien se los inyecte... a cambio de algo.",
+                 en: "Colored vials bubble in a display case. They promise to make whoever injects them stronger... at a price." },
         opciones: () => [
             ...mutagenosAlAzar(3).map(m => ({
-                texto: m.personaje.nombre + ": " + ETIQUETAS_STATS[m.sube] + " +" + m.cuanto + ", " + ETIQUETAS_STATS[m.baja] + " −" + m.menos,
-                detalle: "Permanente",
+                texto: m.personaje.nombre + ": " + etiquetaStat(m.sube) + " +" + m.cuanto + ", " + etiquetaStat(m.baja) + " −" + m.menos,
+                detalle: L("Permanente", "Permanent"),
                 efecto: () => {
                     mejorarStat(m.personaje, m.sube, m.cuanto)
                     mejorarStat(m.personaje, m.baja, -m.menos)
-                    return { lineas: [m.personaje.nombre + " se inyecta el mutágeno.", "Resto de la partida: " + ETIQUETAS_STATS[m.sube] + " +" + m.cuanto + " y " + ETIQUETAS_STATS[m.baja] + " −" + m.menos + "."] }
+                    return { lineas: [m.personaje.nombre + L(" se inyecta el mutágeno.", " injects the mutagen."),
+                                      L("Resto de la partida: ", "Rest of the run: ") + etiquetaStat(m.sube) + " +" + m.cuanto + L(" y ", " and ") + etiquetaStat(m.baja) + " −" + m.menos + "."] }
                 }
             })),
-            { texto: "No arriesgarse", detalle: "Nadie se pincha nada", efecto: () => ({ lineas: ["Mejor no jugar con eso."] }) }
+            { texto: L("No arriesgarse", "Don't risk it"), detalle: L("Nadie se pincha nada", "Nobody injects anything"),
+              efecto: () => ({ lineas: [L("Mejor no jugar con eso.", "Better not to mess with that.")] }) }
         ]
     },
     {
-        titulo: "Núcleo de energía",
-        texto: "Un núcleo de energía late en el centro de la sala. Quien lo toque absorberá parte de su poder... y se quemará.",
+        titulo: { es: "Núcleo de energía", en: "Energy core" },
+        texto: { es: "Un núcleo de energía late en el centro de la sala. Quien lo toque absorberá parte de su poder... y se quemará.",
+                 en: "An energy core pulses in the middle of the room. Whoever touches it will absorb part of its power... and get burned." },
         opciones: () => [
             ...equipoJugador.filter(p => p.stats.HP > 1).map(p => ({
-                texto: p.nombre + ": +1 orbe máximo",
-                detalle: "Permanente · pierde la mitad de su vida actual (" + Math.floor(p.stats.HP / 2) + " HP)",
+                texto: p.nombre + L(": +1 orbe máximo", ": +1 max orb"),
+                detalle: L("Permanente · pierde la mitad de su vida actual (", "Permanent · loses half of their current HP (") + Math.floor(p.stats.HP / 2) + " HP)",
                 efecto: () => {
                     const pierde = Math.floor(p.stats.HP / 2)
                     p.stats.HP -= pierde
                     p.bonusOrbes++
-                    return { lineas: [p.nombre + " toca el núcleo y pierde " + pierde + " HP.", "Resto de la partida: " + p.nombre + " tiene " + energiaMaxima(p) + " orbes máximos."] }
+                    return { lineas: [p.nombre + L(" toca el núcleo y pierde ", " touches the core and loses ") + pierde + " HP.",
+                                      L("Resto de la partida: " + p.nombre + " tiene " + energiaMaxima(p) + " orbes máximos.",
+                                        "Rest of the run: " + p.nombre + " has " + energiaMaxima(p) + " max orbs.")] }
                 }
             })),
-            { texto: "No tocarlo", detalle: "Os vais sin quemaros", efecto: () => ({ lineas: ["Ni tocarlo."] }) }
+            { texto: L("No tocarlo", "Don't touch it"), detalle: L("Os vais sin quemaros", "You leave without getting burned"),
+              efecto: () => ({ lineas: [L("Ni tocarlo.", "Hands off.")] }) }
         ]
     },
     {
-        titulo: "Mercader de implantes",
-        texto: "Un mercader clandestino instala implantes de combate. No acepta créditos: cobra en carne. Podéis comprar las veces que queráis.",
+        titulo: { es: "Mercader de implantes", en: "Implant dealer" },
+        texto: { es: "Un mercader clandestino instala implantes de combate. No acepta créditos: cobra en carne. Podéis comprar las veces que queráis.",
+                 en: "A black-market dealer installs combat implants. He doesn't take credits: he charges in flesh. You can buy as many times as you like." },
         opciones: () => [
             ...equipoJugador.filter(p => puedePagarImplante(p)).map(p => ({
-                texto: p.nombre + ": ATK +" + atkImplante() + " por " + COSTE_IMPLANTE + " de vida máxima",
-                detalle: "Permanente · también pierde " + COSTE_IMPLANTE + " de vida ahora (" + p.stats.HP + " → " + (p.stats.HP - COSTE_IMPLANTE) + ")",
+                texto: p.nombre + ": ATK +" + atkImplante() + L(" por " + COSTE_IMPLANTE + " de vida máxima", " for " + COSTE_IMPLANTE + " max HP"),
+                detalle: L("Permanente · también pierde " + COSTE_IMPLANTE + " de vida ahora (", "Permanent · also loses " + COSTE_IMPLANTE + " HP now (") +
+                         p.stats.HP + " → " + (p.stats.HP - COSTE_IMPLANTE) + ")",
                 efecto: () => {
                     const atk = atkImplante()
                     mejorarStat(p, "HP_MAX", -COSTE_IMPLANTE)
                     mejorarStat(p, "ATK", atk)
-                    return { lineas: [p.nombre + " recibe un implante: ATK +" + atk + ", vida máxima −" + COSTE_IMPLANTE + "."], seguir: true }
+                    return { lineas: [L(p.nombre + " recibe un implante: ATK +" + atk + ", vida máxima −" + COSTE_IMPLANTE + ".",
+                                        p.nombre + " gets an implant: ATK +" + atk + ", max HP −" + COSTE_IMPLANTE + ".")], seguir: true }
                 }
             })),
-            { texto: "Salir de la tienda", detalle: "Se puede comprar mientras al personaje le quede más de " + COSTE_IMPLANTE + " de vida",
-              efecto: () => ({ lineas: ["El mercader se despide con una sonrisa metálica."] }) }
+            { texto: L("Salir de la tienda", "Leave the shop"),
+              detalle: L("Se puede comprar mientras al personaje le quede más de " + COSTE_IMPLANTE + " de vida", "You can buy while the character has more than " + COSTE_IMPLANTE + " HP left"),
+              efecto: () => ({ lineas: [L("El mercader se despide con una sonrisa metálica.", "The dealer waves goodbye with a metallic grin.")] }) }
         ]
     },
     {
-        titulo: "Sala de gravedad aumentada",
-        texto: "Un cartel avisa: «Gravedad x10. Solo entrenamiento de élite». Moverse aquí dentro es un infierno... y el mejor entrenamiento posible.",
+        titulo: { es: "Sala de gravedad aumentada", en: "High-gravity room" },
+        texto: { es: "Un cartel avisa: «Gravedad x10. Solo entrenamiento de élite». Moverse aquí dentro es un infierno... y el mejor entrenamiento posible.",
+                 en: "A sign warns: \"Gravity x10. Elite training only.\" Moving in here is hell... and the best training there is." },
         opciones: () => {
             const pct = Math.round(DAÑO_GRAVEDAD[dificultadElegida] * 100)
             const n = factorTaller()
             return [
-                { texto: "Entrenar", detalle: "VEL +" + n + " permanente para todos · todos pierden un " + pct + "% de su vida máxima",
+                { texto: L("Entrenar", "Train"),
+                  detalle: L(etiquetaStat("VEL") + " +" + n + " permanente para todos · todos pierden un " + pct + "% de su vida máxima",
+                             etiquetaStat("VEL") + " +" + n + " permanent for everyone · everyone loses " + pct + "% of their max HP"),
                   efecto: () => {
-                      const lineas = ["Entrenáis hasta caer rendidos.", ...dañarEquipo(DAÑO_GRAVEDAD[dificultadElegida])]
+                      const lineas = [L("Entrenáis hasta caer rendidos.", "You train until you drop."), ...dañarEquipo(DAÑO_GRAVEDAD[dificultadElegida])]
                       equipoJugador.forEach(p => mejorarStat(p, "VEL", n))
-                      lineas.push("Todo el equipo gana " + n + " de VEL para el resto de la partida.")
+                      lineas.push(L("Todo el equipo gana " + n + " de " + etiquetaStat("VEL") + " para el resto de la partida.",
+                                    "The whole team gains " + n + " " + etiquetaStat("VEL") + " for the rest of the run."))
                       return { lineas }
                   } },
-                { texto: "Salir", detalle: "Hoy no toca", efecto: () => ({ lineas: ["Salís antes de que os aplaste la gravedad."] }) }
+                { texto: L("Salir", "Leave"), detalle: L("Hoy no toca", "Not today"),
+                  efecto: () => ({ lineas: [L("Salís antes de que os aplaste la gravedad.", "You get out before the gravity crushes you.")] }) }
             ]
         }
     },
     {
-        titulo: "Biblioteca de datos",
-        texto: "Archivos de entrenamiento de la tripulación enemiga. Mamuri, VBZ e Imanps se ponen a estudiar; Paku sabe leer, pero se queda mirando los dibujos.",
+        titulo: { es: "Biblioteca de datos", en: "Data library" },
+        texto: { es: "Archivos de entrenamiento de la tripulación enemiga. Mamuri, VBZ e Imanps se ponen a estudiar; Paku sabe leer, pero se queda mirando los dibujos.",
+                 en: "Training files of the enemy crew. Mamuri, VBZ and Imanps start studying; Paku can read, but he just stares at the pictures." },
         opciones: () => [
-            { texto: "Técnicas básicas", detalle: "Mamuri, VBZ e Imanps suben un rango su primera habilidad",
+            { texto: L("Técnicas básicas", "Basic techniques"), detalle: L("Mamuri, VBZ e Imanps suben un rango su primera habilidad", "Mamuri, VBZ and Imanps raise their first ability by one rank"),
               efecto: () => ({ lineas: subirRangoHabilidad(0) }) },
-            { texto: "Técnicas avanzadas", detalle: "Suben un rango su segunda habilidad (cuenta aunque aún no la hayan aprendido)",
+            { texto: L("Técnicas avanzadas", "Advanced techniques"),
+              detalle: L("Suben un rango su segunda habilidad (cuenta aunque aún no la hayan aprendido)", "They raise their second ability by one rank (it counts even if they haven't learned it yet)"),
               efecto: () => ({ lineas: subirRangoHabilidad(1) }) }
         ]
     },
     {
-        titulo: "Hangar de drones",
-        texto: "Decenas de drones cargan en sus estaciones. VBZ podría meterles un virus para que se vuelvan contra los suyos.",
+        titulo: { es: "Hangar de drones", en: "Drone hangar" },
+        texto: { es: "Decenas de drones cargan en sus estaciones. VBZ podría meterles un virus para que se vuelvan contra los suyos.",
+                 en: "Dozens of drones are charging at their stations. VBZ could slip them a virus to turn them against their own." },
         disponible: () => !mejorasPartida.dronesPirateados,
         opciones: () => {
             const prob = probabilidadHackeo()
             return [
-                { texto: "Piratear los drones", detalle: prob + "%: el resto de la partida, los drones luchan de vuestro lado · si no, alarma",
+                { texto: L("Piratear los drones", "Hack the drones"),
+                  detalle: prob + L("%: el resto de la partida, los drones luchan de vuestro lado · si no, alarma", "%: for the rest of the run, drones fight on your side · otherwise, alarm"),
                   efecto: () => {
-                      if (Math.random() * 100 >= prob) return { lineas: ["Los drones detectan el virus. ¡Salta la alarma!"], combate: true }
+                      if (Math.random() * 100 >= prob) return { lineas: [L("Los drones detectan el virus. ¡Salta la alarma!", "The drones detect the virus. The alarm goes off!")], combate: true }
                       mejorasPartida.dronesPirateados = true
-                      return { lineas: ["¡Virus instalado!", "Resto de la partida: el Dron vigía ataca a sus compañeros, el reparador os cura a vosotros y el kamikaze estalla contra los enemigos."] }
+                      return { lineas: [L("¡Virus instalado!", "Virus installed!"),
+                                        L("Resto de la partida: el " + nombreDe("Dron vigía") + " ataca a sus compañeros, el reparador os cura a vosotros y el kamikaze estalla contra los enemigos.",
+                                          "Rest of the run: the " + nombreDe("Dron vigía") + " attacks its allies, the " + nombreDe("Dron reparador") + " heals you and the " + nombreDe("Dron kamikaze") + " explodes against the enemies.")] }
                   } },
-                { texto: "Robar piezas", detalle: "Sin riesgo: dos Baterías", efecto: () => ({ lineas: [darObjeto("bateria"), darObjeto("bateria")] }) }
+                { texto: L("Robar piezas", "Steal parts"), detalle: L("Sin riesgo: dos Baterías", "No risk: two Batteries"),
+                  efecto: () => ({ lineas: [darObjeto("bateria"), darObjeto("bateria")] }) }
             ]
         }
     },
     {
-        titulo: "Fábrica de androides",
-        texto: "Una cadena de montaje ensambla androides y drones. Sobre la mesa hay un dron reparador a medio programar.",
+        titulo: { es: "Fábrica de androides", en: "Android factory" },
+        texto: { es: "Una cadena de montaje ensambla androides y drones. Sobre la mesa hay un dron reparador a medio programar.",
+                 en: "An assembly line puts together androids and drones. On the table there's a half-programmed repair drone." },
         opciones: () => [
-            { texto: "Sabotear la cadena", detalle: "Resto de la partida: las máquinas enemigas, un 20% menos de ataque",
+            { texto: L("Sabotear la cadena", "Sabotage the line"), detalle: L("Resto de la partida: las máquinas enemigas, un 20% menos de ataque", "Rest of the run: enemy machines get 20% less attack"),
               efecto: () => {
                   mejorasPartida.ataqueMaquinas *= 0.8
-                  return { lineas: ["Desajustáis los servos de la cadena de montaje.", "Resto de la partida: las máquinas enemigas pegan un 20% menos."] }
+                  return { lineas: [L("Desajustáis los servos de la cadena de montaje.", "You knock the assembly line's servos out of alignment."),
+                                    L("Resto de la partida: las máquinas enemigas pegan un 20% menos.", "Rest of the run: enemy machines hit 20% softer.")] }
               } },
-            { texto: "Reprogramar el dron reparador", detalle: "En el próximo combate os cura un " + Math.round(CURA_DRON_ALIADO * 100) + "% al final de cada ronda",
+            { texto: L("Reprogramar el dron reparador", "Reprogram the repair drone"),
+              detalle: L("En el próximo combate os cura un " + Math.round(CURA_DRON_ALIADO * 100) + "% al final de cada ronda",
+                         "In the next combat it heals you " + Math.round(CURA_DRON_ALIADO * 100) + "% at the end of each round"),
               efecto: () => {
                   preparativos.dronAliado = true
-                  return { lineas: ["Imanps le cambia el chip: ahora es vuestro.", "Próximo combate: el dron cura al más herido al final de cada ronda."] }
+                  return { lineas: [L("Imanps le cambia el chip: ahora es vuestro.", "Imanps swaps its chip: now it's yours."),
+                                    L("Próximo combate: el dron cura al más herido al final de cada ronda.", "Next combat: the drone heals the most wounded ally at the end of each round.")] }
               } }
         ]
     },
     {
-        titulo: "Reactor principal",
-        texto: "El reactor que mueve la nave entera. Si lo sobrecargáis, todo el sistema se resentirá... y vosotros también.",
+        titulo: { es: "Reactor principal", en: "Main reactor" },
+        texto: { es: "El reactor que mueve la nave entera. Si lo sobrecargáis, todo el sistema se resentirá... y vosotros también.",
+                 en: "The reactor that powers the whole ship. If you overload it, the whole system will suffer... and so will you." },
         opciones: () => [
-            { texto: "Sobrecargarlo", detalle: "Toda la partida: enemigos con un 10% menos de vida · ahora perdéis un 25% de vida",
+            { texto: L("Sobrecargarlo", "Overload it"), detalle: L("Toda la partida: enemigos con un 10% menos de vida · ahora perdéis un 25% de vida", "Whole run: enemies have 10% less HP · you lose 25% HP now"),
               efecto: () => {
                   mejorasPartida.vidaEnemigos *= 0.9
-                  return { lineas: ["El reactor ruge y os lanza una onda de calor.", ...dañarEquipo(0.25), "Resto de la partida: los enemigos tienen un 10% menos de vida."] }
+                  return { lineas: [L("El reactor ruge y os lanza una onda de calor.", "The reactor roars and hits you with a heat wave."), ...dañarEquipo(0.25),
+                                    L("Resto de la partida: los enemigos tienen un 10% menos de vida.", "Rest of the run: enemies have 10% less HP.")] }
               } },
-            { texto: "No tocarlo", detalle: "Mejor no", efecto: () => ({ lineas: ["Os alejáis del reactor sin hacer ruido."] }) }
+            { texto: L("No tocarlo", "Leave it alone"), detalle: L("Mejor no", "Better not"),
+              efecto: () => ({ lineas: [L("Os alejáis del reactor sin hacer ruido.", "You back away from the reactor quietly.")] }) }
         ]
     },
     {
-        titulo: "Sala de mando",
-        texto: "Pantallas con los planos de la nave y las rutas de las patrullas. Podríais desviar a los guardias.",
+        titulo: { es: "Sala de mando", en: "Command room" },
+        texto: { es: "Pantallas con los planos de la nave y las rutas de las patrullas. Podríais desviar a los guardias.",
+                 en: "Screens with the ship's blueprints and the patrol routes. You could reroute the guards." },
         disponible: () => casillasDeTipo(2).length > 0,
         opciones: () => [
-            { texto: "Reprogramar las patrullas", detalle: "Las 4 casillas de combate más cercanas pasan a ser de evento o de descanso",
+            { texto: L("Reprogramar las patrullas", "Reroute the patrols"), detalle: L("Las 4 casillas de combate más cercanas pasan a ser de evento o de descanso", "The 4 nearest combat tiles become event or rest tiles"),
               efecto: () => ({ lineas: convertirCombatesCercanos(4) }) },
-            { texto: "Salir", detalle: "No tocar nada", efecto: () => ({ lineas: ["Salís sin dejar rastro."] }) }
+            { texto: L("Salir", "Leave"), detalle: L("No tocar nada", "Touch nothing"),
+              efecto: () => ({ lineas: [L("Salís sin dejar rastro.", "You leave without a trace.")] }) }
         ]
     },
     {
-        titulo: "Puerta de seguridad",
-        texto: "Una puerta blindada controla este sector. Abrirla bien podría despejar la zona de patrullas.",
+        titulo: { es: "Puerta de seguridad", en: "Security door" },
+        texto: { es: "Una puerta blindada controla este sector. Abrirla bien podría despejar la zona de patrullas.",
+                 en: "An armored door controls this sector. Opening it could well clear the area of patrols." },
         opciones: () => {
             const prob = probabilidadHackeo()
             const lista = [
-                { texto: "Hackearla", detalle: prob + "%: desaparecen los combates en 5 casillas a la redonda · si no, alarma",
+                { texto: L("Hackearla", "Hack it"), detalle: prob + L("%: desaparecen los combates en 5 casillas a la redonda · si no, alarma", "%: combats within 5 tiles disappear · otherwise, alarm"),
                   efecto: () => {
-                      if (Math.random() * 100 >= prob) return { lineas: ["La puerta os bloquea. ¡Salta la alarma!"], combate: true }
+                      if (Math.random() * 100 >= prob) return { lineas: [L("La puerta os bloquea. ¡Salta la alarma!", "The door locks you out. The alarm goes off!")], combate: true }
                       const n = quitarCombatesCerca(5)
-                      return { lineas: ["La puerta se abre y las patrullas del sector se retiran.", n + " casilla(s) de combate despejada(s)."] }
+                      return { lineas: [L("La puerta se abre y las patrullas del sector se retiran.", "The door opens and the sector's patrols pull back."),
+                                        n + L(" casilla(s) de combate despejada(s).", " combat tile(s) cleared.")] }
                   } }
             ]
             if (inventario.granada > 0) {
-                lista.push({ texto: "Volarla con una Granada de pulso", detalle: "Gastas una Granada · experiencia para el equipo",
+                lista.push({ texto: L("Volarla con una Granada de pulso", "Blow it up with a Pulse Grenade"), detalle: L("Gastas una Granada · experiencia para el equipo", "Uses a Grenade · experience for the team"),
                   efecto: () => {
                       inventario.granada--
-                      return { lineas: ["¡BUM! La puerta salta por los aires.", ...ganarXPEvento(25)] }
+                      return { lineas: [L("¡BUM! La puerta salta por los aires.", "BOOM! The door is blown away."), ...ganarXPEvento(25)] }
                   } })
             }
-            lista.push({ texto: "Pasar de largo", detalle: "No pasa nada", efecto: () => ({ lineas: ["Seguís por otro pasillo."] }) })
+            lista.push({ texto: L("Pasar de largo", "Walk past"), detalle: L("No pasa nada", "Nothing happens"),
+              efecto: () => ({ lineas: [L("Seguís por otro pasillo.", "You take another corridor.")] }) })
             return lista
         }
     },
     {
-        titulo: "Mapa estelar",
-        texto: "Un mapa holográfico de la nave, con zonas que no aparecían en vuestros planos.",
+        titulo: { es: "Mapa estelar", en: "Star map" },
+        texto: { es: "Un mapa holográfico de la nave, con zonas que no aparecían en vuestros planos.",
+                 en: "A holographic map of the ship, with areas that weren't on your blueprints." },
         opciones: () => [
-            { texto: "Explorar zonas nuevas", detalle: "8 casillas más (combate, descanso o evento) en este sector y en los siguientes",
-              efecto: () => ({ lineas: [crearCasillasNuevas(8, null), "Cada sector nuevo tendrá también estas casillas de más."] }) },
-            { texto: "Buscar puntos de interés", detalle: "3 casillas de evento más en este sector y en los siguientes",
-              efecto: () => ({ lineas: [crearCasillasNuevas(3, 4), "Cada sector nuevo tendrá también estas casillas de más."] }) }
+            { texto: L("Explorar zonas nuevas", "Explore new areas"), detalle: L("8 casillas más (combate, descanso o evento) en este sector y en los siguientes", "8 more tiles (combat, rest or event) in this sector and the next ones"),
+              efecto: () => ({ lineas: [crearCasillasNuevas(8, null), L("Cada sector nuevo tendrá también estas casillas de más.", "Every new sector will also have these extra tiles.")] }) },
+            { texto: L("Buscar puntos de interés", "Look for points of interest"), detalle: L("3 casillas de evento más en este sector y en los siguientes", "3 more event tiles in this sector and the next ones"),
+              efecto: () => ({ lineas: [crearCasillasNuevas(3, 4), L("Cada sector nuevo tendrá también estas casillas de más.", "Every new sector will also have these extra tiles.")] }) }
         ]
     },
     {
-        titulo: "Partida con contrabandistas",
-        texto: "Unos contrabandistas juegan a los dados en un almacén. VBZ ya se está frotando las manos.",
+        titulo: { es: "Partida con contrabandistas", en: "Smugglers' game" },
+        texto: { es: "Unos contrabandistas juegan a los dados en un almacén. VBZ ya se está frotando las manos.",
+                 en: "Some smugglers are playing dice in a storeroom. VBZ is already rubbing their hands together." },
         disponible: () => totalObjetos() > 0,
         opciones: () => {
             const prob = probabilidadApuesta()
             const lista = []
             if (totalObjetos() > 0) {
-                lista.push({ texto: "Apostar todos los objetos", detalle: prob + "%: se duplican · si no, los perdéis todos",
+                lista.push({ texto: L("Apostar todos los objetos", "Bet all your items"), detalle: prob + L("%: se duplican · si no, los perdéis todos", "%: they double · otherwise, you lose them all"),
                   efecto: () => {
                       if (Math.random() * 100 < prob) {
                           for (const id in inventario) inventario[id] *= 2
-                          return { lineas: ["¡VBZ gana! Ahora tenéis: " + resumenInventario() + ".", "¿Otra ronda?"], seguir: true }
+                          return { lineas: [L("¡VBZ gana! Ahora tenéis: ", "VBZ wins! You now have: ") + resumenInventario() + ".", L("¿Otra ronda?", "Another round?")], seguir: true }
                       }
                       for (const id in inventario) inventario[id] = 0
-                      return { lineas: ["VBZ pierde... y con él, todos vuestros objetos."] }
+                      return { lineas: [L("VBZ pierde... y con él, todos vuestros objetos.", "VBZ loses... and so do all your items.")] }
                   } })
             }
-            lista.push({ texto: "Retirarse", detalle: "Os quedáis con lo que tenéis",
-              efecto: () => ({ lineas: ["Os vais con " + (totalObjetos() > 0 ? resumenInventario() : "los bolsillos vacíos") + "."] }) })
+            lista.push({ texto: L("Retirarse", "Walk away"), detalle: L("Os quedáis con lo que tenéis", "You keep what you have"),
+              efecto: () => ({ lineas: [L("Os vais con ", "You leave with ") + (totalObjetos() > 0 ? resumenInventario() : L("los bolsillos vacíos", "empty pockets")) + "."] }) })
             return lista
         }
     },
     {
-        titulo: "Caja negra",
-        texto: "La caja negra de una nave abatida. Dentro puede haber tecnología punta... o algo que mejor no despertar.",
+        titulo: { es: "Caja negra", en: "Black box" },
+        texto: { es: "La caja negra de una nave abatida. Dentro puede haber tecnología punta... o algo que mejor no despertar.",
+                 en: "The black box of a downed ship. Inside there may be cutting-edge tech... or something better left asleep." },
         opciones: () => [
-            { texto: "Abrirla", detalle: "55%: una gran mejora permanente · 45%: todos, −10% de vida máxima para siempre",
+            { texto: L("Abrirla", "Open it"), detalle: L("55%: una gran mejora permanente · 45%: todos, −10% de vida máxima para siempre", "55%: a big permanent upgrade · 45%: everyone, −10% max HP for good"),
               efecto: () => {
                   if (Math.random() < 0.55) {
                       const m = mejorasAlAzar(1)[0]
                       const cantidad = m.cantidad * 2
                       mejorarStat(m.personaje, m.clave, cantidad)
-                      return { lineas: ["¡Tecnología punta!", m.personaje.nombre + " gana " + cantidad + " de " + ETIQUETAS_STATS[m.clave] + " para el resto de la partida."] }
+                      return { lineas: [L("¡Tecnología punta!", "Cutting-edge tech!"), textoMejora(m.personaje, cantidad, m.clave)] }
                   }
-                  const lineas = ["Una nube de nanobots os carcome el equipo."]
+                  const lineas = [L("Una nube de nanobots os carcome el equipo.", "A cloud of nanobots eats away at your gear.")]
                   equipoJugador.forEach(p => {
                       const pierde = Math.max(1, Math.round(p.stats.HP_MAX * 0.10))
                       mejorarStat(p, "HP_MAX", -pierde)
-                      lineas.push(p.nombre + ": vida máxima −" + pierde)
+                      lineas.push(p.nombre + L(": vida máxima −", ": max HP −") + pierde)
                   })
                   return { lineas }
               } },
-            { texto: "Dejarla cerrada", detalle: "Hay cosas que es mejor no saber", efecto: () => ({ lineas: ["La dejáis donde estaba."] }) }
+            { texto: L("Dejarla cerrada", "Leave it shut"), detalle: L("Hay cosas que es mejor no saber", "Some things are better left unknown"),
+              efecto: () => ({ lineas: [L("La dejáis donde estaba.", "You leave it where it was.")] }) }
         ]
     },
     {
-        titulo: "Comedor de la tripulación",
-        texto: "La despensa de la tripulación, llena hasta arriba. Lo que os comáis vosotros no se lo comerán ellos.",
+        titulo: { es: "Comedor de la tripulación", en: "Crew mess hall" },
+        texto: { es: "La despensa de la tripulación, llena hasta arriba. Lo que os comáis vosotros no se lo comerán ellos.",
+                 en: "The crew's pantry, stocked to the brim. Whatever you eat, they won't." },
         opciones: () => [
-            { texto: "Daros un festín", detalle: "Todo el equipo recupera un 50% de su vida máxima",
-              efecto: () => ({ lineas: ["Coméis hasta reventar.", ...curarEquipo(0.5)] }) },
-            { texto: "Arrasar la despensa", detalle: "Recuperáis un 25% · los enemigos, hambrientos, −15% de ATK y VEL durante 3 combates",
+            { texto: L("Daros un festín", "Have a feast"), detalle: L("Todo el equipo recupera un 50% de su vida máxima", "The whole team recovers 50% of their max HP"),
+              efecto: () => ({ lineas: [L("Coméis hasta reventar.", "You eat until you burst."), ...curarEquipo(0.5)] }) },
+            { texto: L("Arrasar la despensa", "Raid the pantry"),
+              detalle: L("Recuperáis un 25% · los enemigos, hambrientos, −15% de ATK y VEL durante 3 combates", "You recover 25% · the hungry enemies get −15% ATK and " + etiquetaStat("VEL") + " for 3 combats"),
               efecto: () => {
                   mejorasPartida.combatesHambrientos += COMBATES_HAMBRE
-                  return { lineas: ["Os lo coméis todo y tiráis las sobras por la escotilla.", ...curarEquipo(0.25), "Próximos " + mejorasPartida.combatesHambrientos + " combates: enemigos con un 15% menos de ATK y VEL."] }
+                  return { lineas: [L("Os lo coméis todo y tiráis las sobras por la escotilla.", "You eat everything and toss the leftovers out the airlock."), ...curarEquipo(0.25),
+                                    L("Próximos " + mejorasPartida.combatesHambrientos + " combates: enemigos con un 15% menos de ATK y VEL.",
+                                      "Next " + mejorasPartida.combatesHambrientos + " combats: enemies with 15% less ATK and " + etiquetaStat("VEL") + ".")] }
               } }
         ]
     },
     {
-        titulo: "Señal de socorro",
-        texto: "Una baliza emite una señal de socorro desde un compartimento sellado.",
+        titulo: { es: "Señal de socorro", en: "Distress signal" },
+        texto: { es: "Una baliza emite una señal de socorro desde un compartimento sellado.",
+                 en: "A beacon is sending a distress signal from a sealed compartment." },
         opciones: () => [
-            { texto: "Responder", detalle: "60%: os dan un Kit de reanimación · 40%: es una trampa (combate con +50% de XP)",
+            { texto: L("Responder", "Answer it"), detalle: L("60%: os dan un Kit de reanimación · 40%: es una trampa (combate con +50% de XP)", "60%: you get a Revival Kit · 40%: it's a trap (combat with +50% XP)"),
               efecto: () => {
-                  if (Math.random() < 0.6) return { lineas: ["Un técnico atrapado os agradece el rescate.", darObjeto("reanimador")] }
+                  if (Math.random() < 0.6) return { lineas: [L("Un técnico atrapado os agradece el rescate.", "A trapped technician thanks you for the rescue."), darObjeto("reanimador")] }
                   preparativos.xpExtra = 1.5
-                  return { lineas: ["¡Era una trampa! Os rodea una patrulla."], combate: true }
+                  return { lineas: [L("¡Era una trampa! Os rodea una patrulla.", "It was a trap! A patrol surrounds you.")], combate: true }
               } },
-            { texto: "Ignorarla", detalle: "Seguís adelante", efecto: () => ({ lineas: ["Dejáis atrás la señal."] }) }
+            { texto: L("Ignorarla", "Ignore it"), detalle: L("Seguís adelante", "You move on"),
+              efecto: () => ({ lineas: [L("Dejáis atrás la señal.", "You leave the signal behind.")] }) }
         ]
     },
     {
-        titulo: "Puesto de guardia",
-        texto: "Tras una compuerta entreabierta, un puesto de guardia lleno de soldados jugando a las cartas. Al fondo se ve su armería.",
+        titulo: { es: "Puesto de guardia", en: "Guard post" },
+        texto: { es: "Tras una compuerta entreabierta, un puesto de guardia lleno de soldados jugando a las cartas. Al fondo se ve su armería.",
+                 en: "Behind a half-open hatch, a guard post full of soldiers playing cards. Their armory is at the back." },
         // A partir del segundo sector: en el primero, 6 enemigos de golpe serían demasiado pronto
         disponible: () => sectorActual >= 2,
         opciones: () => [
-            { texto: "Asaltar el puesto", detalle: "6 enemigos, pillados por sorpresa: no reaccionan en 2 rondas · +50% de XP",
+            { texto: L("Asaltar el puesto", "Storm the post"), detalle: L("6 enemigos, pillados por sorpresa: no reaccionan en 2 rondas · +50% de XP", "6 enemies, caught by surprise: they don't react for 2 rounds · +50% XP"),
               efecto: () => {
                   preparativos.cantidadEnemigos = 6
                   preparativos.sorpresa = 2
                   preparativos.xpExtra = 1.5
-                  return { lineas: ["Abrís la compuerta de una patada. ¡Se acabó la partida de cartas!"], combate: true }
+                  return { lineas: [L("Abrís la compuerta de una patada. ¡Se acabó la partida de cartas!", "You kick the hatch open. Card game's over!")], combate: true }
               } },
-            { texto: "Colarse en la armería", detalle: "Os lleváis 2 objetos · 50%: os pillan y os persiguen 4 guardias",
+            { texto: L("Colarse en la armería", "Sneak into the armory"), detalle: L("Os lleváis 2 objetos · 50%: os pillan y os persiguen 4 guardias", "You take 2 items · 50%: you get caught and 4 guards chase you"),
               efecto: () => {
-                  const lineas = ["Os coláis a gatas por detrás de las mesas.", darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())]
+                  const lineas = [L("Os coláis a gatas por detrás de las mesas.", "You crawl in behind the tables."), darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())]
                   if (Math.random() < 0.5) return { lineas }
                   preparativos.cantidadEnemigos = 4
-                  return { lineas: [...lineas, "Al salir tiráis una caja de munición... ¡Os han visto! Cuatro guardias van a por vosotros."], combate: true }
+                  return { lineas: [...lineas, L("Al salir tiráis una caja de munición... ¡Os han visto! Cuatro guardias van a por vosotros.",
+                                                 "On your way out you knock over an ammo crate... They've seen you! Four guards are coming for you.")], combate: true }
               } },
-            { texto: "Pasar de largo", detalle: "Que sigan con su partida", efecto: () => ({ lineas: ["Cerráis la compuerta sin hacer ruido."] }) }
+            { texto: L("Pasar de largo", "Walk past"), detalle: L("Que sigan con su partida", "Let them finish their game"),
+              efecto: () => ({ lineas: [L("Cerráis la compuerta sin hacer ruido.", "You close the hatch quietly.")] }) }
         ]
     },
     {
-        titulo: "Cámara criogénica",
-        texto: "Una cápsula criogénica con alguien dentro. El panel dice que lleva años dormido.",
+        titulo: { es: "Cámara criogénica", en: "Cryo chamber" },
+        texto: { es: "Una cápsula criogénica con alguien dentro. El panel dice que lleva años dormido.",
+                 en: "A cryo pod with someone inside. The panel says they've been asleep for years." },
         opciones: () => [
-            { texto: "Despertar al ocupante", detalle: "Puede despertar bien y ayudaros... o confuso y atacaros",
+            { texto: L("Despertar al ocupante", "Wake the occupant"), detalle: L("Puede despertar bien y ayudaros... o confuso y atacaros", "They might wake up fine and help you... or confused and attack you"),
               efecto: () => {
                   if (Math.random() < 0.6) {
                       preparativos.orbesExtra += 1
-                      return { lineas: ["El ocupante despierta bien: aturdido, pero agradecido.", darObjeto(objetoAlAzar()), "Os avisa de la próxima patrulla: +1 orbe en el próximo combate."] }
+                      return { lineas: [L("El ocupante despierta bien: aturdido, pero agradecido.", "The occupant wakes up fine: dazed, but grateful."), darObjeto(objetoAlAzar()),
+                                        L("Os avisa de la próxima patrulla: +1 orbe en el próximo combate.", "They warn you about the next patrol: +1 orb in the next combat.")] }
                   }
                   preparativos.cantidadEnemigos = 1
                   preparativos.claseEnemigos = "humano"
-                  return { lineas: ["El ocupante despierta confuso, os toma por enemigos... ¡y os ataca!"], combate: true }
+                  return { lineas: [L("El ocupante despierta confuso, os toma por enemigos... ¡y os ataca!", "The occupant wakes up confused, mistakes you for enemies... and attacks!")], combate: true }
               } },
-            { texto: "Dejarlo dormir", detalle: "No es asunto vuestro", efecto: () => ({ lineas: ["Lo dejáis soñar tranquilo."] }) }
+            { texto: L("Dejarlo dormir", "Let them sleep"), detalle: L("No es asunto vuestro", "None of your business"),
+              efecto: () => ({ lineas: [L("Lo dejáis soñar tranquilo.", "You let them dream in peace.")] }) }
         ]
     },
     {
-        titulo: "Duelo de honor",
+        titulo: { es: "Duelo de honor", en: "Duel of honor" },
         // La prueba (un stat al azar) se elige al abrir el evento
         preparar: () => {
             const clave = ORDEN_STATS[Math.floor(Math.random() * ORDEN_STATS.length)]
@@ -765,50 +900,61 @@ const EVENTOS = [
             const media = vivos.reduce((s, p) => s + p.stats[clave], 0) / Math.max(1, vivos.length)
             return { clave: clave, oficial: Math.max(1, Math.round(media * 1.1)) }
         },
-        texto: (d) => "Un oficial de la nave os desafía. " + PRUEBAS_DUELO[d.clave].reto + " (" + ETIQUETAS_STATS[d.clave] + " del oficial: " + d.oficial + ") ¿Quién acepta?",
+        texto: (d) => L("Un oficial de la nave os desafía. " + tr(PRUEBAS_DUELO[d.clave].reto) + " (" + etiquetaStat(d.clave) + " del oficial: " + d.oficial + ") ¿Quién acepta?",
+                        "A ship officer challenges you. " + tr(PRUEBAS_DUELO[d.clave].reto) + " (Officer's " + etiquetaStat(d.clave) + ": " + d.oficial + ") Who accepts?"),
         opciones: (d) => [
             ...equipoJugador.filter(p => p.stats.HP > 0).map(p => {
                 const prob = probabilidadDuelo(p, d)
                 const premio = cantidadTaller(p, d.clave)
                 return {
-                    texto: p.nombre + " (" + ETIQUETAS_STATS[d.clave] + " " + p.stats[d.clave] + ")",
-                    detalle: prob + "% de ganar · si gana, " + ETIQUETAS_STATS[d.clave] + " +" + premio + " permanente; si pierde, se queda a 1 de vida",
+                    texto: p.nombre + " (" + etiquetaStat(d.clave) + " " + p.stats[d.clave] + ")",
+                    detalle: L(prob + "% de ganar · si gana, " + etiquetaStat(d.clave) + " +" + premio + " permanente; si pierde, se queda a 1 de vida",
+                               prob + "% to win · if they win, " + etiquetaStat(d.clave) + " +" + premio + " permanently; if they lose, they're left at 1 HP"),
                     efecto: () => {
                         if (Math.random() * 100 < prob) {
                             mejorarStat(p, d.clave, premio)
-                            return { lineas: [p.nombre + " " + PRUEBAS_DUELO[d.clave].gana + ".", "¡Gana el duelo! " + ETIQUETAS_STATS[d.clave] + " +" + premio + " para el resto de la partida."] }
+                            return { lineas: [p.nombre + " " + tr(PRUEBAS_DUELO[d.clave].gana) + ".",
+                                              L("¡Gana el duelo! " + etiquetaStat(d.clave) + " +" + premio + " para el resto de la partida.",
+                                                "Wins the duel! " + etiquetaStat(d.clave) + " +" + premio + " for the rest of the run.")] }
                         }
                         p.stats.HP = 1
-                        return { lineas: [p.nombre + " " + PRUEBAS_DUELO[d.clave].pierde + ".", "Pierde el duelo y se queda a 1 de vida."] }
+                        return { lineas: [p.nombre + " " + tr(PRUEBAS_DUELO[d.clave].pierde) + ".", L("Pierde el duelo y se queda a 1 de vida.", "Loses the duel and is left at 1 HP.")] }
                     }
                 }
             }),
-            { texto: "Rechazar el duelo", detalle: "El honor no da de comer", efecto: () => ({ lineas: ["El oficial se ríe de vosotros mientras os marcháis."] }) }
+            { texto: L("Rechazar el duelo", "Decline the duel"), detalle: L("El honor no da de comer", "Honor doesn't pay the bills"),
+              efecto: () => ({ lineas: [L("El oficial se ríe de vosotros mientras os marcháis.", "The officer laughs at you as you walk away.")] }) }
         ]
     },
     {
-        titulo: "Generador de pulsos EMP",
-        texto: "Un generador de pulsos electromagnéticos de uso militar. Una descarga dejaría fritas a las máquinas cercanas.",
+        titulo: { es: "Generador de pulsos EMP", en: "EMP generator" },
+        texto: { es: "Un generador de pulsos electromagnéticos de uso militar. Una descarga dejaría fritas a las máquinas cercanas.",
+                 en: "A military-grade electromagnetic pulse generator. One discharge would fry any nearby machines." },
         opciones: () => [
-            { texto: "Cargar el pulso", detalle: "En el próximo combate, las máquinas enemigas no actúan la primera ronda",
+            { texto: L("Cargar el pulso", "Charge the pulse"), detalle: L("En el próximo combate, las máquinas enemigas no actúan la primera ronda", "In the next combat, enemy machines don't act in the first round"),
               efecto: () => {
                   preparativos.emp = true
-                  return { lineas: ["Cargáis el pulso y os lo lleváis listo para disparar.", "Próximo combate: las máquinas enemigas pasan la primera ronda aturdidas."] }
+                  return { lineas: [L("Cargáis el pulso y os lo lleváis listo para disparar.", "You charge the pulse and carry it ready to fire."),
+                                    L("Próximo combate: las máquinas enemigas pasan la primera ronda aturdidas.", "Next combat: enemy machines spend the first round stunned.")] }
               } },
-            { texto: "Desmontarlo", detalle: "Os lleváis una Granada de pulso", efecto: () => ({ lineas: [darObjeto("granada")] }) }
+            { texto: L("Desmontarlo", "Take it apart"), detalle: L("Os lleváis una Granada de pulso", "You get a Pulse Grenade"),
+              efecto: () => ({ lineas: [darObjeto("granada")] }) }
         ]
     },
     {
-        titulo: "Sala de vigilancia",
-        texto: "Monitores con todas las cámaras de la nave. Si los destruís, algunas patrullas os perderán la pista.",
+        titulo: { es: "Sala de vigilancia", en: "Surveillance room" },
+        texto: { es: "Monitores con todas las cámaras de la nave. Si los destruís, algunas patrullas os perderán la pista.",
+                 en: "Monitors showing every camera on the ship. If you destroy them, some patrols will lose track of you." },
         disponible: () => casillasDeTipo(2).length > 0,
         opciones: () => [
-            { texto: "Destruir las cámaras", detalle: "Desaparecen entre 1 y 6 casillas de combate del mapa, al azar",
+            { texto: L("Destruir las cámaras", "Smash the cameras"), detalle: L("Desaparecen entre 1 y 6 casillas de combate del mapa, al azar", "Between 1 and 6 random combat tiles disappear from the map"),
               efecto: () => {
                   const n = quitarCombatesAlAzar(1 + Math.floor(Math.random() * 6))
-                  return { lineas: ["Hacéis añicos los monitores.", n + " patrulla(s) os pierden la pista: " + n + " casilla(s) de combate menos."] }
+                  return { lineas: [L("Hacéis añicos los monitores.", "You smash the monitors to pieces."),
+                                    L(n + " patrulla(s) os pierden la pista: " + n + " casilla(s) de combate menos.", n + " patrol(s) lose track of you: " + n + " fewer combat tile(s).")] }
               } },
-            { texto: "Salir", detalle: "Sin hacer ruido", efecto: () => ({ lineas: ["Salís de puntillas."] }) }
+            { texto: L("Salir", "Leave"), detalle: L("Sin hacer ruido", "Quietly"),
+              efecto: () => ({ lineas: [L("Salís de puntillas.", "You tiptoe out.")] }) }
         ]
     },
     // Pendiente: cuando exista el escudo (una barra como la vida, pero que no se regenera), este evento
@@ -822,40 +968,49 @@ const EVENTOS = [
     //     ]
     // },
     {
-        titulo: "Capilla de la tripulación",
-        texto: "Una pequeña capilla, con velas eléctricas y un silencio que reconforta.",
+        titulo: { es: "Capilla de la tripulación", en: "Crew chapel" },
+        texto: { es: "Una pequeña capilla, con velas eléctricas y un silencio que reconforta.",
+                 en: "A small chapel with electric candles and a comforting silence." },
         opciones: () => {
             const caidos = equipoJugador.filter(p => p.stats.HP <= 0)
             const lista = []
             if (caidos.length > 0) {
-                lista.push({ texto: "Rezar por los caídos", detalle: caidos.map(p => p.nombre).join(", ") + ": vuelve(n) con la mitad de su vida",
+                lista.push({ texto: L("Rezar por los caídos", "Pray for the fallen"),
+                  detalle: caidos.map(p => p.nombre).join(", ") + L(": vuelve(n) con la mitad de su vida", ": come(s) back with half their HP"),
                   efecto: () => ({ lineas: caidos.map(p => {
                       p.stats.HP = Math.ceil(p.stats.HP_MAX / 2)
-                      return p.nombre + " vuelve en sí con " + p.stats.HP + " HP."
+                      return p.nombre + L(" vuelve en sí con ", " comes to with ") + p.stats.HP + " HP."
                   }) }) })
             } else {
-                lista.push({ texto: "Meditar", detalle: "Nadie ha caído: experiencia para el equipo",
-                  efecto: () => ({ lineas: ["Meditáis un rato en silencio.", ...ganarXPEvento(12)] }) })
+                lista.push({ texto: L("Meditar", "Meditate"), detalle: L("Nadie ha caído: experiencia para el equipo", "Nobody has fallen: experience for the team"),
+                  efecto: () => ({ lineas: [L("Meditáis un rato en silencio.", "You meditate in silence for a while."), ...ganarXPEvento(12)] }) })
             }
-            lista.push({ texto: "Seguir adelante", detalle: "No hay tiempo", efecto: () => ({ lineas: ["Seguís vuestro camino."] }) })
+            lista.push({ texto: L("Seguir adelante", "Move on"), detalle: L("No hay tiempo", "No time"),
+              efecto: () => ({ lineas: [L("Seguís vuestro camino.", "You go on your way.")] }) })
             return lista
         }
     },
     {
-        titulo: "Robot de servicio averiado",
-        texto: "Un robot de limpieza tirado en el suelo, echando chispas. Imanps cree que podría arreglarlo.",
+        titulo: { es: "Robot de servicio averiado", en: "Broken service robot" },
+        texto: { es: "Un robot de limpieza tirado en el suelo, echando chispas. Imanps cree que podría arreglarlo.",
+                 en: "A cleaning robot lying on the floor, throwing sparks. Imanps thinks it could be fixed." },
         opciones: () => {
             const pct = Math.round(CURA_ROBOT * 100)
             const lista = []
             if (imanps.stats.HP > 0) {
-                lista.push({ texto: "Que Imanps lo repare", detalle: "Os sigue toda la partida y os cura un " + pct + "% de vida al acabar cada combate",
+                lista.push({ texto: L("Que Imanps lo repare", "Have Imanps fix it"),
+                  detalle: L("Os sigue toda la partida y os cura un " + pct + "% de vida al acabar cada combate", "It follows you for the whole run and heals you " + pct + "% after every combat"),
                   efecto: () => {
                       mejorasPartida.robots++
-                      return { lineas: ["Imanps aprieta un par de tornillos y el robot se pone en pie.", "Resto de la partida: os sigue y cura al equipo un " + pct * mejorasPartida.robots + "% al final de cada combate."] }
+                      return { lineas: [L("Imanps aprieta un par de tornillos y el robot se pone en pie.", "Imanps tightens a couple of screws and the robot gets back on its feet."),
+                                        L("Resto de la partida: os sigue y cura al equipo un " + pct * mejorasPartida.robots + "% al final de cada combate.",
+                                          "Rest of the run: it follows you and heals the team " + pct * mejorasPartida.robots + "% at the end of each combat.")] }
                   } })
             }
-            lista.push({ texto: "Desmontarlo", detalle: "Os lleváis dos objetos", efecto: () => ({ lineas: [darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())] }) })
-            lista.push({ texto: "Dejarlo", detalle: "Que se arregle solo", efecto: () => ({ lineas: ["El robot sigue echando chispas."] }) })
+            lista.push({ texto: L("Desmontarlo", "Take it apart"), detalle: L("Os lleváis dos objetos", "You get two items"),
+              efecto: () => ({ lineas: [darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())] }) })
+            lista.push({ texto: L("Dejarlo", "Leave it"), detalle: L("Que se arregle solo", "Let it fix itself"),
+              efecto: () => ({ lineas: [L("El robot sigue echando chispas.", "The robot keeps throwing sparks.")] }) })
             return lista
         }
     }
@@ -863,13 +1018,27 @@ const EVENTOS = [
 
 // Duelo de honor: cómo se cuenta cada prueba según el stat
 const PRUEBAS_DUELO = {
-    HP_MAX: { reto: "Os reta a ver quién aguanta más en la esclusa sin respirar.", gana: "aguanta hasta que el oficial se desmaya", pierde: "sale tosiendo y morado" },
-    ATK:    { reto: "Os reta a mover un contenedor de carga más deprisa que él.", gana: "mueve el contenedor como si fuera de cartón", pierde: "se deja la espalda empujando" },
-    DEF:    { reto: "Os reta a aguantar sus golpes sin retroceder.", gana: "aguanta sin inmutarse", pierde: "acaba por los suelos" },
-    VEL:    { reto: "Os reta a una carrera por los conductos de ventilación.", gana: "llega el primero y le espera bostezando", pierde: "se queda atascado en un codo del conducto" },
-    LUCK:   { reto: "Os reta a una partida de cartas a todo o nada.", gana: "saca una escalera real", pierde: "se lo juega todo a un farol... y pierde" },
-    PRE:    { reto: "Os reta a darle a una lata con un láser desde la otra punta del hangar.", gana: "le da a la lata a la primera", pierde: "le da a todo menos a la lata" },
-    EVA:    { reto: "Os reta a esquivar las pelotas de goma de su cañón de entrenamiento.", gana: "las esquiva todas sin despeinarse", pierde: "se lleva un pelotazo detrás de otro" }
+    HP_MAX: { reto: { es: "Os reta a ver quién aguanta más en la esclusa sin respirar.", en: "He challenges you to see who can last longest in the airlock without breathing." },
+              gana: { es: "aguanta hasta que el oficial se desmaya", en: "holds out until the officer passes out" },
+              pierde: { es: "sale tosiendo y morado", en: "stumbles out coughing and purple" } },
+    ATK:    { reto: { es: "Os reta a mover un contenedor de carga más deprisa que él.", en: "He challenges you to move a cargo container faster than him." },
+              gana: { es: "mueve el contenedor como si fuera de cartón", en: "moves the container like it was cardboard" },
+              pierde: { es: "se deja la espalda empujando", en: "throws their back out pushing" } },
+    DEF:    { reto: { es: "Os reta a aguantar sus golpes sin retroceder.", en: "He challenges you to take his punches without backing down." },
+              gana: { es: "aguanta sin inmutarse", en: "takes them without flinching" },
+              pierde: { es: "acaba por los suelos", en: "ends up on the floor" } },
+    VEL:    { reto: { es: "Os reta a una carrera por los conductos de ventilación.", en: "He challenges you to a race through the air ducts." },
+              gana: { es: "llega el primero y le espera bostezando", en: "gets there first and waits for him, yawning" },
+              pierde: { es: "se queda atascado en un codo del conducto", en: "gets stuck in a bend in the duct" } },
+    LUCK:   { reto: { es: "Os reta a una partida de cartas a todo o nada.", en: "He challenges you to an all-or-nothing card game." },
+              gana: { es: "saca una escalera real", en: "draws a royal flush" },
+              pierde: { es: "se lo juega todo a un farol... y pierde", en: "goes all in on a bluff... and loses" } },
+    PRE:    { reto: { es: "Os reta a darle a una lata con un láser desde la otra punta del hangar.", en: "He challenges you to hit a can with a laser from across the hangar." },
+              gana: { es: "le da a la lata a la primera", en: "hits the can on the first try" },
+              pierde: { es: "le da a todo menos a la lata", en: "hits everything but the can" } },
+    EVA:    { reto: { es: "Os reta a esquivar las pelotas de goma de su cañón de entrenamiento.", en: "He challenges you to dodge the rubber balls from his training cannon." },
+              gana: { es: "las esquiva todas sin despeinarse", en: "dodges every single one without breaking a sweat" },
+              pierde: { es: "se lleva un pelotazo detrás de otro", en: "takes one ball after another" } }
 }
 let anteriorX = paku.x
 let anteriorY = paku.y
@@ -982,6 +1151,12 @@ document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") cerrarReporte()
         return
     }
+    // Con la ayuda abierta, el juego no ve las teclas: Esc, H, Enter o espacio la cierran
+    if (ayudaAbierta) {
+        const t = e.key.toLowerCase()
+        if (t === "escape" || t === "h" || t === "enter" || t === " ") cerrarAyuda()
+        return
+    }
     // Una tecla mantenida repite keydown: fuera de exploración y del menú solo cuenta la pulsación
     // inicial, salvo Enter/espacio en combate, que confirman en cadena con un pequeño retraso.
     // Además, las pantallas nuevas ignoran teclas un instante para que no se salten sin verlas.
@@ -998,6 +1173,11 @@ document.addEventListener("keydown", function(e) {
     const derecha = tecla === "arrowright" || tecla === "d"
     const confirmar = e.key === "Enter" || e.key === " "
 
+    // H: ayuda sobre lo que se está haciendo ahora (en el menú de inicio, el resumen general)
+    if (tecla === "h" && !e.repeat && estado !== "victoria" && estado !== "derrota") {
+        abrirAyuda()
+        return
+    }
     if (estado === "menu") {
         if (tecla === "r" && !e.repeat) {
             e.preventDefault()   // que la "r" no se escriba en el cuadro de texto al abrirlo
@@ -1090,37 +1270,45 @@ document.addEventListener("keyup", function(e) {
 function empezarPartida() {
     tiempoInicio = performance.now()
     estado = "exploracion"
+    // El idioma ya no cambia durante la partida: la tripulación toma sus nombres en el elegido
+    equipoJugador.forEach(p => p.nombre = nombreDe(p.id))
 }
 // ←/→ (o A/D) cambian de dificultad dando la vuelta: a la derecha de Difícil va Fácil, y a la
-// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↓ lleva al
-// desplegable de colores (ver dibujarDesplegableColores) y ↑ vuelve.
+// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↑ sube a las
+// opciones de arriba a la derecha (idioma, colores y ayuda; ver dibujarBarraMenu).
 function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
-    const nColores = MODOS_COLOR.length
-    if (menuColoresAbierto) {
-        if (arriba) colorResaltado = Math.max(0, colorResaltado - 1)
-        if (abajo) colorResaltado = Math.min(nColores - 1, colorResaltado + 1)
-        if (confirmar) elegirColor(colorResaltado)
-        if (escape) menuColoresAbierto = false
+    if (desplegableAbierto) {
+        const d = DESPLEGABLES[desplegableAbierto]
+        if (arriba) opcionResaltada = Math.max(0, opcionResaltada - 1)
+        if (abajo) opcionResaltada = Math.min(d.opciones().length - 1, opcionResaltada + 1)
+        if (confirmar) elegirOpcionDesplegable(desplegableAbierto, opcionResaltada)
+        if (escape) desplegableAbierto = null
         return
     }
-    if (focoMenu === "colores") {
-        if (arriba) focoMenu = "dificultad"
-        if (izquierda) modoColor = (modoColor - 1 + nColores) % nColores
-        if (derecha) modoColor = (modoColor + 1) % nColores
-        if (confirmar) abrirColores()
+    if (focoMenu === "dificultad") {
+        const n = DIFICULTADES.length
+        if (izquierda) dificultadElegida = (dificultadElegida - 1 + n) % n
+        if (derecha) dificultadElegida = (dificultadElegida + 1) % n
+        if (arriba) focoMenu = ORDEN_BARRA[ORDEN_BARRA.length - 1]
+        if (confirmar) empezarPartida()
         return
     }
-    const n = DIFICULTADES.length
-    if (izquierda) dificultadElegida = (dificultadElegida - 1 + n) % n
-    if (derecha) dificultadElegida = (dificultadElegida + 1) % n
-    if (abajo) focoMenu = "colores"
-    if (confirmar) empezarPartida()
+    // En la columna de arriba a la derecha: ↑/↓ se mueven por ella, Enter abre y Esc (o ↓ desde
+    // el último) vuelve a la dificultad
+    const pos = ORDEN_BARRA.indexOf(focoMenu)
+    if (arriba) focoMenu = ORDEN_BARRA[Math.max(0, pos - 1)]
+    if (abajo) focoMenu = pos === ORDEN_BARRA.length - 1 ? "dificultad" : ORDEN_BARRA[pos + 1]
+    if (escape) focoMenu = "dificultad"
+    if (confirmar) {
+        if (focoMenu === "ayuda") abrirAyuda()
+        else abrirDesplegable(focoMenu)
+    }
 }
 
 // Ratón: convierte el clic a coordenadas del canvas (1024x704) aunque esté escalado en pantalla
 function coordsRaton(e) {
     const r = canvas.getBoundingClientRect()
-    return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) }
+    return { x: (e.clientX - r.left) * (ANCHO_JUEGO / r.width), y: (e.clientY - r.top) * (ALTO_JUEGO / r.height) }
 }
 function zonaEnPunto(lista, x, y) {
     return lista.find(z => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h)
@@ -1144,18 +1332,26 @@ function zonaCercana(lista, x, y) {
 canvas.addEventListener("mousemove", function(e) {
     const p = coordsRaton(e)
     let z = null
+    if (ayudaAbierta) {
+        // Con la ayuda abierta, todo el canvas es "clic para cerrar"
+        canvas.style.cursor = "pointer"
+        return
+    }
     if (estado === "menu") {
         // Pasar el ratón por un recuadro lo elige. Como mousemove solo salta al mover el ratón, si
         // después se usan las flechas, la selección se queda donde la dejan ellas hasta que se mueva.
-        // Con la lista de colores abierta, solo cuentan sus opciones y el propio botón
-        const zonas = menuColoresAbierto ? zonasMenu.filter(z => z.tipo === "color" || z.tipo === "colores") : zonasMenu
+        // Con una lista desplegada, solo cuentan sus opciones y su propio botón
+        const zonas = desplegableAbierto
+            ? zonasMenu.filter(z => z.desplegable === desplegableAbierto)
+            : zonasMenu
         z = zonaCercana(zonas, p.x, p.y)
         if (z && z.tipo === "dificultad") { dificultadElegida = z.indice; focoMenu = "dificultad" }
-        if (z && z.tipo === "colores") focoMenu = "colores"
-        if (z && z.tipo === "color") colorResaltado = z.indice
+        if (z && z.tipo === "desplegable") focoMenu = z.desplegable
+        if (z && z.tipo === "ayuda") focoMenu = "ayuda"
+        if (z && z.tipo === "opcion") opcionResaltada = z.indice
     } else if (estado === "estadisticas") {
         z = zonaCercana(zonasEstadisticas, p.x, p.y)
-        if (z && z.tipo !== "reportar") personajeSeleccionado = z.indice
+        if (z && z.tipo === undefined) personajeSeleccionado = z.indice   // las fichas de personaje no tienen tipo
     } else if (estado === "evento" && !eventoEnCurso.resultado) {
         // Como en el menú de inicio: pasar el ratón por una opción la elige
         z = zonaCercana(zonasEvento, p.x, p.y)
@@ -1169,18 +1365,26 @@ canvas.addEventListener("mouseleave", function() {
 })
 canvas.addEventListener("click", function(e) {
     const p = coordsRaton(e)
+    if (ayudaAbierta) {
+        cerrarAyuda()
+        return
+    }
     if (estado === "menu") {
         // Clic en un recuadro: confirma esa dificultad y empieza la partida
         const z = zonaEnPunto(zonasMenu, p.x, p.y)
-        // Con la lista de colores abierta, un clic elige una opción o, en cualquier otro sitio, la cierra
-        if (menuColoresAbierto) {
-            if (z && z.tipo === "color") elegirColor(z.indice)
-            else menuColoresAbierto = false
+        // Con una lista desplegada, un clic elige una de sus opciones o, en cualquier otro sitio, la cierra
+        if (desplegableAbierto) {
+            if (z && z.tipo === "opcion" && z.desplegable === desplegableAbierto) elegirOpcionDesplegable(z.desplegable, z.indice)
+            else desplegableAbierto = null
             return
         }
         if (!z) return
-        if (z.tipo === "colores") {
-            abrirColores()
+        if (z.tipo === "desplegable") {
+            abrirDesplegable(z.desplegable)
+            return
+        }
+        if (z.tipo === "ayuda") {
+            abrirAyuda()
             return
         }
         if (z.tipo === "reportar") {
@@ -1193,6 +1397,7 @@ canvas.addEventListener("click", function(e) {
     } else if (estado === "estadisticas") {
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z && z.tipo === "reportar") abrirReporte()
+        else if (z && z.tipo === "ayuda") abrirAyuda()
         else if (z) personajeSeleccionado = z.indice
     } else if (estado === "evento") {
         if (eventoEnCurso.resultado) {
@@ -1253,7 +1458,8 @@ function crearEnemigo(base) {
     stats.PRE = Math.round(base.stats.PRE * escala("PRE"))
     stats.EVA = Math.round(base.stats.EVA * escala("EVA"))
     const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp * (1 + ESCALADO_SECTOR.xp * sector))
-    return { ...base, tipo: base.nombre, xp: xp, stats: stats }
+    // tipo = identificador interno (para todo el código); nombre = el que se ve, en el idioma elegido
+    return { ...base, tipo: base.nombre, nombre: nombreDe(base.nombre), xp: xp, stats: stats }
 }
 
 // Elige una plantilla de poolEnemigos al azar, respetando su "peso" (los de más peso salen más);
@@ -1372,7 +1578,7 @@ function iniciarCombate() {
     dronAliadoActivo = false
     const regresa = fugitivos.length > 0 && preparativos.cantidadEnemigos === null && preparativos.claseEnemigos === null
     enemigosCombate = regresa ? generarRegresoFugitivo() : generarEnemigos(preparativos.cantidadEnemigos, preparativos.claseEnemigos)
-    if (regresa) logCombate.push("¡" + enemigosCombate[0].nombre + " ha vuelto, y esta vez no viene solo!")
+    if (regresa) logCombate.push(L("¡" + enemigosCombate[0].nombre + " ha vuelto, y esta vez no viene solo!", enemigosCombate[0].nombre + " is back, and this time not alone!"))
     aplicarPreparativos()
     reiniciarHistorial()
 }
@@ -1382,29 +1588,29 @@ function aplicarPreparativos() {
     const vivos = equipoJugador.filter(p => p.stats.HP > 0)
     if (preparativos.orbesExtra > 0) {
         vivos.forEach(p => p.energia = Math.min(energiaMaxima(p), p.energia + preparativos.orbesExtra))
-        logCombate.push("Empezáis con " + preparativos.orbesExtra + " orbe(s) más cada uno.")
+        logCombate.push(L("Empezáis con " + preparativos.orbesExtra + " orbe(s) más cada uno.", "You each start with " + preparativos.orbesExtra + " extra orb(s)."))
     }
-    if (preparativos.cantidadEnemigos === 3) logCombate.push("Os topáis con una patrulla completa.")
-    if (preparativos.cantidadEnemigos > 3) logCombate.push("¡Os enfrentáis a " + preparativos.cantidadEnemigos + " enemigos a la vez!")
+    if (preparativos.cantidadEnemigos === 3) logCombate.push(L("Os topáis con una patrulla completa.", "You run into a full patrol."))
+    if (preparativos.cantidadEnemigos > 3) logCombate.push(L("¡Os enfrentáis a " + preparativos.cantidadEnemigos + " enemigos a la vez!", "You face " + preparativos.cantidadEnemigos + " enemies at once!"))
     if (preparativos.sorpresa > 0) {
         enemigosCombate.forEach(en => en.aturdido = Math.max(en.aturdido || 0, preparativos.sorpresa))
-        logCombate.push("Los pilláis por sorpresa: tardarán " + preparativos.sorpresa + " rondas en reaccionar.")
+        logCombate.push(L("Los pilláis por sorpresa: tardarán " + preparativos.sorpresa + " rondas en reaccionar.", "You catch them by surprise: they will take " + preparativos.sorpresa + " rounds to react."))
     }
     if (preparativos.emp) {
         enemigosCombate.filter(en => en.clase === "maquina").forEach(en => en.aturdido = 1)
-        logCombate.push("¡Disparáis el pulso EMP! Las máquinas enemigas quedan aturdidas.")
+        logCombate.push(L("¡Disparáis el pulso EMP! Las máquinas enemigas quedan aturdidas.", "You fire the EMP pulse! The enemy machines are stunned."))
     }
     if (preparativos.dronAliado) {
         dronAliadoActivo = true
-        logCombate.push("Vuestro dron reparador os acompaña en este combate.")
+        logCombate.push(L("Vuestro dron reparador os acompaña en este combate.", "Your repair drone joins you in this combat."))
     }
     // Los enemigos ya se han creado hambrientos: se gasta un combate de hambre
     if (mejorasPartida.combatesHambrientos > 0) {
-        logCombate.push("Los enemigos están hambrientos: −15% de ATK y VEL.")
+        logCombate.push(L("Los enemigos están hambrientos: −15% de ATK y VEL.", "The enemies are hungry: −15% ATK and " + etiquetaStat("VEL") + "."))
         mejorasPartida.combatesHambrientos--
     }
     xpCombate = preparativos.xpExtra
-    if (xpCombate > 1) logCombate.push("Este combate da un " + Math.round((xpCombate - 1) * 100) + "% más de experiencia.")
+    if (xpCombate > 1) logCombate.push(L("Este combate da un " + Math.round((xpCombate - 1) * 100) + "% más de experiencia.", "This combat gives " + Math.round((xpCombate - 1) * 100) + "% more experience."))
     preparativos = { ...PREPARATIVOS_VACIOS }
 }
 
@@ -1478,7 +1684,7 @@ function repartirXP(total) {
                 p.stats.HP += r.mejoras.HP_MAX || 0
                 r.nuevasHabilidades = p.habilidades
                     .filter(h => h.nivelMin > r.nivelAntes && h.nivelMin <= p.nivel)
-                    .map(h => h.nombre)
+                    .map(h => tr(h.nombre))
             }
         }
         r.nivelDespues = p.nivel
@@ -1667,21 +1873,22 @@ function golpearEnemigo(personaje, objetivo, opciones = {}, habilidad = null, ad
     const resultado = calcularDaño(personaje, objetivo, opciones)
     dañarEnemigo(objetivo, resultado.daño)
     let msg
+    const a = personaje.nombre, b = objetivo.nombre, d = resultado.daño
     if (habilidad) {
-        const extra = resultado.critico ? " (¡crítico!)" : resultado.refilon ? " (de refilón)" : ""
-        msg = personaje.nombre + " usa " + habilidad + extra + ": " + resultado.daño + " daño a " + objetivo.nombre
+        const extra = resultado.critico ? L(" (¡crítico!)", " (critical!)") : resultado.refilon ? L(" (de refilón)", " (glancing)") : ""
+        msg = L(a + " usa " + tr(habilidad) + extra + ": " + d + " daño a " + b, a + " uses " + tr(habilidad) + extra + ": " + d + " damage to " + b)
     } else if (adicional) {
         msg = resultado.critico
-            ? personaje.nombre + " le ha dado un golpe crítico adicional a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+            ? L(a + " le ha dado un golpe crítico adicional a " + b + " (" + d + " daño)", a + " lands an extra critical hit on " + b + " (" + d + " damage)")
             : resultado.refilon
-            ? personaje.nombre + " le ha dado un golpe adicional de refilón a " + objetivo.nombre + " (" + resultado.daño + " daño)"
-            : personaje.nombre + " ha dado un golpe adicional a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+            ? L(a + " le ha dado un golpe adicional de refilón a " + b + " (" + d + " daño)", a + " lands an extra glancing hit on " + b + " (" + d + " damage)")
+            : L(a + " ha dado un golpe adicional a " + b + " (" + d + " daño)", a + " lands an extra hit on " + b + " (" + d + " damage)")
     } else {
         msg = resultado.critico
-            ? personaje.nombre + " le ha dado un golpe crítico a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+            ? L(a + " le ha dado un golpe crítico a " + b + " (" + d + " daño)", a + " lands a critical hit on " + b + " (" + d + " damage)")
             : resultado.refilon
-            ? personaje.nombre + " le ha dado de refilón a " + objetivo.nombre + " (" + resultado.daño + " daño)"
-            : personaje.nombre + " ha golpeado a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+            ? L(a + " le ha dado de refilón a " + b + " (" + d + " daño)", a + " lands a glancing hit on " + b + " (" + d + " damage)")
+            : L(a + " ha golpeado a " + b + " (" + d + " daño)", a + " hits " + b + " (" + d + " damage)")
     }
     logCombate.push(msg)
     return resultado
@@ -1695,18 +1902,20 @@ function enemigoAlAzar() {
 // Usar un objeto gasta el turno de quien lo usa y una unidad del inventario
 function usarObjeto(personaje, id, objetivo) {
     if (inventario[id] <= 0) return
-    const nombre = OBJETOS[id].nombre
+    const nombre = tr(OBJETOS[id].nombre)
+    const quien = personaje.nombre
     if (id === "reanimador") {
         // Si para cuando le toca ya no queda ningún caído, no lo gasta
         const caido = equipoJugador.find(p => p.stats.HP <= 0)
         if (!caido) {
-            logCombate.push(personaje.nombre + " guarda el " + nombre + ": ya no hace falta")
+            logCombate.push(L(quien + " guarda el " + nombre + ": ya no hace falta", quien + " keeps the " + nombre + ": it's no longer needed"))
             return
         }
         inventario[id]--
         caido.stats.HP = Math.ceil(caido.stats.HP_MAX / 2)
         caido.energia = 0
-        logCombate.push(personaje.nombre + " usa el " + nombre + ": ¡" + caido.nombre + " vuelve con " + caido.stats.HP + " HP!")
+        logCombate.push(L(quien + " usa el " + nombre + ": ¡" + caido.nombre + " vuelve con " + caido.stats.HP + " HP!",
+                          quien + " uses the " + nombre + ": " + caido.nombre + " is back with " + caido.stats.HP + " HP!"))
         return
     }
     inventario[id]--
@@ -1715,15 +1924,17 @@ function usarObjeto(personaje, id, objetivo) {
         const herido = aliados.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
         const cura = Math.min(Math.ceil(herido.stats.HP_MAX * 0.5), herido.stats.HP_MAX - herido.stats.HP)
         herido.stats.HP += cura
-        logCombate.push(personaje.nombre + " usa " + nombre + ": " + herido.nombre + " recupera " + cura + " HP")
+        logCombate.push(L(quien + " usa " + nombre + ": " + herido.nombre + " recupera " + cura + " HP",
+                          quien + " uses a " + nombre + ": " + herido.nombre + " recovers " + cura + " HP"))
     } else if (id === "granada") {
         // Daño fijo que crece con el nivel medio del equipo y no mira la defensa
         const daño = 6 + 4 * Math.round(nivelMedio())
-        logCombate.push(personaje.nombre + " lanza una " + nombre + ": " + daño + " de daño a todos los enemigos")
+        logCombate.push(L(quien + " lanza una " + nombre + ": " + daño + " de daño a todos los enemigos",
+                          quien + " throws a " + nombre + ": " + daño + " damage to every enemy"))
         enemigosVivos().forEach(en => dañarEnemigo(en, daño))
     } else if (id === "bateria") {
         equipoJugador.filter(p => p.stats.HP > 0).forEach(p => p.energia = Math.min(energiaMaxima(p), p.energia + 2))
-        logCombate.push(personaje.nombre + " usa una " + nombre + ": +2 orbes para todo el equipo")
+        logCombate.push(L(quien + " usa una " + nombre + ": +2 orbes para todo el equipo", quien + " uses a " + nombre + ": +2 orbs for the whole team"))
     }
 }
 
@@ -1769,16 +1980,19 @@ function valoresHabilidad(id, nv) {
 // Frase corta con lo que hace la habilidad ahora mismo, con sus números reales
 function descripcionHabilidad(p, h) {
     const v = valoresHabilidad(h.id, nivelHabilidad(p, h))
-    const num = n => String(Math.round(n * 100) / 100).replace(".", ",")
+    // Decimales con coma en castellano y con punto en inglés
+    const num = n => L(String(Math.round(n * 100) / 100).replace(".", ","), String(Math.round(n * 100) / 100))
     switch (h.id) {
-        case "embestida":   return "Golpe con ATK x" + num(v.atk) + " que ignora la defensa"
-        case "rafaga":      return v.golpes + " golpes de ATK x" + num(v.atk) + "; si cae el objetivo, siguen con otro"
-        case "golpePesado": return "Daño x" + num(v.daño) + ", pero la ronda siguiente actúa el último"
-        case "terremoto":   return "Golpea a todos los enemigos (daño x" + num(v.daño) + "); nunca sale de refilón"
-        case "apuesta":     return "Crítico asegurado si no sale de refilón; pierde un " + Math.round(v.coste * 100) + "% de su vida máxima"
-        case "racha":       return "Encadena golpes con un +" + v.extra + "% de probabilidad de crítico"
-        case "reparacion":  return "Cura " + v.cura + " HP al aliado más herido"
-        case "oleada":      return "Cura " + v.cura + " HP a todo el equipo"
+        case "embestida":   return L("Golpe con ATK x" + num(v.atk) + " que ignora la defensa", "Hit with ATK x" + num(v.atk) + " that ignores defense")
+        case "rafaga":      return L(v.golpes + " golpes de ATK x" + num(v.atk) + "; si cae el objetivo, siguen con otro",
+                                     v.golpes + " hits of ATK x" + num(v.atk) + "; if the target falls, they move on to another")
+        case "golpePesado": return L("Daño x" + num(v.daño) + ", pero la ronda siguiente actúa el último", "Damage x" + num(v.daño) + ", but acts last next round")
+        case "terremoto":   return L("Golpea a todos los enemigos (daño x" + num(v.daño) + "); nunca sale de refilón", "Hits every enemy (damage x" + num(v.daño) + "); never glancing")
+        case "apuesta":     return L("Crítico asegurado si no sale de refilón; pierde un " + Math.round(v.coste * 100) + "% de su vida máxima",
+                                     "Guaranteed crit unless it's glancing; costs " + Math.round(v.coste * 100) + "% of max HP")
+        case "racha":       return L("Encadena golpes con un +" + v.extra + "% de probabilidad de crítico", "Chains hits with +" + v.extra + "% crit chance")
+        case "reparacion":  return L("Cura " + v.cura + " HP al aliado más herido", "Heals the most wounded ally for " + v.cura + " HP")
+        case "oleada":      return L("Cura " + v.cura + " HP a todo el equipo", "Heals the whole team for " + v.cura + " HP")
     }
     return ""
 }
@@ -1810,9 +2024,9 @@ function usarHabilidad(personaje, h, objetivo) {
         golpearEnemigo(personaje, objetivo, { critico: true }, h.nombre)
         const coste = Math.ceil(personaje.stats.HP_MAX * v.coste)
         personaje.stats.HP = Math.max(1, personaje.stats.HP - coste)
-        logCombate.push(personaje.nombre + " pierde " + coste + " HP por la apuesta")
+        logCombate.push(L(personaje.nombre + " pierde " + coste + " HP por la apuesta", personaje.nombre + " loses " + coste + " HP on the gamble"))
     } else if (h.id === "racha") {
-        logCombate.push(personaje.nombre + " usa " + h.nombre)
+        logCombate.push(L(personaje.nombre + " usa " + tr(h.nombre), personaje.nombre + " uses " + tr(h.nombre)))
         ataqueBasico(personaje, objetivo, v.extra)
     } else if (h.id === "reparacion") {
         // Al aliado vivo con menor proporción de vida
@@ -1820,12 +2034,12 @@ function usarHabilidad(personaje, h, objetivo) {
         const herido = aliados.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
         const cura = Math.min(v.cura, herido.stats.HP_MAX - herido.stats.HP)
         herido.stats.HP += cura
-        logCombate.push(personaje.nombre + " usa " + h.nombre + ": " + herido.nombre + " recupera " + cura + " HP")
+        logCombate.push(L(personaje.nombre + " usa " + tr(h.nombre) + ": " + herido.nombre + " recupera " + cura + " HP", personaje.nombre + " uses " + tr(h.nombre) + ": " + herido.nombre + " recovers " + cura + " HP"))
     } else if (h.id === "oleada") {
         equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
             p.stats.HP = Math.min(p.stats.HP_MAX, p.stats.HP + v.cura)
         })
-        logCombate.push(personaje.nombre + " usa " + h.nombre + ": el equipo recupera hasta " + v.cura + " HP")
+        logCombate.push(L(personaje.nombre + " usa " + tr(h.nombre) + ": el equipo recupera hasta " + v.cura + " HP", personaje.nombre + " uses " + tr(h.nombre) + ": the team recovers up to " + v.cura + " HP"))
     }
 }
 
@@ -1850,7 +2064,7 @@ function ejecutarRonda() {
         if (enemigosCombate.includes(actor)) {
             if (actor.aturdido > 0) {
                 actor.aturdido--
-                logCombate.push(actor.nombre + " está aturdido y no actúa")
+                logCombate.push(L(actor.nombre + " está aturdido y no actúa", actor.nombre + " is stunned and can't act"))
             } else {
                 accionEnemigo(actor)
             }
@@ -1867,7 +2081,7 @@ function ejecutarRonda() {
             } else if (accion.accion === 1) {
                 usarHabilidad(actor, accion.habilidad, objetivo)
             } else if (accion.accion === 2) {
-                logCombate.push(actor.nombre + " se defiende")
+                logCombate.push(L(actor.nombre + " se defiende", actor.nombre + " defends"))
             } else if (accion.accion === 3) {
                 usarObjeto(actor, accion.objeto, objetivo)
             }
@@ -1908,7 +2122,7 @@ function ejecutarRonda() {
             const herido = heridos.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
             const cura = Math.min(Math.ceil(herido.stats.HP_MAX * CURA_DRON_ALIADO), herido.stats.HP_MAX - herido.stats.HP)
             herido.stats.HP += cura
-            logCombate.push("Vuestro dron cura a " + herido.nombre + " (+" + cura + " HP)")
+            logCombate.push(L("Vuestro dron cura a " + herido.nombre + " (+" + cura + " HP)", "Your drone heals " + herido.nombre + " (+" + cura + " HP)"))
         }
     }
 
@@ -1932,7 +2146,7 @@ function repararMaquina(enemigo) {
     const objetivo = heridas.reduce((min, en) => en.stats.HP / en.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? en : min)
     const cura = Math.min(Math.ceil(objetivo.stats.HP_MAX * PORCENTAJE_REPARACION), objetivo.stats.HP_MAX - objetivo.stats.HP)
     objetivo.stats.HP += cura
-    logCombate.push(enemigo.nombre + " repara a " + objetivo.nombre + " (+" + cura + " HP)")
+    logCombate.push(L(enemigo.nombre + " repara a " + objetivo.nombre + " (+" + cura + " HP)", enemigo.nombre + " repairs " + objetivo.nombre + " (+" + cura + " HP)"))
     return true
 }
 
@@ -1949,7 +2163,7 @@ function inhibir(enemigo) {
     objetivo.energia--
     enemigo.defendiendo = true
     enemigo.inhibioAntes = true
-    logCombate.push(enemigo.nombre + " se protege e inhibe a " + objetivo.nombre + " (pierde 1 orbe)")
+    logCombate.push(L(enemigo.nombre + " se protege e inhibe a " + objetivo.nombre + " (pierde 1 orbe)", enemigo.nombre + " shields up and jams " + objetivo.nombre + " (loses 1 orb)"))
     return true
 }
 
@@ -1960,21 +2174,21 @@ function turnoKamikaze(enemigo, contraEnemigos = false) {
     enemigo.turnosCargando = (enemigo.turnosCargando || 0) + 1
     const quedan = TURNOS_KAMIKAZE - enemigo.turnosCargando
     if (quedan > 0) {
-        logCombate.push(enemigo.nombre + " se está cargando... (estalla en " + quedan + ")")
+        logCombate.push(L(enemigo.nombre + " se está cargando... (estalla en " + quedan + ")", enemigo.nombre + " is charging... (explodes in " + quedan + ")"))
         return
     }
-    logCombate.push("¡" + enemigo.nombre + " estalla!")
+    logCombate.push(L("¡" + enemigo.nombre + " estalla!", enemigo.nombre + " explodes!"))
     if (contraEnemigos) {
         enemigosVivos().filter(en => en !== enemigo).forEach(en => {
             const r = calcularDaño(enemigo, en, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0, infalible: true })
             dañarEnemigo(en, r.daño)
-            logCombate.push(en.nombre + " recibe " + r.daño + " de daño de la explosión")
+            logCombate.push(L(en.nombre + " recibe " + r.daño + " de daño de la explosión", en.nombre + " takes " + r.daño + " damage from the blast"))
         })
     } else {
         equipoJugador.filter(p => p.stats.HP > 0).forEach(p => {
             const r = calcularDaño(enemigo, p, { multiplicadorDaño: MULTIPLICADOR_EXPLOSION, probabilidadCritico: 0, infalible: true })
             p.stats.HP = Math.max(0, p.stats.HP - r.daño)
-            logCombate.push(p.nombre + " recibe " + r.daño + " de daño de la explosión")
+            logCombate.push(L(p.nombre + " recibe " + r.daño + " de daño de la explosión", p.nombre + " takes " + r.daño + " damage from the blast"))
         })
     }
     enemigo.stats.HP = 0
@@ -1992,24 +2206,24 @@ function accionDronPirateado(dron) {
     if (dron.rol === "reparar") {
         const heridos = equipoJugador.filter(p => p.stats.HP > 0 && p.stats.HP < p.stats.HP_MAX)
         if (heridos.length === 0) {
-            logCombate.push(dron.nombre + " (pirateado) revolotea a vuestro alrededor")
+            logCombate.push(L(dron.nombre + " (pirateado) revolotea a vuestro alrededor", dron.nombre + " (hacked) hovers around you"))
             return
         }
         const herido = heridos.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
         const cura = Math.min(Math.ceil(herido.stats.HP_MAX * PORCENTAJE_REPARACION), herido.stats.HP_MAX - herido.stats.HP)
         herido.stats.HP += cura
-        logCombate.push(dron.nombre + " (pirateado) cura a " + herido.nombre + " (+" + cura + " HP)")
+        logCombate.push(L(dron.nombre + " (pirateado) cura a " + herido.nombre + " (+" + cura + " HP)", dron.nombre + " (hacked) heals " + herido.nombre + " (+" + cura + " HP)"))
         return
     }
     const otros = enemigosVivos().filter(en => en !== dron)
     if (otros.length === 0) {
-        logCombate.push(dron.nombre + " (pirateado) da vueltas sin saber a quién atacar")
+        logCombate.push(L(dron.nombre + " (pirateado) da vueltas sin saber a quién atacar", dron.nombre + " (hacked) circles around with no one to attack"))
         return
     }
     const objetivo = otros[Math.floor(Math.random() * otros.length)]
     const r = calcularDaño(dron, objetivo)
     dañarEnemigo(objetivo, r.daño)
-    logCombate.push(dron.nombre + " (pirateado) ataca" + (r.refilon ? " de refilón" : "") + " a " + objetivo.nombre + " (" + r.daño + " daño)")
+    logCombate.push(L(dron.nombre + " (pirateado) ataca" + (r.refilon ? " de refilón" : "") + " a " + objetivo.nombre + " (" + r.daño + " daño)", dron.nombre + " (hacked) " + (r.refilon ? "lands a glancing hit on " : "attacks ") + objetivo.nombre + " (" + r.daño + " damage)"))
 }
 
 // Sale del combate (como si cayera, pero sin dar XP ni contar como derrotado) y se apunta para volver
@@ -2017,7 +2231,7 @@ function huir(enemigo) {
     fugitivos.push({ base: poolEnemigos.find(base => base.nombre === enemigo.tipo), hp: enemigo.stats.HP })
     enemigo.stats.HP = 0
     enemigo.huyo = true
-    logCombate.push("¡" + enemigo.nombre + " huye despavorido! Volverá con refuerzos...")
+    logCombate.push(L("¡" + enemigo.nombre + " huye despavorido! Volverá con refuerzos...", enemigo.nombre + " flees in terror! It will be back with reinforcements..."))
 }
 
 function accionEnemigo(enemigo) {
@@ -2058,11 +2272,12 @@ function accionEnemigo(enemigo) {
 
     const resultado = calcularDaño(enemigo, objetivo)
     objetivo.stats.HP = Math.max(0, objetivo.stats.HP - resultado.daño)
+    const a = enemigo.nombre, b = objetivo.nombre, d = resultado.daño
     const msg = resultado.critico
-        ? "¡" + enemigo.nombre + " ha dado un golpe crítico a " + objetivo.nombre + "! (" + resultado.daño + " daño)"
+        ? L("¡" + a + " ha dado un golpe crítico a " + b + "! (" + d + " daño)", a + " lands a critical hit on " + b + "! (" + d + " damage)")
         : resultado.refilon
-        ? enemigo.nombre + " le ha dado de refilón a " + objetivo.nombre + " (" + resultado.daño + " daño)"
-        : enemigo.nombre + " ha atacado a " + objetivo.nombre + " (" + resultado.daño + " daño)"
+        ? L(a + " le ha dado de refilón a " + b + " (" + d + " daño)", a + " lands a glancing hit on " + b + " (" + d + " damage)")
+        : L(a + " ha atacado a " + b + " (" + d + " daño)", a + " attacks " + b + " (" + d + " damage)")
     logCombate.push(msg)
     comprobarDerrota()
 }
@@ -2100,10 +2315,10 @@ function descansar() {
             p.bonus.HP_MAX += 5
             p.stats.HP_MAX += 5
             p.stats.HP += 5
-            logDescanso.push(p.nombre + " ha ganado 5 de HP máximo")
+            logDescanso.push(L(p.nombre + " ha ganado 5 de HP máximo", p.nombre + " gains 5 max HP"))
         } else {
             p.stats.HP = Math.min(p.stats.HP + 15, p.stats.HP_MAX)
-            logDescanso.push(p.nombre + " ha recuperado 15 HP")
+            logDescanso.push(L(p.nombre + " ha recuperado 15 HP", p.nombre + " recovers 15 HP"))
         }
     })
 }
@@ -2115,23 +2330,23 @@ function objetoAlAzar() {
 }
 function darObjeto(id) {
     inventario[id]++
-    return "Consigues: " + OBJETOS[id].nombre
+    return L("Consigues: ", "You get: ") + tr(OBJETOS[id].nombre)
 }
 // Daño fuera de combate: un porcentaje de la vida máxima, pero nunca deja a nadie a 0
 function dañarEquipo(fraccion) {
     return equipoJugador.filter(p => p.stats.HP > 0).map(p => {
         const daño = Math.max(0, Math.min(Math.ceil(p.stats.HP_MAX * fraccion), p.stats.HP - 1))
         p.stats.HP -= daño
-        return p.nombre + " pierde " + daño + " HP"
+        return L(p.nombre + " pierde " + daño + " HP", p.nombre + " loses " + daño + " HP")
     })
 }
 // XP de un evento: como la de un enemigo con esa XP base (escala con el nivel y la dificultad)
 function ganarXPEvento(base) {
     const total = Math.round(base * Math.pow(nivelMedio(), XP_EXPONENTE) * DIFICULTADES[dificultadElegida].xp)
-    const lineas = ["El equipo gana " + total + " XP."]
+    const lineas = [L("El equipo gana " + total + " XP.", "The team gains " + total + " XP.")]
     repartirXP(total)
         .filter(r => r.nivelDespues > r.nivelAntes)
-        .forEach(r => lineas.push("¡" + r.nombre + " sube a nivel " + r.nivelDespues + "!"))
+        .forEach(r => lineas.push(L("¡" + r.nombre + " sube a nivel " + r.nivelDespues + "!", r.nombre + " reaches level " + r.nivelDespues + "!")))
     return lineas
 }
 // El hackeo lo intenta VBZ: cuanta más suerte, más fácil (tope 90%)
@@ -2166,12 +2381,17 @@ function mejorarStat(p, clave, cantidad) {
         p.stats.HP = Math.max(1, Math.min(p.stats.HP_MAX, p.stats.HP + cantidad))
     }
 }
+// "X gana 3 de ATK para el resto de la partida.", en el idioma elegido
+function textoMejora(p, cantidad, clave) {
+    return L(p.nombre + " gana " + cantidad + " de " + etiquetaStat(clave) + " para el resto de la partida.",
+             p.nombre + " gains " + cantidad + " " + etiquetaStat(clave) + " for the rest of the run.")
+}
 
 function totalObjetos() {
     return Object.values(inventario).reduce((suma, n) => suma + n, 0)
 }
 function resumenInventario() {
-    return Object.keys(OBJETOS).filter(id => inventario[id] > 0).map(id => OBJETOS[id].nombre + " x" + inventario[id]).join(", ")
+    return Object.keys(OBJETOS).filter(id => inventario[id] > 0).map(id => tr(OBJETOS[id].nombre) + " x" + inventario[id]).join(", ")
 }
 // Gasta n objetos, siempre de los que más haya; devuelve sus nombres
 function quitarObjetos(n) {
@@ -2180,7 +2400,7 @@ function quitarObjetos(n) {
         const id = Object.keys(inventario).reduce((max, k) => inventario[k] > inventario[max] ? k : max)
         if (inventario[id] <= 0) break
         inventario[id]--
-        nombres.push(OBJETOS[id].nombre)
+        nombres.push(tr(OBJETOS[id].nombre))
     }
     return nombres
 }
@@ -2189,7 +2409,7 @@ function curarEquipo(fraccion) {
     return equipoJugador.filter(p => p.stats.HP > 0).map(p => {
         const cura = Math.min(Math.ceil(p.stats.HP_MAX * fraccion), p.stats.HP_MAX - p.stats.HP)
         p.stats.HP += cura
-        return p.nombre + " recupera " + cura + " HP"
+        return L(p.nombre + " recupera " + cura + " HP", p.nombre + " recovers " + cura + " HP")
     })
 }
 
@@ -2225,9 +2445,9 @@ function subirRangoHabilidad(indice) {
     ;[mamuri, vbz, imanps].forEach(p => {
         const h = p.habilidades[indice]
         h.rango = (h.rango || 0) + 1
-        lineas.push(p.nombre + ": " + h.nombre + " sube a rango " + h.rango + ".")
+        lineas.push(L(p.nombre + ": " + tr(h.nombre) + " sube a rango " + h.rango + ".", p.nombre + ": " + tr(h.nombre) + " goes up to rank " + h.rango + "."))
     })
-    lineas.push("Paku hojea los dibujos muy concentrado. No aprende nada.")
+    lineas.push(L(paku.nombre + " hojea los dibujos muy concentrado. No aprende nada.", paku.nombre + " leafs through the pictures, deep in concentration. He learns nothing."))
     return lineas
 }
 // Nivel con el que se calcula una habilidad: el del personaje, más 5 por cada rango
@@ -2272,7 +2492,8 @@ function convertirCombatesCercanos(n) {
         if (Math.random() < 0.5) { mapa[c.fila][c.col] = 4; eventos++ }
         else { mapa[c.fila][c.col] = 3; descansos++ }
     })
-    return ["Desviáis las patrullas cercanas.", eventos + " casilla(s) de evento y " + descansos + " de descanso donde antes había combate."]
+    return [L("Desviáis las patrullas cercanas.", "You reroute the nearby patrols."),
+            L(eventos + " casilla(s) de evento y " + descansos + " de descanso donde antes había combate.", eventos + " event tile(s) and " + descansos + " rest tile(s) where there used to be combat.")]
 }
 // Puerta de seguridad: quita los combates a "radio" casillas o menos de Paku
 function quitarCombatesCerca(radio) {
@@ -2314,8 +2535,9 @@ function crearCasillasNuevas(n, tipo) {
     }
     pintarCasillas(cuenta)
     for (const t in cuenta) mejorasPartida.casillasExtra[t] += cuenta[t]
-    if (tipo === 4) return "Aparecen " + cuenta[4] + " casillas de evento nuevas en el mapa."
-    return "Aparecen " + n + " casillas nuevas: " + cuenta[2] + " de combate, " + cuenta[3] + " de descanso y " + cuenta[4] + " de evento."
+    if (tipo === 4) return L("Aparecen " + cuenta[4] + " casillas de evento nuevas en el mapa.", cuenta[4] + " new event tiles appear on the map.")
+    return L("Aparecen " + n + " casillas nuevas: " + cuenta[2] + " de combate, " + cuenta[3] + " de descanso y " + cuenta[4] + " de evento.",
+             n + " new tiles appear: " + cuenta[2] + " combat, " + cuenta[3] + " rest and " + cuenta[4] + " event.")
 }
 
 // --- Eventos: flujo ---------------------------------------------------------
@@ -2343,7 +2565,7 @@ function elegirOpcionEvento(i) {
 }
 function textoEvento() {
     const ev = eventoEnCurso.evento
-    return typeof ev.texto === "function" ? ev.texto(eventoEnCurso.datos) : ev.texto
+    return typeof ev.texto === "function" ? ev.texto(eventoEnCurso.datos) : tr(ev.texto)
 }
 function cerrarEvento() {
     const combate = eventoEnCurso.resultado.combate
@@ -2370,7 +2592,7 @@ function dibujarEvento() {
     dibujarExploracion()
     zonasEvento = []
     ctx.fillStyle = "rgba(0, 0, 0, 0.55)"
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillRect(0, 0, ANCHO_JUEGO, ALTO_JUEGO)
     const x = 162, y = 70, ancho = 700, alto = 570
     ctx.fillStyle = "rgb(24, 28, 46)"
     ctx.fillRect(x, y, ancho, alto)
@@ -2383,7 +2605,7 @@ function dibujarEvento() {
     ctx.textAlign = "center"
     ctx.fillStyle = "rgb(120, 180, 255)"
     ctx.font = "bold 26px sans-serif"
-    ctx.fillText(ev.titulo, x + ancho / 2, y + 45)
+    ctx.fillText(tr(ev.titulo), x + ancho / 2, y + 45)
     ctx.textAlign = "left"
     ctx.fillStyle = "rgb(210, 210, 220)"
     ctx.font = "15px sans-serif"
@@ -2418,7 +2640,7 @@ function dibujarEvento() {
             ctx.fillText(op.detalle, bx + 16, by + 43)
             zonasEvento.push({ indice: i, x: bx, y: by, w: bw, h: bh })
         })
-        ayuda = "Elige con el ratón o con las flechas  ·  Clic o Enter para decidir"
+        ayuda = L("Elige con el ratón o con las flechas  ·  Clic o Enter para decidir  ·  H: ayuda", "Choose with the mouse or the arrow keys  ·  Click or Enter to decide  ·  H: help")
     } else {
         // Lo que ha pasado; cada línea larga se parte en varias
         ctx.fillStyle = "white"
@@ -2428,8 +2650,8 @@ function dibujarEvento() {
             yLinea += 24 * Math.min(3, dibujarTextoEnvuelto(linea, x + 30, yLinea, ancho - 60, 24, 3)) + 4
         })
         ayuda = eventoEnCurso.resultado.combate
-            ? "¡A combatir!  ·  Pulsa una tecla o haz clic"
-            : "Pulsa una tecla o haz clic para continuar"
+            ? L("¡A combatir!  ·  Pulsa una tecla o haz clic", "To battle!  ·  Press a key or click")
+            : L("Pulsa una tecla o haz clic para continuar", "Press a key or click to continue")
     }
     ctx.textAlign = "center"
     ctx.fillStyle = "rgb(150, 150, 165)"
@@ -2449,17 +2671,17 @@ function dibujarMenu() {
     ctx.fillText("MKURogue", 512, 100)
     ctx.fillStyle = "rgb(180, 180, 190)"
     ctx.font = "18px sans-serif"
-    ctx.fillText("Elige la dificultad", 512, 160)
+    ctx.fillText(L("Elige la dificultad", "Choose the difficulty"), 512, 160)
 
     const ancho = 240, alto = 150, hueco = 30
-    const xInicial = (canvas.width - (ancho * DIFICULTADES.length + hueco * (DIFICULTADES.length - 1))) / 2
+    const xInicial = (ANCHO_JUEGO - (ancho * DIFICULTADES.length + hueco * (DIFICULTADES.length - 1))) / 2
     const y = 200
     DIFICULTADES.forEach((d, i) => {
         const x = xInicial + i * (ancho + hueco)
         const elegida = i === dificultadElegida
         ctx.fillStyle = elegida ? "rgba(60, 140, 255, 0.25)" : "rgba(255, 255, 255, 0.05)"
         ctx.fillRect(x, y, ancho, alto)
-        // Con el foco en los colores, la dificultad elegida se sigue viendo, pero con el borde apagado
+        // Con el foco en la barra de arriba, la dificultad elegida se sigue viendo, pero con el borde apagado
         ctx.strokeStyle = !elegida ? "rgba(255, 255, 255, 0.3)" : focoMenu === "dificultad" ? "yellow" : "rgba(255, 255, 0, 0.4)"
         ctx.lineWidth = elegida ? 3 : 1
         ctx.strokeRect(x, y, ancho, alto)
@@ -2467,124 +2689,191 @@ function dibujarMenu() {
 
         ctx.fillStyle = elegida ? "yellow" : "white"
         ctx.font = "bold 26px sans-serif"
-        ctx.fillText(d.nombre, x + ancho / 2, y + 55)
+        ctx.fillText(tr(d.nombre), x + ancho / 2, y + 55)
         ctx.fillStyle = "rgb(190, 190, 200)"
         ctx.font = "14px sans-serif"
-        d.descripcion.forEach((linea, j) => ctx.fillText(linea, x + ancho / 2, y + 92 + j * 22))
+        tr(d.descripcion).forEach((linea, j) => ctx.fillText(linea, x + ancho / 2, y + 92 + j * 22))
 
         zonasMenu.push({ tipo: "dificultad", indice: i, x: x, y: y, w: ancho, h: alto })
     })
 
     ctx.fillStyle = "rgb(150, 150, 160)"
     ctx.font = "15px sans-serif"
-    const ayuda = focoMenu === "colores"
-        ? "← → cambian los colores  ·  Enter abre la lista  ·  ↑ vuelve a la dificultad"
-        : "Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↓ colores"
+    const ayuda = focoMenu === "dificultad"
+        ? L("Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↑ opciones",
+            "Choose with the mouse or ← →  ·  Click or Enter to start  ·  ↑ options")
+        : L("↑ ↓ para moverte por las opciones  ·  Enter abre  ·  Esc vuelve a la dificultad",
+            "↑ ↓ to move between the options  ·  Enter opens  ·  Esc back to the difficulty")
     ctx.fillText(ayuda, 512, 400)
 
-    zonasMenu.push(dibujarBotonReporte("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", 512, 600))
-    // El desplegable va lo último: si está abierto, su lista queda por encima de lo demás
-    dibujarDesplegableColores()
+    zonasMenu.push(dibujarBoton(L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)"), 512, 600, "reportar"))
+    // Las opciones de arriba van lo último: si una lista está abierta, queda por encima de lo demás
+    dibujarBarraMenu()
     dibujarVersion()
     ctx.textAlign = "left"
 }
 
-// --- Desplegable de colores del menú de inicio --------------------------------
-// Un botón con el modo elegido y sus tres casillas de muestra; al abrirlo, una lista con todos los
-// modos (cada uno con sus casillas). Ratón: clic abre y elige. Teclado: ↓ desde la dificultad lleva
-// al botón, ←/→ cambian de modo, Enter abre la lista (↑/↓ y Enter eligen, Esc cierra).
-let focoMenu = "dificultad"       // "dificultad" o "colores": a qué afectan las flechas y Enter
-let menuColoresAbierto = false
-let colorResaltado = 0            // opción marcada en la lista abierta
-const ANCHO_DESPLEGABLE = 440, X_DESPLEGABLE = 512 - 440 / 2, Y_DESPLEGABLE = 430, ALTO_FILA_COLOR = 42
+// --- Opciones de arriba a la derecha del menú: idioma, colores y ayuda -------------------
+// Tres botones iguales, uno debajo de otro, con solo su nombre. Los dos desplegables abren su lista
+// a la izquierda del botón (así no tapan los de abajo), con todas las opciones y la elegida marcada.
+// Ratón: clic abre y elige. Teclado: ↑ desde la dificultad sube a la columna (empezando por abajo),
+// ↑/↓ se mueven por ella, Enter abre (o enseña la ayuda) y Esc, o ↓ desde el último, vuelve; en una
+// lista abierta, ↑/↓ y Enter eligen y Esc la cierra.
+const Y_BARRA = 14, ALTO_BARRA = 34, HUECO_BARRA = 8, ALTO_FILA_LISTA = 36
+const ORDEN_BARRA = ["idioma", "colores", "ayuda"]   // de arriba abajo
+const DESPLEGABLES = {
+    idioma: {
+        anchoLista: 170,
+        etiqueta: () => L("Idioma", "Language"),
+        opciones: () => IDIOMAS.map(i => i.nombre),
+        actual: () => Math.max(0, IDIOMAS.findIndex(i => i.id === idioma)),
+        elegir: i => { idioma = IDIOMAS[i].id },
+        dibujarFila: (i, x, y) => ctx.fillText(IDIOMAS[i].nombre, x + 12, y + 23)
+    },
+    colores: {
+        anchoLista: 330,
+        etiqueta: () => L("Colores", "Colors"),
+        opciones: () => MODOS_COLOR.map(m => tr(m.nombre)),
+        actual: () => modoColor,
+        elegir: i => { modoColor = i },
+        // En la lista, el nombre de cada modo y sus casillas de muestra
+        dibujarFila: (i, x, y, ancho) => {
+            ctx.fillText(tr(MODOS_COLOR[i].nombre), x + 12, y + 23)
+            ;[2, 3, 4].forEach((tipo, k) => casillaEscalada(tipo, x + ancho - 118 + k * 28, y + 5, 0.8, i))
+        }
+    }
+}
+const TEXTO_AYUDA_MENU = () => L("¿Cómo jugar? (H)", "How to play (H)")
+let focoMenu = "dificultad"       // "dificultad" o uno de ORDEN_BARRA: a qué afectan las flechas y Enter
+let desplegableAbierto = null     // clave del desplegable con la lista abierta, o null
+let opcionResaltada = 0           // opción marcada en la lista abierta
 
-// Una fila: texto a la izquierda y las tres casillas (combate, descanso, evento) a la derecha
-function dibujarFilaColor(modo, y, resaltada, conFlecha) {
-    // Fondo opaco siempre: la lista abierta queda encima del botón de reportes y de la cuadrícula
-    // del fondo, y con un relleno semitransparente se transparentaban sus letras y líneas
-    ctx.fillStyle = "rgb(30, 34, 54)"
-    ctx.fillRect(X_DESPLEGABLE, y, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR)
-    if (resaltada) {
-        ctx.fillStyle = "rgba(60, 140, 255, 0.25)"
-        ctx.fillRect(X_DESPLEGABLE, y, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR)
-        // En la lista, la marcada lleva también borde (no solo cambia de color)
-        if (!conFlecha) {
+function anchoTexto(fuente, texto) {
+    ctx.font = fuente
+    return ctx.measureText(texto).width
+}
+// Una casilla del mapa a otro tamaño (en las listas)
+function casillaEscalada(tipo, x, y, escala, modo) {
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.scale(escala, escala)
+    dibujarCasilla(tipo, 0, 0, modo)
+    ctx.restore()
+}
+// Triángulo del desplegable: hacia abajo, o hacia la izquierda si su lista está abierta (sale por ahí)
+function dibujarFlecha(cx, cy, abierto) {
+    ctx.beginPath()
+    if (abierto) { ctx.moveTo(cx + 3, cy - 6); ctx.lineTo(cx + 3, cy + 6); ctx.lineTo(cx - 4, cy) }
+    else { ctx.moveTo(cx - 6, cy - 3); ctx.lineTo(cx + 6, cy - 3); ctx.lineTo(cx, cy + 4) }
+    ctx.closePath()
+    ctx.fill()
+}
+
+function dibujarBarraMenu() {
+    // Todos del mismo ancho: el del texto más largo, más el hueco para la flecha
+    const textos = { idioma: DESPLEGABLES.idioma.etiqueta(), colores: DESPLEGABLES.colores.etiqueta(), ayuda: TEXTO_AYUDA_MENU() }
+    const ancho = Math.max(...Object.values(textos).map(t => anchoTexto("15px sans-serif", t))) + 24 + 26
+    const x = 1010 - ancho
+    ORDEN_BARRA.forEach((clave, i) => {
+        const y = Y_BARRA + i * (ALTO_BARRA + HUECO_BARRA)
+        const esDesplegable = clave !== "ayuda"
+        const enfocado = focoMenu === clave || desplegableAbierto === clave
+        ctx.fillStyle = "rgb(30, 34, 54)"
+        ctx.fillRect(x, y, ancho, ALTO_BARRA)
+        if (enfocado) {
+            ctx.fillStyle = "rgba(60, 140, 255, 0.25)"
+            ctx.fillRect(x, y, ancho, ALTO_BARRA)
+        }
+        ctx.strokeStyle = enfocado ? "yellow" : "rgba(255, 255, 255, 0.3)"
+        ctx.lineWidth = enfocado ? 3 : 1
+        ctx.strokeRect(x, y, ancho, ALTO_BARRA)
+        ctx.lineWidth = 1
+        ctx.textAlign = "left"
+        ctx.font = "15px sans-serif"
+        ctx.fillStyle = enfocado ? "yellow" : esDesplegable ? "white" : "rgb(120, 200, 255)"
+        ctx.fillText(textos[clave], x + 12, y + 22)
+        if (esDesplegable) {
+            dibujarFlecha(x + ancho - 16, y + ALTO_BARRA / 2, desplegableAbierto === clave)
+            DESPLEGABLES[clave].x = x
+            DESPLEGABLES[clave].y = y
+            zonasMenu.push({ tipo: "desplegable", desplegable: clave, x: x, y: y, w: ancho, h: ALTO_BARRA })
+        } else {
+            zonasMenu.push({ tipo: "ayuda", x: x, y: y, w: ancho, h: ALTO_BARRA })
+        }
+    })
+    if (!desplegableAbierto) return
+
+    // La lista abierta, a la izquierda de su botón y a su misma altura
+    const d = DESPLEGABLES[desplegableAbierto]
+    const anchoLista = d.anchoLista
+    const xLista = d.x - 6 - anchoLista
+    const yLista = d.y
+    d.opciones().forEach((texto, i) => {
+        const y = yLista + i * ALTO_FILA_LISTA
+        const resaltada = i === opcionResaltada
+        // Fondo opaco siempre: la lista queda encima del título y de la cuadrícula del fondo
+        ctx.fillStyle = "rgb(30, 34, 54)"
+        ctx.fillRect(xLista, y, anchoLista, ALTO_FILA_LISTA)
+        if (resaltada) {
+            ctx.fillStyle = "rgba(60, 140, 255, 0.25)"
+            ctx.fillRect(xLista, y, anchoLista, ALTO_FILA_LISTA)
+            // La marcada lleva también borde (no solo cambia de color)
             ctx.strokeStyle = "yellow"
             ctx.lineWidth = 2
-            ctx.strokeRect(X_DESPLEGABLE + 2, y + 2, ANCHO_DESPLEGABLE - 4, ALTO_FILA_COLOR - 4)
+            ctx.strokeRect(xLista + 2, y + 2, anchoLista - 4, ALTO_FILA_LISTA - 4)
             ctx.lineWidth = 1
         }
-    }
-    ctx.textAlign = "left"
-    ctx.font = "15px sans-serif"
-    ctx.fillStyle = resaltada ? "yellow" : "white"
-    const texto = (conFlecha ? "Colores: " : "") + MODOS_COLOR[modo].nombre
-    ctx.fillText(texto, X_DESPLEGABLE + 14, y + 26)
-    ;[2, 3, 4].forEach((tipo, i) => dibujarCasilla(tipo, X_DESPLEGABLE + 268 + i * 36, y + 5, modo))
-    if (conFlecha) {
-        // Triángulo hacia abajo (o hacia arriba si la lista está abierta)
-        const cx = X_DESPLEGABLE + ANCHO_DESPLEGABLE - 20, cy = y + ALTO_FILA_COLOR / 2
-        ctx.beginPath()
-        if (menuColoresAbierto) { ctx.moveTo(cx - 6, cy + 3); ctx.lineTo(cx + 6, cy + 3); ctx.lineTo(cx, cy - 4) }
-        else { ctx.moveTo(cx - 6, cy - 3); ctx.lineTo(cx + 6, cy - 3); ctx.lineTo(cx, cy + 4) }
-        ctx.closePath()
-        ctx.fill()
-    }
-}
-
-function dibujarDesplegableColores() {
-    const enfocado = focoMenu === "colores" || menuColoresAbierto
-    dibujarFilaColor(modoColor, Y_DESPLEGABLE, enfocado, true)
-    ctx.strokeStyle = enfocado ? "yellow" : "rgba(255, 255, 255, 0.3)"
-    ctx.lineWidth = enfocado ? 3 : 1
-    ctx.strokeRect(X_DESPLEGABLE, Y_DESPLEGABLE, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR)
-    ctx.lineWidth = 1
-    zonasMenu.push({ tipo: "colores", x: X_DESPLEGABLE, y: Y_DESPLEGABLE, w: ANCHO_DESPLEGABLE, h: ALTO_FILA_COLOR })
-    if (!menuColoresAbierto) return
-    const yLista = Y_DESPLEGABLE + ALTO_FILA_COLOR + 4
-    MODOS_COLOR.forEach((m, i) => {
-        const y = yLista + i * ALTO_FILA_COLOR
-        dibujarFilaColor(i, y, i === colorResaltado, false)
+        ctx.textAlign = "left"
+        ctx.font = "15px sans-serif"
+        ctx.fillStyle = resaltada ? "yellow" : "white"
+        d.dibujarFila(i, xLista, y, anchoLista - 26)
         // La opción en uso lleva una marca a la derecha
-        if (i === modoColor) {
+        if (i === d.actual()) {
             ctx.fillStyle = "rgb(120, 220, 140)"
             ctx.textAlign = "right"
-            ctx.fillText("✓", X_DESPLEGABLE + ANCHO_DESPLEGABLE - 12, y + 27)
+            ctx.fillText("✓", xLista + anchoLista - 10, y + 24)
             ctx.textAlign = "left"
         }
-        // Delante en la lista de zonas: así gana a lo que tenga debajo (el botón de reportes)
-        zonasMenu.unshift({ tipo: "color", indice: i, x: X_DESPLEGABLE, y: y, w: ANCHO_DESPLEGABLE, h: ALTO_FILA_COLOR })
+        // Delante en la lista de zonas: así gana a lo que tenga debajo
+        zonasMenu.unshift({ tipo: "opcion", desplegable: desplegableAbierto, indice: i, x: xLista, y: y, w: anchoLista, h: ALTO_FILA_LISTA })
     })
     ctx.strokeStyle = "yellow"
-    ctx.strokeRect(X_DESPLEGABLE, yLista, ANCHO_DESPLEGABLE, ALTO_FILA_COLOR * MODOS_COLOR.length)
+    ctx.strokeRect(xLista, yLista, anchoLista, ALTO_FILA_LISTA * d.opciones().length)
 }
 
-function abrirColores() {
-    menuColoresAbierto = true
-    focoMenu = "colores"
-    colorResaltado = modoColor
+function abrirDesplegable(clave) {
+    desplegableAbierto = clave
+    focoMenu = clave
+    opcionResaltada = DESPLEGABLES[clave].actual()
 }
-function elegirColor(i) {
-    modoColor = i
-    menuColoresAbierto = false
+function elegirOpcionDesplegable(clave, i) {
+    DESPLEGABLES[clave].elegir(i)
+    desplegableAbierto = null
 }
 
-// Botón para abrir el panel de reportes, centrado en x; devuelve su zona clicable
-function dibujarBotonReporte(texto, centroX, y) {
+// Botón azulado (reportar, ayuda...), centrado en x; devuelve su zona clicable con el tipo indicado
+function dibujarBoton(texto, centroX, y, tipo, resaltado = false) {
     const alineacion = ctx.textAlign
     ctx.textAlign = "center"
     ctx.font = "15px sans-serif"
     const ancho = ctx.measureText(texto).width + 32
-    const zona = { tipo: "reportar", x: centroX - ancho / 2, y: y, w: ancho, h: 36 }
+    const zona = { tipo: tipo, x: centroX - ancho / 2, y: y, w: ancho, h: 36 }
     ctx.fillStyle = "rgba(255, 255, 255, 0.05)"
     ctx.fillRect(zona.x, zona.y, zona.w, zona.h)
-    ctx.strokeStyle = "rgba(120, 200, 255, 0.5)"
-    ctx.lineWidth = 1
+    ctx.strokeStyle = resaltado ? "yellow" : "rgba(120, 200, 255, 0.5)"
+    ctx.lineWidth = resaltado ? 3 : 1
     ctx.strokeRect(zona.x, zona.y, zona.w, zona.h)
-    ctx.fillStyle = "rgb(120, 200, 255)"
+    ctx.lineWidth = 1
+    ctx.fillStyle = resaltado ? "yellow" : "rgb(120, 200, 255)"
     ctx.fillText(texto, centroX, zona.y + 23)
     ctx.textAlign = alineacion
     return zona
+}
+// El mismo botón, pegado a la esquina superior derecha (con el ancho que pida su texto)
+function dibujarBotonEsquina(texto, tipo, resaltado = false) {
+    ctx.font = "15px sans-serif"
+    const ancho = ctx.measureText(texto).width + 32
+    return dibujarBoton(texto, 1024 - 14 - ancho / 2, 14, tipo, resaltado)
 }
 
 // Versión en la esquina inferior derecha
@@ -2603,31 +2892,35 @@ function dibujarVersion() {
 let panelReporte = null
 let ultimoReporte = -Infinity
 
+// Se crea en el idioma elegido; si luego se cambia de idioma en el menú, se vuelve a crear.
+// Los valores de "tipo" (Bug, Idea, Otra cosa) se quedan en castellano en los dos idiomas: son los
+// nombres de las opciones del formulario de Google.
 function crearPanelReporte() {
     const fondo = document.createElement("div")
     fondo.className = "reporte-fondo"
+    fondo.dataset.idioma = idioma
     fondo.innerHTML = `
         <form class="reporte" novalidate>
-            <h2>Reportar un bug o una idea</h2>
+            <h2>${L("Reportar un bug o una idea", "Report a bug or an idea")}</h2>
             <div class="reporte-tipos">
                 <label><input type="radio" name="tipo" value="Bug" checked> Bug</label>
                 <label><input type="radio" name="tipo" value="Idea"> Idea</label>
-                <label><input type="radio" name="tipo" value="Otra cosa"> Otra cosa</label>
+                <label><input type="radio" name="tipo" value="Otra cosa"> ${L("Otra cosa", "Something else")}</label>
             </div>
-            <label class="reporte-campo reporte-nombre">Tu nombre <span>(opcional)</span>
+            <label class="reporte-campo reporte-nombre">${L("Tu nombre", "Your name")} <span>(${L("opcional", "optional")})</span>
                 <input type="text" name="nombre" maxlength="40" autocomplete="off">
             </label>
-            <label class="reporte-campo">Cuéntame qué ha pasado
+            <label class="reporte-campo">${L("Cuéntame qué ha pasado", "Tell me what happened")}
                 <textarea name="mensaje" maxlength="2000" rows="5"></textarea>
             </label>
-            <label class="reporte-campo reporte-esperado">¿Qué esperabas que pasara? <span>(opcional)</span>
+            <label class="reporte-campo reporte-esperado">${L("¿Qué esperabas que pasara?", "What did you expect to happen?")} <span>(${L("opcional", "optional")})</span>
                 <textarea name="esperado" maxlength="2000" rows="3"></textarea>
             </label>
             <p class="reporte-info"></p>
             <p class="reporte-estado" aria-live="polite"></p>
             <div class="reporte-botones">
-                <button type="button" class="reporte-cancelar">Cancelar (Esc)</button>
-                <button type="submit" class="reporte-enviar">Enviar</button>
+                <button type="button" class="reporte-cancelar">${L("Cancelar (Esc)", "Cancel (Esc)")}</button>
+                <button type="submit" class="reporte-enviar">${L("Enviar", "Send")}</button>
             </div>
         </form>`
     // Sin pregunta en el formulario, el campo no sale (no se pide algo que luego no se guarda)
@@ -2644,14 +2937,19 @@ function crearPanelReporte() {
     return fondo
 }
 
-// Lo que se manda solo, además de lo que escribe el jugador
-function datosAutomaticosReporte() {
-    let partida = "Desde el menú, sin partida empezada"
+// Lo que se manda solo, además de lo que escribe el jugador. Al formulario va siempre en castellano
+// (y avisa si se jugaba en inglés); paraMostrar = en el idioma del jugador, para el panel.
+function datosAutomaticosReporte(paraMostrar = false) {
+    const es = !paraMostrar || idioma === "es"
+    const dificultad = DIFICULTADES[dificultadElegida].nombre
+    let partida = es ? "Desde el menú, sin partida empezada" : "From the menu, no run started"
     if (tiempoInicio > 0) {
-        partida = "Sector " + sectorActual + " · nivel medio " + Math.round(nivelMedio() * 10) / 10 +
-            " · " + formatearTiempo(performance.now() - tiempoInicio) + " de partida"
+        const nivel = Math.round(nivelMedio() * 10) / 10, tiempo = formatearTiempo(performance.now() - tiempoInicio)
+        partida = es ? "Sector " + sectorActual + " · nivel medio " + nivel + " · " + tiempo + " de partida"
+                     : "Sector " + sectorActual + " · average level " + nivel + " · " + tiempo + " played"
     }
-    return { version: "v" + VERSION, dificultad: DIFICULTADES[dificultadElegida].nombre, partida: partida }
+    if (!paraMostrar && idioma !== "es") partida += " · jugando en inglés"
+    return { version: "v" + VERSION, dificultad: es ? dificultad.es : tr(dificultad), partida: partida }
 }
 
 function reporteAbierto() {
@@ -2659,10 +2957,16 @@ function reporteAbierto() {
 }
 
 function abrirReporte() {
+    // Si se cambió de idioma desde la última vez, el panel se vuelve a crear en el nuevo
+    if (panelReporte && panelReporte.dataset.idioma !== idioma) {
+        panelReporte.remove()
+        panelReporte = null
+    }
     if (!panelReporte) panelReporte = crearPanelReporte()
-    const datos = datosAutomaticosReporte()
+    const datos = datosAutomaticosReporte(true)
     panelReporte.querySelector(".reporte-info").textContent =
-        "Se envía también: versión " + datos.version + " · dificultad " + datos.dificultad +
+        L("Se envía también: versión " + datos.version + " · dificultad " + datos.dificultad,
+          "Also sent: version " + datos.version + " · difficulty " + datos.dificultad) +
         (REPORTES.campos.partida ? " · " + datos.partida : "")
     panelReporte.querySelector(".reporte-estado").textContent = ""
     panelReporte.querySelector(".reporte-enviar").disabled = false
@@ -2683,16 +2987,16 @@ function enviarReporte() {
     const boton = panelReporte.querySelector(".reporte-enviar")
     const mensaje = form.mensaje.value.trim()
     if (mensaje === "") {
-        estadoTexto.textContent = "Escribe qué ha pasado antes de enviarlo."
+        estadoTexto.textContent = L("Escribe qué ha pasado antes de enviarlo.", "Write what happened before sending it.")
         form.mensaje.focus()
         return
     }
     if (!REPORTES.url) {
-        estadoTexto.textContent = "Los reportes todavía no están configurados: no se ha enviado nada."
+        estadoTexto.textContent = L("Los reportes todavía no están configurados: no se ha enviado nada.", "Reports aren't set up yet: nothing was sent.")
         return
     }
     if (performance.now() - ultimoReporte < ESPERA_ENTRE_REPORTES) {
-        estadoTexto.textContent = "Acabas de enviar uno: espera unos segundos antes del siguiente."
+        estadoTexto.textContent = L("Acabas de enviar uno: espera unos segundos antes del siguiente.", "You just sent one: wait a few seconds before the next.")
         return
     }
     const valores = {
@@ -2715,7 +3019,7 @@ function enviarReporte() {
         }
     }
     boton.disabled = true
-    estadoTexto.textContent = "Enviando..."
+    estadoTexto.textContent = L("Enviando...", "Sending...")
     // Google Forms no deja leer su respuesta desde otra web ("no-cors"): solo se sabe si ha fallado la
     // conexión. Si llega, la respuesta queda guardada en el formulario.
     fetch(REPORTES.url, { method: "POST", mode: "no-cors", body: cuerpo })
@@ -2723,13 +3027,178 @@ function enviarReporte() {
             ultimoReporte = performance.now()
             form.mensaje.value = ""
             if (form.esperado) form.esperado.value = ""
-            estadoTexto.textContent = "¡Enviado! Gracias por ayudar a mejorar el juego."
+            estadoTexto.textContent = L("¡Enviado! Gracias por ayudar a mejorar el juego.", "Sent! Thanks for helping improve the game.")
             setTimeout(cerrarReporte, 1800)
         })
         .catch(() => {
             boton.disabled = false
-            estadoTexto.textContent = "No se ha podido enviar. Revisa tu conexión e inténtalo otra vez."
+            estadoTexto.textContent = L("No se ha podido enviar. Revisa tu conexión e inténtalo otra vez.", "It couldn't be sent. Check your connection and try again.")
         })
+}
+
+// --- Ayuda (tecla H o botón "¿Cómo jugar?") ------------------------------------------
+// En el menú de inicio, un resumen de todo el juego; durante la partida, la ayuda de lo que se está
+// haciendo (el mapa, el combate, un evento o las estadísticas). Se dibuja encima de la pantalla y,
+// mientras está abierta, el juego no recibe teclas ni clics: Esc, H, Enter, espacio o un clic la cierran.
+// Cada bloque tiene titulo y texto ({ es, en } o una función que use L, para los nombres), o
+// casillas: true para la lista de casillas del mapa con sus símbolos.
+const CASILLAS_AYUDA = [
+    { tipo: 2, texto: { es: "Combate: una patrulla enemiga", en: "Combat: an enemy patrol" } },
+    { tipo: 3, texto: { es: "Descanso: cura 15 HP, o da +5 de vida máxima a quien ya esté entero", en: "Rest: heals 15 HP, or gives +5 max HP to anyone already at full health" } },
+    { tipo: 4, texto: { es: "Evento: una decisión con premio... y a veces con riesgo", en: "Event: a choice with a reward... and sometimes a risk" } }
+]
+const AYUDA = {
+    menu: {
+        titulo: { es: "Cómo jugar", en: "How to play" },
+        bloques: [
+            { titulo: { es: "El objetivo", en: "Your goal" },
+              texto: () => L("Guía a " + nombreDe("Paku") + " y su tripulación por los pasillos de una nave pirata. Un sector se despeja pisando todas sus casillas especiales; entonces llega el siguiente, más peligroso. La partida termina cuando cae todo el equipo: llega tan lejos como puedas.",
+                             "Guide " + nombreDe("Paku") + " and his crew through the corridors of a pirate ship. A sector is cleared by stepping on all of its special tiles; then the next one arrives, more dangerous. The run ends when the whole team falls: get as far as you can.") },
+            { titulo: { es: "El mapa", en: "The map" },
+              texto: { es: "Muévete con WASD o las flechas; el resto del equipo te sigue. Estas son las casillas especiales:",
+                       en: "Move with WASD or the arrow keys; the rest of the team follows you. These are the special tiles:" } },
+            { casillas: true },
+            { titulo: { es: "El combate", en: "Combat" },
+              texto: { es: "Es por turnos: eliges qué hace cada personaje y después actúan todos, aliados y enemigos, del más rápido al más lento. Puedes atacar, usar una habilidad (gasta orbes de energía), defenderte o usar un objeto.",
+                       en: "It's turn-based: you choose what each character does, then everyone acts, allies and enemies, from fastest to slowest. You can attack, use an ability (it costs energy orbs), defend or use an item." } },
+            { titulo: { es: "Progreso", en: "Progress" },
+              texto: { es: "Ganando combates subes de nivel (sin tope) y aprendes habilidades nuevas. Los eventos dan objetos y mejoras que duran toda la partida.",
+                       en: "Winning combats levels you up (with no cap) and teaches you new abilities. Events give you items and upgrades that last the whole run." } },
+            { titulo: { es: "Consejo", en: "Tip" },
+              texto: { es: "Durante la partida, pulsa H para ver la ayuda de lo que estés haciendo: el mapa, el combate, un evento o las estadísticas.",
+                       en: "During a run, press H to see help about whatever you're doing: the map, combat, an event or the stats." } }
+        ]
+    },
+    exploracion: {
+        titulo: { es: "Ayuda: el mapa", en: "Help: the map" },
+        bloques: [
+            { titulo: { es: "Moverse", en: "Moving" },
+              texto: { es: "WASD o las flechas. Tus compañeros te siguen por el camino que vas haciendo.",
+                       en: "WASD or the arrow keys. Your companions follow the path you take." } },
+            { titulo: { es: "Las casillas", en: "The tiles" },
+              texto: { es: "Cada casilla especial se gasta al pisarla:", en: "Each special tile is used up when you step on it:" } },
+            { casillas: true },
+            { titulo: { es: "Los sectores", en: "Sectors" },
+              texto: { es: "Cuando no queda ninguna casilla especial, el sector está despejado: aparecen casillas nuevas y empieza el siguiente, con enemigos más fuertes y grupos más grandes, pero que dan más experiencia. El sector en el que estás aparece arriba a la izquierda.",
+                       en: "When no special tiles are left, the sector is cleared: new tiles appear and the next one begins, with stronger enemies and bigger groups that also give more experience. Your current sector is shown at the top left." } },
+            { titulo: { es: "Atajos", en: "Shortcuts" },
+              texto: { es: "M: estadísticas del equipo, objetos y mejoras de la partida  ·  R (en Estadísticas): reportar un bug o una idea",
+                       en: "M: team stats, items and run upgrades  ·  R (in Stats): report a bug or an idea" } }
+        ]
+    },
+    combate: {
+        titulo: { es: "Ayuda: el combate", en: "Help: combat" },
+        bloques: [
+            { titulo: { es: "Los turnos", en: "Turns" },
+              texto: () => L("Cada ronda eliges la acción de cada personaje, de arriba abajo (la flecha naranja señala a quién le toca). Cuando todos han elegido, actúan todos, aliados y enemigos, de mayor a menor " + etiquetaStat("VEL") + ". Elige con W/S o las flechas, Enter confirma y Esc vuelve atrás.",
+                             "Each round you choose an action for each character, from top to bottom (the orange arrow shows whose turn it is). Once everyone has chosen, everybody acts, allies and enemies, from highest to lowest " + etiquetaStat("VEL") + ". Choose with W/S or the arrow keys, Enter confirms and Esc goes back.") },
+            { titulo: { es: "Las acciones", en: "Actions" },
+              texto: () => L("Atacar: un golpe normal. Habilidad: cuesta orbes (los círculos azules), que se recuperan al final de cada ronda (" + nombreDe("Paku") + " 2, los demás 1). Defender: DEF doble y algo de esquiva hasta la ronda siguiente. Objeto: usa uno del inventario y gasta el turno.",
+                             "Attack: a normal hit. Ability: costs orbs (the blue circles), which recharge at the end of each round (" + nombreDe("Paku") + " 2, the others 1). Defend: double DEF and a bit of evasion until the next round. Item: uses one from your inventory and spends the turn.") },
+            { titulo: { es: "Los golpes", en: "Hits" },
+              texto: () => L("Crítico: el doble de daño (un 5% de probabilidad por cada punto de LUCK). Refilón: la mitad de daño y nunca crítico; es más probable cuanta más EVA tenga quien lo recibe y menos " + etiquetaStat("PRE") + " quien ataca. " + nombreDe("VBZ") + " encadena golpes mientras saque críticos.",
+                             "Critical: double damage (5% chance per point of LUCK). Glancing: half damage and never critical; it's more likely the more EVA the target has and the less " + etiquetaStat("PRE") + " the attacker has. " + nombreDe("VBZ") + " chains hits as long as they keep landing crits.") },
+            { titulo: { es: "Enemigos con truco", en: "Tricky enemies" },
+              texto: () => L(nombreDe("Dron reparador") + ": cura a las otras máquinas, tumbadlo primero. " + nombreDe("Dron kamikaze") + ": estalla a los 3 turnos contra todo el equipo. " + nombreDe("Escolta acorazado") + ": se protege y os quita orbes. " + nombreDe("Moto Pirata") + ": con poca vida huye... y vuelve con refuerzos.",
+                             nombreDe("Dron reparador") + ": heals the other machines, take it down first. " + nombreDe("Dron kamikaze") + ": explodes after 3 turns, hitting the whole team. " + nombreDe("Escolta acorazado") + ": shields up and steals your orbs. " + nombreDe("Moto Pirata") + ": flees when low on HP... and comes back with reinforcements.") },
+            { titulo: { es: "Victoria y derrota", en: "Victory and defeat" },
+              texto: { es: "Al ganar, la experiencia se reparte entre los que siguen en pie. Si cae todo el equipo, se acaba la partida.",
+                       en: "When you win, the experience is shared among those still standing. If the whole team falls, the run is over." } }
+        ]
+    },
+    evento: {
+        titulo: { es: "Ayuda: los eventos", en: "Help: events" },
+        bloques: [
+            { titulo: { es: "Decidir", en: "Deciding" },
+              texto: { es: "Cada evento te plantea una decisión. Debajo de cada opción se explica qué pasa y, si hay riesgo, con qué probabilidad (%). Elige con el ratón o con las flechas, y haz clic o pulsa Enter para decidir.",
+                       en: "Each event gives you a choice. Under each option you can see what happens and, if there's a risk, how likely it is (%). Choose with the mouse or the arrow keys, then click or press Enter to decide." } },
+            { titulo: { es: "Cuánto dura", en: "How long it lasts" },
+              texto: { es: "Algunos efectos duran toda la partida y otros solo el próximo combate. Los tienes resumidos en Estadísticas (M), abajo a la izquierda.",
+                       en: "Some effects last the whole run and others only the next combat. You'll find them summed up in Stats (M), at the bottom left." } },
+            { titulo: { es: "Quién lo intenta", en: "Who tries" },
+              texto: () => L("Algunas opciones dependen de un personaje: " + nombreDe("VBZ") + " hackea (más fácil cuanta más suerte tiene) e " + nombreDe("Imanps") + " repara. Si ha caído, esa opción no aparece.",
+                             "Some options depend on a character: " + nombreDe("VBZ") + " does the hacking (easier the luckier they are) and " + nombreDe("Imanps") + " does the repairs. If they've fallen, that option doesn't show up.") }
+        ]
+    },
+    estadisticas: {
+        titulo: { es: "Ayuda: las estadísticas", en: "Help: stats" },
+        bloques: [
+            { titulo: { es: "Los stats", en: "Stats" },
+              texto: () => L("HP: vida. ATK: daño. DEF: reduce el daño que recibes. " + etiquetaStat("VEL") + ": orden de turno en combate. LUCK: probabilidad de crítico. " + etiquetaStat("PRE") + ": evita dar golpes de refilón. EVA: hace que te den de refilón.",
+                             "HP: health. ATK: damage. DEF: reduces the damage you take. " + etiquetaStat("VEL") + ": turn order in combat. LUCK: critical hit chance. " + etiquetaStat("PRE") + ": avoids landing glancing hits. EVA: makes enemies hit you glancingly.") },
+            { titulo: { es: "Los orbes", en: "Orbs" },
+              texto: { es: "Los círculos azules son los huecos de energía para las habilidades. Subiendo de nivel se ganan huecos nuevos.",
+                       en: "The blue circles are energy slots for abilities. You gain new slots as you level up." } },
+            { titulo: { es: "Las habilidades", en: "Abilities" },
+              texto: { es: "Las que ya ha aprendido el personaje, con lo que cuestan en orbes. Algunos eventos les suben el rango y las hacen más fuertes.",
+                       en: "The ones the character has already learned, with their orb cost. Some events raise their rank and make them stronger." } },
+            { titulo: { es: "El resumen de la partida", en: "Run summary" },
+              texto: { es: "Abajo a la izquierda: tus objetos, lo preparado para el próximo combate y las mejoras que duran toda la partida.",
+                       en: "At the bottom left: your items, what's set up for the next combat and the upgrades that last the whole run." } }
+        ]
+    }
+}
+let ayudaAbierta = null   // clave de AYUDA que se está mostrando, o null
+
+function abrirAyuda() {
+    ayudaAbierta = AYUDA[estado] ? estado : "exploracion"   // descanso, victoria...: la del mapa
+    desplegableAbierto = null
+    // Que Paku no siga andando con una tecla que estaba pulsada al abrirla
+    for (const t in teclas) teclas[t] = false
+}
+function cerrarAyuda() {
+    ayudaAbierta = null
+}
+
+function dibujarAyuda() {
+    const ayuda = AYUDA[ayudaAbierta]
+    const x = 112, y = 40, ancho = 800, alto = 624
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
+    ctx.fillRect(0, 0, ANCHO_JUEGO, ALTO_JUEGO)
+    ctx.fillStyle = "rgb(24, 28, 46)"
+    ctx.fillRect(x, y, ancho, alto)
+    ctx.strokeStyle = "rgb(120, 200, 255)"
+    ctx.lineWidth = 2
+    ctx.strokeRect(x, y, ancho, alto)
+    ctx.lineWidth = 1
+
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(120, 200, 255)"
+    ctx.font = "bold 26px sans-serif"
+    ctx.fillText(tr(ayuda.titulo), x + ancho / 2, y + 44)
+    ctx.textAlign = "left"
+
+    const xTexto = x + 30, anchoTexto = ancho - 60
+    let cursor = y + 84
+    ayuda.bloques.forEach(b => {
+        if (b.casillas) {
+            CASILLAS_AYUDA.forEach(c => {
+                dibujarCasilla(c.tipo, xTexto, cursor - 4)
+                ctx.fillStyle = "rgb(210, 210, 220)"
+                ctx.font = "14px sans-serif"
+                ctx.fillText(tr(c.texto), xTexto + 44, cursor + 17)
+                cursor += 38
+            })
+            cursor += 20   // aire antes del siguiente título
+            return
+        }
+        if (b.titulo) {
+            ctx.fillStyle = "rgb(255, 210, 90)"
+            ctx.font = "bold 16px sans-serif"
+            ctx.fillText(tr(b.titulo), xTexto, cursor)
+            cursor += 22
+        }
+        const texto = typeof b.texto === "function" ? b.texto() : tr(b.texto)
+        ctx.fillStyle = "rgb(210, 210, 220)"
+        ctx.font = "14px sans-serif"
+        cursor += 19 * dibujarTextoEnvuelto(texto, xTexto, cursor, anchoTexto, 19, 6) + 12
+    })
+
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(150, 150, 165)"
+    ctx.font = "14px sans-serif"
+    ctx.fillText(L("Esc, H o clic para cerrar", "Esc, H or click to close"), x + ancho / 2, y + alto - 16)
+    ctx.textAlign = "left"
 }
 
 function dibujarPared(x, y, b) {
@@ -2776,12 +3245,12 @@ const SIMBOLOS_CASILLA = {
 //   modo, 28-32. Paku nunca es rojo fuera del modo Convencional.
 // equipo: null = los colores de siempre (ESTILOS_PLACEHOLDER en combate y los del mapa)
 const MODOS_COLOR = [
-    { nombre: "Convencional", casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255] }, equipo: null },
-    { nombre: "Protanopia (rojo)", casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255] },
+    { nombre: { es: "Convencional", en: "Conventional" }, casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255] }, equipo: null },
+    { nombre: { es: "Protanopia (rojo)", en: "Protanopia (red)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255] },
       equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255] } },
-    { nombre: "Deuteranopia (verde)", casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166] },
+    { nombre: { es: "Deuteranopia (verde)", en: "Deuteranopia (green)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166] },
       equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26] } },
-    { nombre: "Tritanopia (azul)", casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255] },
+    { nombre: { es: "Tritanopia (azul)", en: "Tritanopia (blue)" }, casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255] },
       equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] } }
 ]
 let modoColor = 0   // índice en MODOS_COLOR (no se guarda: cada vez que se abre el juego empieza en Convencional)
@@ -2814,7 +3283,7 @@ function dibujarCasilla(tipo, x, y, modo = modoColor) {
 // El equipo en el mapa: cuadrado de su color con la inicial encima (así no depende solo del color).
 // color y colorLetra son los de siempre; si el modo de color tiene los suyos, mandan esos.
 function dibujarMiembroMapa(p, color, colorLetra) {
-    const delModo = colorEquipoModo(p.nombre)
+    const delModo = colorEquipoModo(p.id)
     if (delModo) {
         color = textoRGB(delModo)
         colorLetra = letraSobre(delModo)
@@ -2856,7 +3325,7 @@ function dibujarExploracion() {
         ctx.fillRect(300, 200, 400, 250)
         ctx.fillStyle = "rgb(0, 200, 100)"
         ctx.font = "20px sans-serif"
-        ctx.fillText("Descanso", 430, 230)
+        ctx.fillText(L("Descanso", "Rest"), 430, 230)
         ctx.fillStyle = "white"
         ctx.font = "14px sans-serif"
     logDescanso.forEach((msg, i) => {
@@ -2868,6 +3337,12 @@ function dibujarExploracion() {
     ctx.font = "bold 14px sans-serif"
     ctx.fillStyle = "rgb(220, 220, 235)"
     ctx.fillText("Sector " + sectorActual, 8, 21)
+    // Atajos, arriba a la derecha (también sobre el muro)
+    ctx.textAlign = "right"
+    ctx.font = "13px sans-serif"
+    ctx.fillStyle = "rgb(190, 190, 210)"
+    ctx.fillText(L("H: ayuda  ·  M: estadísticas", "H: help  ·  M: stats"), 1016, 21)
+    ctx.textAlign = "left"
     if (performance.now() < avisoSectorHasta) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
         ctx.fillRect(262, 60, 500, 80)
@@ -2878,10 +3353,10 @@ function dibujarExploracion() {
         ctx.textAlign = "center"
         ctx.fillStyle = "rgb(120, 220, 140)"
         ctx.font = "bold 24px sans-serif"
-        ctx.fillText("¡Sector despejado!", 512, 95)
+        ctx.fillText(L("¡Sector despejado!", "Sector cleared!"), 512, 95)
         ctx.fillStyle = "white"
         ctx.font = "15px sans-serif"
-        ctx.fillText("La nave manda patrullas más duras  ·  Sector " + sectorActual, 512, 124)
+        ctx.fillText(L("La nave manda patrullas más duras  ·  Sector ", "The ship sends tougher patrols  ·  Sector ") + sectorActual, 512, 124)
         ctx.textAlign = "left"
     }
 }
@@ -2951,7 +3426,7 @@ function dibujarSprite(clave, x, y, tam, izquierda = false) {
     ctx.font = "bold " + Math.round(tam / 3) + "px sans-serif"
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
-    ctx.fillText(clave.charAt(0), x + tam / 2, y + tam / 2)
+    ctx.fillText(nombreDe(clave).charAt(0), x + tam / 2, y + tam / 2)   // la inicial del nombre en el idioma elegido
     ctx.textAlign = "left"
     ctx.textBaseline = "alphabetic"
     ctx.lineWidth = 1
@@ -2962,22 +3437,22 @@ function dibujarSprite(clave, x, y, tam, izquierda = false) {
 function dibujarFondo(clave) {
     const img = imagenLista(clave)
     if (img) {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, ANCHO_JUEGO, ALTO_JUEGO)
         return
     }
     const colores = COLORES_FONDO[clave]
-    const degradado = ctx.createLinearGradient(0, 0, 0, canvas.height)
+    const degradado = ctx.createLinearGradient(0, 0, 0, ALTO_JUEGO)
     degradado.addColorStop(0, colores[0])
     degradado.addColorStop(1, colores[1])
     ctx.fillStyle = degradado
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillRect(0, 0, ANCHO_JUEGO, ALTO_JUEGO)
 
     if (clave === "fondoExploracion") {
         ctx.strokeStyle = "rgba(255, 255, 255, 0.05)"
         ctx.lineWidth = 1
         ctx.beginPath()
-        for (let x = 0; x <= canvas.width; x += tamTile) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height) }
-        for (let y = 0; y <= canvas.height; y += tamTile) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y) }
+        for (let x = 0; x <= ANCHO_JUEGO; x += tamTile) { ctx.moveTo(x, 0); ctx.lineTo(x, ALTO_JUEGO) }
+        for (let y = 0; y <= ALTO_JUEGO; y += tamTile) { ctx.moveTo(0, y); ctx.lineTo(ANCHO_JUEGO, y) }
         ctx.stroke()
         return
     }
@@ -3012,19 +3487,19 @@ function dibujarMarcador(x, y, direccion) {
 }
 
 function estadoEspecialEnemigo(en) {
-    if (en.estallo) return { texto: "Ha estallado", color: "gray" }
-    if (en.huyo) return { texto: "Ha huido", color: "gray" }
+    if (en.estallo) return { texto: L("Ha estallado", "Exploded"), color: "gray" }
+    if (en.huyo) return { texto: L("Ha huido", "Fled"), color: "gray" }
     if (en.stats.HP <= 0) return null
     const pirateado = en.dron && mejorasPartida.dronesPirateados
-    if (en.aturdido > 0) return { texto: "Aturdido", color: "rgb(240, 220, 90)" }
+    if (en.aturdido > 0) return { texto: L("Aturdido", "Stunned"), color: "rgb(240, 220, 90)" }
     if (en.rol === "estallar") {
         const quedan = TURNOS_KAMIKAZE - (en.turnosCargando || 0)
         // Pirateado: mismo texto, pero en el color de "Pirateado" (no cabe más al lado de la vida)
-        if (pirateado) return { texto: "Estalla en " + quedan, color: "rgb(110, 220, 200)" }
-        return { texto: "Estalla en " + quedan, color: quedan <= 1 ? "rgb(255, 80, 60)" : "orange" }
+        if (pirateado) return { texto: L("Estalla en ", "Explodes in ") + quedan, color: "rgb(110, 220, 200)" }
+        return { texto: L("Estalla en ", "Explodes in ") + quedan, color: quedan <= 1 ? "rgb(255, 80, 60)" : "orange" }
     }
-    if (pirateado) return { texto: "Pirateado", color: "rgb(110, 220, 200)" }
-    if (en.defendiendo) return { texto: "Protegido", color: "rgb(120, 190, 255)" }
+    if (pirateado) return { texto: L("Pirateado", "Hacked"), color: "rgb(110, 220, 200)" }
+    if (en.defendiendo) return { texto: L("Protegido", "Shielded"), color: "rgb(120, 190, 255)" }
     return null
 }
 
@@ -3103,7 +3578,7 @@ function dibujarCombate() {
         const x = 60
         const y = 45 + i * 120
         ctx.globalAlpha = p.stats.HP <= 0 ? 0.35 : 1
-        dibujarSprite(p.nombre, x, y, tam)
+        dibujarSprite(p.id, x, y, tam)
         ctx.globalAlpha = 1
         dibujarBarraHP(x, y + tam + 6, tam, p.stats)
         ctx.fillStyle = colorNombre(p)
@@ -3128,7 +3603,7 @@ function dibujarCombate() {
     equipoJugador.forEach((p, i) => {
         const y = 590 + i * 30
         ctx.fillStyle = colorNombre(p)
-        ctx.fillText(p.nombre + " Nv" + p.nivel + " - " + p.stats.HP + "/" + p.stats.HP_MAX + "HP", 50, y)
+        ctx.fillText(p.nombre + L(" Nv", " Lv") + p.nivel + " - " + p.stats.HP + "/" + p.stats.HP_MAX + "HP", 50, y)
         dibujarOrbes(p, 290, y - 5)
     })
 
@@ -3141,19 +3616,19 @@ function dibujarCombate() {
         disponibles.forEach((h, i) => {
             const alcanza = personaje.energia >= h.coste
             ctx.fillStyle = !alcanza ? "gray" : i === habilidadSeleccionada ? "yellow" : "white"
-            ctx.fillText((i === habilidadSeleccionada ? "> " : "  ") + h.nombre + " (" + h.coste + ")", 700, 580 + i * 30)
+            ctx.fillText((i === habilidadSeleccionada ? "> " : "  ") + tr(h.nombre) + " (" + h.coste + ")", 700, 580 + i * 30)
         })
     } else if (faseCombate === "objeto") {
         // Submenú de objetos, con cuántos quedan
         objetos.forEach((o, i) => {
             ctx.fillStyle = i === objetoSeleccionado ? "rgb(120, 220, 140)" : "white"
-            ctx.fillText((i === objetoSeleccionado ? "> " : "  ") + OBJETOS[o.id].nombre + " x" + o.cantidad, 700, 580 + i * 30)
+            ctx.fillText((i === objetoSeleccionado ? "> " : "  ") + tr(OBJETOS[o.id].nombre) + " x" + o.cantidad, 700, 580 + i * 30)
         })
     } else {
         const puedeHabilidad = disponibles.some(h => personaje.energia >= h.coste)
         const textoHabilidad = disponibles.length === 1
-            ? "Habilidad: " + disponibles[0].nombre + " (" + disponibles[0].coste + ")"
-            : "Habilidad..."
+            ? L("Habilidad: ", "Ability: ") + tr(disponibles[0].nombre) + " (" + disponibles[0].coste + ")"
+            : L("Habilidad...", "Ability...")
 
         // La acción marcada lleva "> " delante, como en los submenús (no solo cambia de color)
         const marca = i => accionSeleccionada === i ? "> " : "  "
@@ -3161,48 +3636,53 @@ function dibujarCombate() {
         // claro en cualquier caso (el rojo de Atacar, con protanopia, se ve casi negro)
         const resaltado = color => modoColor === 0 ? color : "yellow"
         ctx.fillStyle = accionSeleccionada === 0 ? resaltado("rgb(255, 0, 0)") : "white"
-        ctx.fillText(marca(0) + "Atacar", 700, 580)
+        ctx.fillText(marca(0) + L("Atacar", "Attack"), 700, 580)
 
         ctx.fillStyle = !puedeHabilidad ? "gray" : accionSeleccionada === 1 ? "yellow" : "white"
         ctx.fillText(marca(1) + textoHabilidad, 700, 610)
 
         ctx.fillStyle = accionSeleccionada === 2 ? resaltado("rgb(53, 163, 194)") : "white"
-        ctx.fillText(marca(2) + "Defender", 700, 640)
+        ctx.fillText(marca(2) + L("Defender", "Defend"), 700, 640)
 
         ctx.fillStyle = objetos.length === 0 ? "gray" : accionSeleccionada === 3 ? resaltado("rgb(84, 156, 107)") : "white"
-        ctx.fillText(marca(3) + "Objeto", 700, 670)
+        ctx.fillText(marca(3) + L("Objeto", "Item"), 700, 670)
     }
 
     // Zona central, entre las dos columnas: avisos y log de combate
+    ctx.font = "13px sans-serif"
+    ctx.fillStyle = "rgb(170, 170, 190)"
+    ctx.textAlign = "center"
+    ctx.fillText(L("H: ayuda del combate", "H: combat help"), 472, 24)
+    ctx.textAlign = "left"
     ctx.font = "14px sans-serif"
     if (faseCombate === "objetivo") {
         ctx.fillStyle = "orange"
-        ctx.fillText("Elige objetivo: W/S o flechas, Enter confirma, Esc vuelve", 222, 352)
+        ctx.fillText(L("Elige objetivo: W/S o flechas, Enter confirma, Esc vuelve", "Choose a target: W/S or arrows, Enter confirms, Esc goes back"), 222, 352)
         // Probabilidad de dar de refilón al marcado (si el Escolta está protegido, ya cuenta)
         const marcado = enemigosCombate[objetivoSeleccionado]
         if (marcado && marcado.stats.HP > 0) {
             ctx.fillStyle = "rgb(180, 180, 190)"
-            ctx.fillText("Probabilidad de refilón contra " + marcado.nombre + ": " + probabilidadRefilon(personaje, marcado) + "%", 222, 332)
+            ctx.fillText(L("Probabilidad de refilón contra ", "Glancing-hit chance against ") + marcado.nombre + ": " + probabilidadRefilon(personaje, marcado) + "%", 222, 332)
         }
     } else if (faseCombate === "habilidad" && disponibles[habilidadSeleccionada]) {
         // Qué hace la habilidad marcada (en gris si no hay orbes para usarla)
         const h = disponibles[habilidadSeleccionada]
         ctx.fillStyle = "rgb(180, 180, 190)"
-        ctx.fillText("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", 222, 332)
+        ctx.fillText(L("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", "Choose an ability: W/S or arrows, Enter confirms, Esc goes back"), 222, 332)
         ctx.fillStyle = personaje.energia >= h.coste ? "orange" : "gray"
-        ctx.fillText(h.nombre + ": " + descripcionHabilidad(personaje, h), 222, 352)
+        ctx.fillText(tr(h.nombre) + ": " + descripcionHabilidad(personaje, h), 222, 352)
     } else if (faseCombate === "seleccion" && accionSeleccionada === 1 && disponibles.length === 1) {
         // Con una sola habilidad no hay submenú: se describe al marcar "Habilidad"
         const h = disponibles[0]
         ctx.fillStyle = personaje.energia >= h.coste ? "orange" : "gray"
-        ctx.fillText(h.nombre + ": " + descripcionHabilidad(personaje, h), 222, 352)
+        ctx.fillText(tr(h.nombre) + ": " + descripcionHabilidad(personaje, h), 222, 352)
     } else if (faseCombate === "seleccion" && accionSeleccionada === 2) {
         ctx.fillStyle = "rgb(120, 190, 220)"
-        ctx.fillText("Defender: DEF doble y +" + ESQUIVA_DEFENDER + "% de que te den de refilón esta ronda", 222, 352)
+        ctx.fillText(L("Defender: DEF doble y +" + ESQUIVA_DEFENDER + "% de que te den de refilón esta ronda", "Defend: double DEF and +" + ESQUIVA_DEFENDER + "% chance of being hit glancingly this round"), 222, 352)
     } else if (faseCombate === "objeto" && objetos[objetoSeleccionado]) {
         // Qué hace el objeto marcado
         ctx.fillStyle = "rgb(120, 220, 140)"
-        ctx.fillText(OBJETOS[objetos[objetoSeleccionado].id].descripcion + " · Esc vuelve", 222, 352)
+        ctx.fillText(tr(OBJETOS[objetos[objetoSeleccionado].id].descripcion) + L(" · Esc vuelve", " · Esc goes back"), 222, 352)
     }
     if (logCombate.length > 0) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
@@ -3214,7 +3694,11 @@ function dibujarCombate() {
         ctx.fillText(msg, 222, 385 + i * 20)
     })
 }
-const ETIQUETAS_STATS = { HP_MAX: "HP", ATK: "ATK", DEF: "DEF", VEL: "VEL", LUCK: "LUCK", PRE: "PRE", EVA: "EVA" }
+const ETIQUETAS_STATS = {
+    es: { HP_MAX: "HP", ATK: "ATK", DEF: "DEF", VEL: "VEL", LUCK: "LUCK", PRE: "PRE", EVA: "EVA" },
+    en: { HP_MAX: "HP", ATK: "ATK", DEF: "DEF", VEL: "SPD", LUCK: "LUCK", PRE: "ACC", EVA: "EVA" }
+}
+function etiquetaStat(clave) { return tr(ETIQUETAS_STATS)[clave] }
 const ORDEN_STATS = ["HP_MAX", "ATK", "DEF", "VEL", "LUCK", "PRE", "EVA"]
 
 // Los siete stats en una fila; si "mejoras" trae un valor para alguno, se resalta en verde justo detrás
@@ -3226,7 +3710,7 @@ function dibujarFilaStats(x, y, stats, mejoras) {
     let cursor = x
     ORDEN_STATS.forEach(clave => {
         ctx.fillStyle = "rgb(200, 200, 210)"
-        const texto = ETIQUETAS_STATS[clave] + " " + stats[clave]
+        const texto = etiquetaStat(clave) + " " + stats[clave]
         ctx.fillText(texto, cursor, y)
         cursor += ctx.measureText(texto).width
         if (mejoras[clave]) {
@@ -3249,9 +3733,9 @@ function dibujarVictoria() {
     dibujarFondo("fondoVictoria")
     ctx.fillStyle = "white"
     ctx.font = "32px sans-serif"
-    ctx.fillText("Victoria", 450, 70)
+    ctx.fillText(L("Victoria", "Victory"), 450, 70)
     ctx.font = "16px sans-serif"
-    ctx.fillText("Experiencia obtenida: " + xpTotalVictoria + " XP", 380, 108)
+    ctx.fillText(L("Experiencia obtenida: ", "Experience gained: ") + xpTotalVictoria + " XP", 380, 108)
 
     resumenVictoria.forEach((r, i) => {
         const y = 140 + i * 105
@@ -3259,13 +3743,14 @@ function dibujarVictoria() {
         ctx.fillStyle = r.vivo ? "white" : "gray"
         ctx.fillText(r.nombre, 120, y + 18)
         if (!r.vivo) {
-            ctx.fillText("Fuera de combate: no gana experiencia", 260, y + 18)
+            ctx.fillText(L("Fuera de combate: no gana experiencia", "Knocked out: gains no experience"), 260, y + 18)
             dibujarFilaStats(260, y + 46, r.statsFinal, {})
             return
         }
         const sube = r.nivelDespues > r.nivelAntes
         ctx.fillStyle = sube ? "yellow" : "white"
-        ctx.fillText(sube ? "Nv " + r.nivelAntes + " -> " + r.nivelDespues + "  ¡SUBE DE NIVEL!" : "Nv " + r.nivelDespues, 260, y + 18)
+        const nv = L("Nv ", "Lv ")
+        ctx.fillText(sube ? nv + r.nivelAntes + " -> " + r.nivelDespues + L("  ¡SUBE DE NIVEL!", "  LEVEL UP!") : nv + r.nivelDespues, 260, y + 18)
         ctx.fillStyle = "white"
         ctx.fillText("+" + r.xpGanada + " XP", 600, y + 18)
 
@@ -3287,7 +3772,7 @@ function dibujarVictoria() {
         if (r.nuevasHabilidades.length > 0) {
             ctx.fillStyle = "rgb(120, 200, 255)"
             ctx.font = "16px sans-serif"
-            ctx.fillText("¡Nueva habilidad: " + r.nuevasHabilidades.join(", ") + "!", 260, y + 86)
+            ctx.fillText(L("¡Nueva habilidad: ", "New ability: ") + r.nuevasHabilidades.join(", ") + "!", 260, y + 86)
         }
     })
 
@@ -3295,25 +3780,31 @@ function dibujarVictoria() {
     if (curaRobotVictoria > 0) {
         ctx.fillStyle = "rgb(150, 190, 200)"
         ctx.font = "15px sans-serif"
-        ctx.fillText("El robot de servicio os cura un " + curaRobotVictoria + "% de vida.", 512, 615)
+        ctx.fillText(L("El robot de servicio os cura un " + curaRobotVictoria + "% de vida.", "The service robot heals you " + curaRobotVictoria + "% HP."), 512, 615)
     }
     if (eventoTrasVictoria) {
         ctx.fillStyle = "rgb(120, 180, 255)"
         ctx.font = "bold 16px sans-serif"
-        ctx.fillText("Entre los restos del combate, algo os llama la atención...", 512, 640)
+        ctx.fillText(L("Entre los restos del combate, algo os llama la atención...", "Among the wreckage of the battle, something catches your eye..."), 512, 640)
     }
     ctx.textAlign = "left"
     ctx.fillStyle = "white"
     ctx.font = "16px sans-serif"
-    ctx.fillText("Pulsa algo para continuar", 420, 675)
+    ctx.textAlign = "center"
+    ctx.fillText(L("Pulsa algo para continuar", "Press any key to continue"), 512, 675)
+    ctx.textAlign = "left"
 }
 
 // Texto de relleno: cámbialo por la historia real de cada personaje cuando la tengas
 const DESCRIPCIONES_PERSONAJES = {
-    Paku: "El capitán de la nave. Rápido y decidido, siempre el primero en la refriega.",
-    Mamuri: "El artillero pesado del equipo. Pega fuerte, pero reacciona despacio.",
-    VBZ: "Un manojo de suerte andante: cuando se pone en racha, no hay quien lo pare.",
-    Imanps: "El apoyo del grupo. Mantiene a todos en pie cuando las cosas se tuercen."
+    Paku: { es: "El capitán de la nave. Rápido y decidido, siempre el primero en la refriega.",
+            en: "The ship's captain. Fast and decisive, always first into the fray." },
+    Mamuri: { es: "El artillero pesado del equipo. Pega fuerte, pero reacciona despacio.",
+              en: "The team's heavy gunner. Hits hard, but reacts slowly." },
+    VBZ: { es: "Un manojo de suerte andante: cuando se pone en racha, no hay quien lo pare.",
+           en: "A walking bundle of luck: once on a streak, there's no stopping them." },
+    Imanps: { es: "El apoyo del grupo. Mantiene a todos en pie cuando las cosas se tuercen.",
+              en: "The group's support. Keeps everyone standing when things go wrong." }
 }
 
 // Reparte el texto en líneas que quepan en anchoMax (según measureText con la fuente ya puesta)
@@ -3343,10 +3834,10 @@ function dibujarEstadisticas() {
     ctx.textAlign = "left"
     ctx.fillStyle = "white"
     ctx.font = "28px sans-serif"
-    ctx.fillText("Estadísticas", 400, 50)
+    ctx.fillText(L("Estadísticas", "Stats"), 400, 50)
     ctx.font = "14px sans-serif"
     ctx.fillStyle = "rgb(180, 180, 190)"
-    ctx.fillText("↑↓ o clic elige personaje · M / Esc para volver", 320, 75)
+    ctx.fillText(L("↑↓ o clic elige personaje · M / Esc para volver", "↑↓ or click to pick a character · M / Esc to go back"), 320, 75)
 
     // Lista de la izquierda
     equipoJugador.forEach((p, i) => {
@@ -3361,12 +3852,12 @@ function dibujarEstadisticas() {
         ctx.strokeRect(20, y, 260, 78)
 
         ctx.globalAlpha = muerto ? 0.4 : 1
-        dibujarSprite(p.nombre, 30, y + 9, 40)
+        dibujarSprite(p.id, 30, y + 9, 40)
         ctx.globalAlpha = 1
 
         ctx.fillStyle = muerto ? "gray" : "white"
         ctx.font = "15px sans-serif"
-        ctx.fillText(p.nombre + " · Nv" + p.nivel, 82, y + 24)
+        ctx.fillText(p.nombre + L(" · Nv", " · Lv") + p.nivel, 82, y + 24)
         dibujarBarraHP(82, y + 36, 180, p.stats)
         ctx.font = "11px sans-serif"
         ctx.fillStyle = "rgb(180, 180, 190)"
@@ -3374,7 +3865,12 @@ function dibujarEstadisticas() {
 
         zonasEstadisticas.push({ indice: i, x: 20, y: y, w: 260, h: 78 })
     })
-    zonasEstadisticas.push(dibujarBotonReporte("Reportar un bug o una idea (R)", 880, 22))
+    // Arriba a la derecha: ayuda en la esquina y, a su izquierda, reportar
+    const zonaAyuda = dibujarBotonEsquina(L("Ayuda (H)", "Help (H)"), "ayuda")
+    ctx.font = "15px sans-serif"
+    const textoReporte = L("Reportar un bug o una idea (R)", "Report a bug or an idea (R)")
+    const anchoReporte = ctx.measureText(textoReporte).width + 32
+    zonasEstadisticas.push(zonaAyuda, dibujarBoton(textoReporte, zonaAyuda.x - 10 - anchoReporte / 2, 14, "reportar"))
 
     // Panel de detalle de la derecha: el personaje resaltado en la lista
     const p = equipoJugador[personajeSeleccionado]
@@ -3387,17 +3883,17 @@ function dibujarEstadisticas() {
 
     const muertoSel = p.stats.HP <= 0
     ctx.globalAlpha = muertoSel ? 0.4 : 1
-    dibujarSprite(p.nombre, px + 20, 120, 90)
+    dibujarSprite(p.id, px + 20, 120, 90)
     ctx.globalAlpha = 1
 
     ctx.fillStyle = muertoSel ? "gray" : "white"
     ctx.font = "24px sans-serif"
-    ctx.fillText(p.nombre + "  ·  Nivel " + p.nivel, px + 130, 165)
+    ctx.fillText(p.nombre + L("  ·  Nivel ", "  ·  Level ") + p.nivel, px + 130, 165)
 
     const xInterior = px + 20
     ctx.font = "13px sans-serif"
     ctx.fillStyle = "rgb(190, 190, 200)"
-    dibujarTextoEnvuelto(DESCRIPCIONES_PERSONAJES[p.nombre] || "", xInterior, 230, 600, 18, 2)
+    dibujarTextoEnvuelto(tr(DESCRIPCIONES_PERSONAJES[p.id]) || "", xInterior, 230, 600, 18, 2)
 
     dibujarBarraHP(xInterior, 270, 300, p.stats)
     ctx.font = "13px sans-serif"
@@ -3422,17 +3918,17 @@ function dibujarEstadisticas() {
 
     ctx.fillStyle = "white"
     ctx.font = "15px sans-serif"
-    ctx.fillText("Habilidades", xInterior, 388)
+    ctx.fillText(L("Habilidades", "Abilities"), xInterior, 388)
     ctx.font = "13px sans-serif"
     const habilidades = habilidadesDisponibles(p)   // solo las ya aprendidas, ninguna bloqueada
     if (habilidades.length === 0) {
         ctx.fillStyle = "rgb(150, 150, 160)"
-        ctx.fillText("Todavía no ha aprendido ninguna", xInterior, 410)
+        ctx.fillText(L("Todavía no ha aprendido ninguna", "Hasn't learned any yet"), xInterior, 410)
     } else {
         habilidades.forEach((h, i) => {
             ctx.fillStyle = "rgb(120, 200, 255)"
-            const rango = h.rango ? "  · rango " + h.rango : ""
-            ctx.fillText("• " + h.nombre + "  (" + h.coste + " orbes)" + rango, xInterior, 410 + i * 22)
+            const rango = h.rango ? L("  · rango ", "  · rank ") + h.rango : ""
+            ctx.fillText("• " + tr(h.nombre) + "  (" + h.coste + L(" orbes)", " orbs)") + rango, xInterior, 410 + i * 22)
         })
     }
 
@@ -3441,9 +3937,9 @@ function dibujarEstadisticas() {
     ctx.fillStyle = "rgb(170, 170, 180)"
     ctx.font = "13px sans-serif"
     ctx.fillText(
-        "Tiempo: " + formatearTiempo(tiempoActual) +
-        "   Enemigos derrotados: " + totalDerrotados +
-        "   Dificultad: " + DIFICULTADES[dificultadElegida].nombre +
+        L("Tiempo: ", "Time: ") + formatearTiempo(tiempoActual) +
+        L("   Enemigos derrotados: ", "   Enemies defeated: ") + totalDerrotados +
+        L("   Dificultad: ", "   Difficulty: ") + tr(DIFICULTADES[dificultadElegida].nombre) +
         "   Sector: " + sectorActual,
         340, 670)
 
@@ -3455,33 +3951,35 @@ function dibujarEstadisticas() {
 // dura toda la partida (cada línea larga se parte; si no cabe todo, se corta antes de yMaximo)
 function dibujarResumenPartida(x, y, ancho, yMaximo) {
     const preparado = []
-    if (preparativos.orbesExtra > 0) preparado.push("+" + preparativos.orbesExtra + " orbe(s)")
-    if (preparativos.cantidadEnemigos > 1) preparado.push("patrulla de " + preparativos.cantidadEnemigos)
-    if (preparativos.cantidadEnemigos === 1) preparado.push("un solo enemigo")
+    if (preparativos.orbesExtra > 0) preparado.push("+" + preparativos.orbesExtra + L(" orbe(s)", " orb(s)"))
+    if (preparativos.cantidadEnemigos > 1) preparado.push(L("patrulla de ", "patrol of ") + preparativos.cantidadEnemigos)
+    if (preparativos.cantidadEnemigos === 1) preparado.push(L("un solo enemigo", "a single enemy"))
     if (preparativos.xpExtra > 1) preparado.push("+" + Math.round((preparativos.xpExtra - 1) * 100) + "% XP")
-    if (preparativos.emp) preparado.push("pulso EMP")
-    if (preparativos.sorpresa > 0) preparado.push("por sorpresa")
-    if (preparativos.dronAliado) preparado.push("dron aliado")
+    if (preparativos.emp) preparado.push(L("pulso EMP", "EMP pulse"))
+    if (preparativos.sorpresa > 0) preparado.push(L("por sorpresa", "surprise attack"))
+    if (preparativos.dronAliado) preparado.push(L("dron aliado", "allied drone"))
     // Sin cantidad fijada por un evento, el próximo combate es el del fugitivo más antiguo
     if (fugitivos.length > 0 && preparativos.cantidadEnemigos === null && preparativos.claseEnemigos === null) {
-        preparado.push("vuelve " + fugitivos[0].base.nombre + " con " + REFUERZOS_FUGITIVO + " más")
+        preparado.push(L("vuelve " + nombreDe(fugitivos[0].base.nombre) + " con " + REFUERZOS_FUGITIVO + " más", nombreDe(fugitivos[0].base.nombre) + " returns with " + REFUERZOS_FUGITIVO + " more"))
     }
 
     const pct = m => Math.round((1 - m) * 100) + "%"
     const partida = []
-    if (mejorasPartida.orbesIniciales > 0) partida.push("+" + mejorasPartida.orbesIniciales + " orbe(s) al empezar")
-    if (mejorasPartida.defensaEnemiga < 1) partida.push("enemigos −" + pct(mejorasPartida.defensaEnemiga) + " DEF")
-    if (mejorasPartida.vidaEnemigos < 1) partida.push("enemigos −" + pct(mejorasPartida.vidaEnemigos) + " vida")
-    if (mejorasPartida.vidaMaquinas < 1) partida.push("máquinas −" + pct(mejorasPartida.vidaMaquinas) + " vida")
-    if (mejorasPartida.ataqueMaquinas < 1) partida.push("máquinas −" + pct(mejorasPartida.ataqueMaquinas) + " ATK")
-    if (mejorasPartida.dronesPirateados) partida.push("drones pirateados")
-    if (mejorasPartida.robots > 0) partida.push("robot: +" + Math.round(CURA_ROBOT * mejorasPartida.robots * 100) + "% vida tras combate")
-    if (mejorasPartida.combatesHambrientos > 0) partida.push("enemigos hambrientos (" + mejorasPartida.combatesHambrientos + ")")
+    if (mejorasPartida.orbesIniciales > 0) partida.push("+" + mejorasPartida.orbesIniciales + L(" orbe(s) al empezar", " orb(s) at the start"))
+    if (mejorasPartida.defensaEnemiga < 1) partida.push(L("enemigos −", "enemies −") + pct(mejorasPartida.defensaEnemiga) + " DEF")
+    if (mejorasPartida.vidaEnemigos < 1) partida.push(L("enemigos −", "enemies −") + pct(mejorasPartida.vidaEnemigos) + L(" vida", " HP"))
+    if (mejorasPartida.vidaMaquinas < 1) partida.push(L("máquinas −", "machines −") + pct(mejorasPartida.vidaMaquinas) + L(" vida", " HP"))
+    if (mejorasPartida.ataqueMaquinas < 1) partida.push(L("máquinas −", "machines −") + pct(mejorasPartida.ataqueMaquinas) + " ATK")
+    if (mejorasPartida.dronesPirateados) partida.push(L("drones pirateados", "hacked drones"))
+    if (mejorasPartida.robots > 0) partida.push(L("robot: +", "robot: +") + Math.round(CURA_ROBOT * mejorasPartida.robots * 100) + L("% vida tras combate", "% HP after combat"))
+    if (mejorasPartida.combatesHambrientos > 0) partida.push(L("enemigos hambrientos (", "hungry enemies (") + mejorasPartida.combatesHambrientos + ")")
     const extra = mejorasPartida.casillasExtra
-    if (extra[2] + extra[3] + extra[4] > 0) partida.push("por sector: +" + extra[2] + " combate, +" + extra[3] + " descanso, +" + extra[4] + " evento")
+    if (extra[2] + extra[3] + extra[4] > 0) partida.push(L("por sector: +" + extra[2] + " combate, +" + extra[3] + " descanso, +" + extra[4] + " evento",
+                                                         "per sector: +" + extra[2] + " combat, +" + extra[3] + " rest, +" + extra[4] + " event"))
     if (sectorActual > 1) {
         const s = sectorActual - 1
-        partida.push("sector " + sectorActual + ": enemigos +" + Math.round(ESCALADO_SECTOR.vida * s * 100) + "% vida, +" + Math.round(ESCALADO_SECTOR.ataque * s * 100) + "% ATK")
+        partida.push(L("sector " + sectorActual + ": enemigos +" + Math.round(ESCALADO_SECTOR.vida * s * 100) + "% vida, +" + Math.round(ESCALADO_SECTOR.ataque * s * 100) + "% ATK",
+                       "sector " + sectorActual + ": enemies +" + Math.round(ESCALADO_SECTOR.vida * s * 100) + "% HP, +" + Math.round(ESCALADO_SECTOR.ataque * s * 100) + "% ATK"))
     }
 
     let cursor = y
@@ -3492,9 +3990,9 @@ function dibujarResumenPartida(x, y, ancho, yMaximo) {
         cursor += 14 * Math.min(caben, dibujarTextoEnvuelto(texto, x, cursor, ancho, 14, caben))
     }
     ctx.font = "12px sans-serif"
-    linea("Objetos: " + (totalObjetos() > 0 ? resumenInventario() : "ninguno"), "rgb(200, 200, 210)")
-    if (preparado.length > 0) linea("Próximo combate: " + preparado.join(", "), "rgb(240, 200, 120)")
-    if (partida.length > 0) linea("Toda la partida: " + partida.join(" · "), "rgb(120, 220, 140)", 10)
+    linea(L("Objetos: ", "Items: ") + (totalObjetos() > 0 ? resumenInventario() : L("ninguno", "none")), "rgb(200, 200, 210)")
+    if (preparado.length > 0) linea(L("Próximo combate: ", "Next combat: ") + preparado.join(", "), "rgb(240, 200, 120)")
+    if (partida.length > 0) linea(L("Toda la partida: ", "Whole run: ") + partida.join(" · "), "rgb(120, 220, 140)", 10)
 }
 
 function formatearTiempo(ms) {
@@ -3520,21 +4018,21 @@ function dibujarDerrota() {
     dibujarFondo("fondoDerrota")
     ctx.fillStyle = "red"
     ctx.font = "32px sans-serif"
-    ctx.fillText("Derrota", 450, 120)
+    ctx.fillText(L("Derrota", "Defeat"), 450, 120)
     ctx.fillStyle = "white"
     ctx.font = "18px sans-serif"
-    ctx.fillText("Tiempo de partida: " + formatearTiempo(tiempoPartida) + "   ·   Sector " + sectorActual, 380, 180)
+    ctx.fillText(L("Tiempo de partida: ", "Time played: ") + formatearTiempo(tiempoPartida) + "   ·   Sector " + sectorActual, 380, 180)
 
     // De más a menos derrotados (a igualdad, por orden alfabético)
     const tipos = Object.keys(enemigosDerrotados)
         .sort((a, b) => enemigosDerrotados[b] - enemigosDerrotados[a] || a.localeCompare(b))
     const total = tipos.reduce((suma, t) => suma + enemigosDerrotados[t], 0)
-    ctx.fillText("Enemigos derrotados: " + total, 380, 220)
+    ctx.fillText(L("Enemigos derrotados: ", "Enemies defeated: ") + total, 380, 220)
 
     ctx.font = "16px sans-serif"
     if (tipos.length === 0) {
         ctx.fillStyle = "gray"
-        ctx.fillText("Ninguno", 380, 270)
+        ctx.fillText(L("Ninguno", "None"), 380, 270)
     }
     // Dos columnas (la primera se llena antes): con todos los tipos del juego caben de sobra
     // por encima del "Pulsa Enter"
@@ -3544,13 +4042,13 @@ function dibujarDerrota() {
         const x = i < porColumna ? 110 : 540
         const y = 245 + (i % porColumna) * altoFila
         ctx.fillStyle = "white"
-        ctx.fillText(tipo + ": " + enemigosDerrotados[tipo], x, y + 20)
+        ctx.fillText(nombreDe(tipo) + ": " + enemigosDerrotados[tipo], x, y + 20)
         dibujarPilaSprites(tipo, enemigosDerrotados[tipo], x + 210, y, 170)
     })
 
     ctx.fillStyle = "white"
     ctx.font = "16px sans-serif"
-    ctx.fillText("Pulsa Enter para volver a intentarlo", 380, 620)
+    ctx.fillText(L("Pulsa Enter para volver a intentarlo", "Press Enter to try again"), 380, 620)
 }
 function bordes() {
     if (paku.x < 0) {
@@ -3559,11 +4057,11 @@ function bordes() {
     if (paku.y < 0) {
         paku.y = 0
     }
-    if (paku.y > canvas.height - paku.height) {
-        paku.y = canvas.height - paku.height
+    if (paku.y > ALTO_JUEGO - paku.height) {
+        paku.y = ALTO_JUEGO - paku.height
     }
-    if (paku.x > canvas.width - paku.width) {
-        paku.x = canvas.width - paku.width
+    if (paku.x > ANCHO_JUEGO - paku.width) {
+        paku.x = ANCHO_JUEGO - paku.width
     }
 
 }
@@ -3605,6 +4103,7 @@ function loop(marca) {
     else if (estado === "derrota") {
     dibujarDerrota()
     }
+    if (ayudaAbierta) dibujarAyuda()
     requestAnimationFrame(loop)
 }
 

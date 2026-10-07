@@ -1,17 +1,21 @@
+/* Fondo de las bandas que quedan a los lados (o arriba y abajo) si la ventana no tiene la forma del juego */
 html, body{
-    background-color: rgb(76, 76, 76);
+    background-color: rgb(8, 8, 18);
     margin: 0;
     padding: 0;
     height: 100%;
     overflow: hidden;
 }
 
+/* El canvas va centrado; su tamaño lo pone ajustarTamaño() en Juego.js, manteniendo la proporción */
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 canvas {
     display: block;
-    margin: auto;
-    width: 100vw;
-    height: 100vh;
-    object-fit: contain;
 }
 
 /* Panel de reportes de bugs e ideas: HTML encima del canvas, con los colores del juego */
