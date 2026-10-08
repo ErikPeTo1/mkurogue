@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.8.0"
+const VERSION = "0.9.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -221,7 +221,9 @@ let eventoEnCurso = null        // { evento, opciones, seleccion, resultado } mi
 let zonasEvento = []            // zonas clicables de las opciones del evento
 let logCombate = []
 let mostrarPanelDescanso = false
-let logDescanso = []
+// Lo que ha pasado en el último descanso, uno por miembro del equipo, para el panel:
+// { p, tipo: "cura" | "revive" | "vidaMax" | "tope", cantidad, hpAntes, maxAntes }
+let resultadoDescanso = []
 // Menú previo a la partida
 let zonasMenu = []      // zonas clicables del menú, recalculadas cada fotograma
 // Menú in-game de estadísticas
@@ -230,14 +232,14 @@ let zonasEstadisticas = []      // zonas clicables de esa lista, recalculadas ca
 const teclas = {}
 // crecimiento = lo que gana cada stat por nivel (admite decimales; el valor final se redondea)
 // habilidades = lista ordenada por nivelMin; objetivo: "enemigo" (se elige), "enemigos" (todos), "aliado" (el más herido), "aliados" (todos)
-const paku   = { id: "Paku",   nombre: "Paku",   x: 2*tamTile+7, y: 3*tamTile+7, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 2,
+const paku   = { id: "Paku",   nombre: "Paku",   clase: "humano",  x: 2*tamTile+7, y: 3*tamTile+7, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 2,
     crecimiento: { HP_MAX: 3, ATK: 1, DEF: 0.5, VEL: 0.6, LUCK: 0.3, PRE: 0.4, EVA: 0.3 },
     habilidades: [
         { id: "embestida", nombre: { es: "Embestida", en: "Charge" }, coste: 2, objetivo: "enemigo", nivelMin: 1 },
         { id: "rafaga",    nombre: { es: "Ráfaga", en: "Barrage" }, coste: 3, objetivo: "enemigo", nivelMin: 5 }
     ],
     stats: { HP:20, HP_MAX:20, ATK:5, DEF:3, VEL:8, LUCK:3, PRE:6, EVA:5 }}
-const mamuri = { id: "Mamuri", nombre: "Mamuri", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
+const mamuri = { id: "Mamuri", nombre: "Mamuri", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
     crecimiento: { HP_MAX: 4, ATK: 2, DEF: 1, VEL: 0.3, LUCK: 0.3, PRE: 0.4, EVA: 0.2 },
     habilidades: [
         { id: "golpePesado", nombre: { es: "Golpe pesado", en: "Heavy Blow" }, coste: 2, objetivo: "enemigo",  nivelMin: 1 },
@@ -245,14 +247,14 @@ const mamuri = { id: "Mamuri", nombre: "Mamuri", x: 0, y: 0, width: 18, height: 
     ],
     stats: { HP:30, HP_MAX:30, ATK:10, DEF:6, VEL:4, LUCK:10, PRE:5, EVA:3 }}
 // golpeMultiple: su LUCK x5 (puede pasar de 100%) da golpes encadenados en cada ataque
-const vbz    = { id: "VBZ",    nombre: "VBZ",    x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
+const vbz    = { id: "VBZ",    nombre: "VBZ",    clase: "maquina", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
     crecimiento: { HP_MAX: 6, ATK: 0.7, DEF: 1.2, VEL: 0.2, LUCK: 1, PRE: 0.4, EVA: 0.2 },
     habilidades: [
         { id: "apuesta", nombre: { es: "Apuesta", en: "Gamble" }, coste: 2, objetivo: "enemigo", nivelMin: 1 },
         { id: "racha",   nombre: { es: "Racha", en: "Streak" }, coste: 3, objetivo: "enemigo", nivelMin: 5 }
     ],
     stats: { HP:40, HP_MAX:40, ATK:3,  DEF:6, VEL:2, LUCK:22, PRE:7, EVA:2 }}
-const imanps = { id: "Imanps", nombre: "Imanps", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
+const imanps = { id: "Imanps", nombre: "Imanps", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
     crecimiento: { HP_MAX: 3.5, ATK: 1.2, DEF: 0.7, VEL: 0.5, LUCK: 0.4, PRE: 0.3, EVA: 0.4 },
     habilidades: [
         { id: "reparacion", nombre: { es: "Reparación", en: "Repair" }, coste: 2, objetivo: "aliado",  nivelMin: 1 },
@@ -950,11 +952,11 @@ const EVENTOS = [
         texto: { es: "Un generador de pulsos electromagnéticos de uso militar. Una descarga dejaría fritas a las máquinas cercanas.",
                  en: "A military-grade electromagnetic pulse generator. One discharge would fry any nearby machines." },
         opciones: () => [
-            { texto: L("Cargar el pulso", "Charge the pulse"), detalle: L("En el próximo combate, las máquinas enemigas no actúan la primera ronda", "In the next combat, enemy machines don't act in the first round"),
+            { texto: L("Cargar el pulso", "Charge the pulse"), detalle: L("En el próximo combate, las máquinas no actúan la primera ronda (también " + nombreDe("VBZ") + ")", "In the next combat, machines don't act in the first round (" + nombreDe("VBZ") + " too)"),
               efecto: () => {
                   preparativos.emp = true
                   return { lineas: [L("Cargáis el pulso y os lo lleváis listo para disparar.", "You charge the pulse and carry it ready to fire."),
-                                    L("Próximo combate: las máquinas enemigas pasan la primera ronda aturdidas.", "Next combat: enemy machines spend the first round stunned.")] }
+                                    L("Próximo combate: las máquinas pasan la primera ronda aturdidas, " + nombreDe("VBZ") + " incluido.", "Next combat: machines spend the first round stunned, " + nombreDe("VBZ") + " included.")] }
               } },
             { texto: L("Desmontarlo", "Take it apart"), detalle: L("Os lleváis una Granada de pulso", "You get a Pulse Grenade"),
               efecto: () => ({ lineas: [darObjeto("granada")] }) }
@@ -995,7 +997,7 @@ const EVENTOS = [
             const lista = []
             if (caidos.length > 0) {
                 lista.push({ texto: L("Rezar por los caídos", "Pray for the fallen"),
-                  detalle: caidos.map(p => p.nombre).join(", ") + L(": vuelve(n) con la mitad de su vida", ": come(s) back with half their HP"),
+                  detalle: detalleRezar(caidos),
                   efecto: () => ({ lineas: caidos.map(p => {
                       p.stats.HP = Math.ceil(p.stats.HP_MAX / 2)
                       return p.nombre + L(" vuelve en sí con ", " comes to with ") + p.stats.HP + " HP."
@@ -1354,6 +1356,10 @@ document.addEventListener("keydown", function(e) {
         }
         if (arriba) personajeSeleccionado = Math.max(0, personajeSeleccionado - 1)
         if (abajo) personajeSeleccionado = Math.min(equipoJugador.length - 1, personajeSeleccionado + 1)
+        // 1-4: usar el objeto de ese botón sobre el personaje elegido
+        const numero = parseInt(e.key, 10)
+        const ids = objetosEnInventario()
+        if (numero >= 1 && numero <= ids.length) usarObjetoFuera(ids[numero - 1], equipoJugador[personajeSeleccionado])
         return
     }
     if (estado === "victoria") {
@@ -1547,6 +1553,7 @@ canvas.addEventListener("click", function(e) {
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z && z.tipo === "reportar") abrirReporte()
         else if (z && z.tipo === "ayuda") abrirAyuda()
+        else if (z && z.tipo === "objeto") usarObjetoFuera(z.id, equipoJugador[personajeSeleccionado])
         else if (z) personajeSeleccionado = z.indice
     } else if (estado === "evento") {
         if (eventoEnCurso.resultado) {
@@ -1732,13 +1739,19 @@ function iniciarCombate() {
         p.defendiendo = false
         p.retrasado = false
         p.energia = Math.min(ENERGIA_INICIAL + mejorasPartida.orbesIniciales, energiaMaxima(p))
+        p.aturdido = 0
     })
-    personajeActual = siguienteVivo(0)
     dronAliadoActivo = false
     const regresa = fugitivos.length > 0 && preparativos.cantidadEnemigos === null && preparativos.claseEnemigos === null
     enemigosCombate = regresa ? generarRegresoFugitivo() : generarEnemigos(preparativos.cantidadEnemigos, preparativos.claseEnemigos)
     if (regresa) logCombate.push(L("¡" + enemigosCombate[0].nombre + " ha vuelto, y esta vez no viene solo!", enemigosCombate[0].nombre + " is back, and this time not alone!"))
     aplicarPreparativos()
+    personajeActual = siguienteVivo(0)
+    if (personajeActual === -1) {
+        faseCombate = "ejecucion"
+        ejecutarRonda()
+        personajeActual = siguienteVivo(0)
+    }
     reiniciarHistorial()
 }
 
@@ -1756,8 +1769,12 @@ function aplicarPreparativos() {
         logCombate.push(L("Los pilláis por sorpresa: tardarán " + preparativos.sorpresa + " rondas en reaccionar.", "You catch them by surprise: they will take " + preparativos.sorpresa + " rounds to react."))
     }
     if (preparativos.emp) {
+        // No distingue bandos: VBZ, que es un droide, también se queda una ronda sin actuar
         enemigosCombate.filter(en => en.clase === "maquina").forEach(en => en.aturdido = 1)
-        logCombate.push(L("¡Disparáis el pulso EMP! Las máquinas enemigas quedan aturdidas.", "You fire the EMP pulse! The enemy machines are stunned."))
+        const aliadas = vivos.filter(p => p.clase === "maquina")
+        aliadas.forEach(p => p.aturdido = 1)
+        logCombate.push(L("¡Disparáis el pulso EMP! Las máquinas quedan aturdidas.", "You fire the EMP pulse! The machines are stunned."))
+        if (aliadas.length) logCombate.push(L(aliadas.map(p => p.nombre).join(", ") + " también se queda frito una ronda.", aliadas.map(p => p.nombre).join(", ") + " gets fried for a round too."))
     }
     if (preparativos.dronAliado) {
         dronAliadoActivo = true
@@ -1773,9 +1790,10 @@ function aplicarPreparativos() {
     preparativos = { ...PREPARATIVOS_VACIOS }
 }
 
+// El siguiente del equipo que puede elegir acción esta ronda: vivo y sin aturdir
 function siguienteVivo(desde) {
     for (let i = desde; i < equipoJugador.length; i++) {
-        if (equipoJugador[i].stats.HP > 0) return i
+        if (equipoJugador[i].stats.HP > 0 && !(equipoJugador[i].aturdido > 0)) return i
     }
     return -1
 }
@@ -2153,7 +2171,7 @@ function descripcionHabilidad(p, h) {
         case "apuesta":     return L("Crítico asegurado si no sale de refilón; pierde un " + Math.round(v.coste * 100) + "% de su vida máxima",
                                      "Guaranteed crit unless it's glancing; costs " + Math.round(v.coste * 100) + "% of max HP")
         case "racha":       return L("Encadena golpes con un +" + v.extra + "% de probabilidad de crítico", "Chains hits with +" + v.extra + "% crit chance")
-        case "reparacion":  return L("Cura " + v.cura + " HP al aliado más herido", "Heals the most wounded ally for " + v.cura + " HP")
+        case "reparacion":  return L("Cura " + v.cura + " HP al aliado más herido (un 50% más a " + nombreDe("VBZ") + ")", "Heals the most wounded ally for " + v.cura + " HP (50% more on " + nombreDe("VBZ") + ")")
         case "oleada":      return L("Cura " + v.cura + " HP a todo el equipo", "Heals the whole team for " + v.cura + " HP")
     }
     return ""
@@ -2194,7 +2212,9 @@ function usarHabilidad(personaje, h, objetivo) {
         // Al aliado vivo con menor proporción de vida
         const aliados = equipoJugador.filter(p => p.stats.HP > 0)
         const herido = aliados.reduce((min, p) => p.stats.HP / p.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? p : min)
-        const cura = Math.min(v.cura, herido.stats.HP_MAX - herido.stats.HP)
+        // Reparar es lo suyo: a una máquina (VBZ) le cura un 50% más
+        const base = herido.clase === "maquina" ? Math.round(v.cura * BONO_REPARAR_MAQUINA) : v.cura
+        const cura = Math.min(base, herido.stats.HP_MAX - herido.stats.HP)
         herido.stats.HP += cura
         logCombate.push(L(personaje.nombre + " usa " + tr(h.nombre) + ": " + herido.nombre + " recupera " + cura + " HP", personaje.nombre + " uses " + tr(h.nombre) + ": " + herido.nombre + " recovers " + cura + " HP"))
     } else if (h.id === "oleada") {
@@ -2204,6 +2224,9 @@ function usarHabilidad(personaje, h, objetivo) {
         logCombate.push(L(personaje.nombre + " usa " + tr(h.nombre) + ": el equipo recupera hasta " + v.cura + " HP", personaje.nombre + " uses " + tr(h.nombre) + ": the team recovers up to " + v.cura + " HP"))
     }
 }
+
+// La Reparación de Imanps cura esto más a las máquinas de la tripulación (VBZ)
+const BONO_REPARAR_MAQUINA = 1.5
 
 function terminarRonda() {
     accionesGuardadas = []
@@ -2231,6 +2254,11 @@ function ejecutarRonda() {
                 accionEnemigo(actor)
             }
         } else {
+            if (actor.aturdido > 0) {
+                actor.aturdido--
+                logCombate.push(L(actor.nombre + " está aturdido y no actúa", actor.nombre + " is stunned and can't act"))
+                continue
+            }
             const accion = accionesGuardadas.find(a => a.personaje === actor)
             if (!accion) continue
 
@@ -2492,27 +2520,28 @@ function puestoRobot() {
     return Math.min(LARGO_HISTORIAL - 1, Math.max(1, filaVivos().length) * 50)
 }
 function descansar() {
-    logDescanso = []
+    resultadoDescanso = []
     equipoJugador.forEach(p => {
+        const antes = { p: p, hpAntes: p.stats.HP, maxAntes: p.stats.HP_MAX }
         // Ambas cosas crecen con el personaje, para que un descanso siempre se note
         if (p.stats.HP === p.stats.HP_MAX) {
             const vidaNivel = Math.round(p.base.HP_MAX + p.crecimiento.HP_MAX * (p.nivel - 1))
             const margen = Math.max(0, Math.floor(vidaNivel * DESCANSO.tope) - p.vidaDescansos)
             const extra = Math.min(margen, Math.max(1, Math.ceil(p.nivel * p.crecimiento.HP_MAX * DESCANSO.vidaMaxima)))
             if (extra === 0) {
-                logDescanso.push(L(p.nombre + ": tope de vida alcanzado, sube de nivel", p.nombre + ": HP cap reached, level up first"))
+                resultadoDescanso.push({ ...antes, tipo: "tope", cantidad: 0 })
                 return
             }
             p.vidaDescansos += extra
             p.bonus.HP_MAX += extra
             p.stats.HP_MAX += extra
             p.stats.HP += extra
-            logDescanso.push(L(p.nombre + " ha ganado " + extra + " de HP máximo", p.nombre + " gains " + extra + " max HP"))
+            resultadoDescanso.push({ ...antes, tipo: "vidaMax", cantidad: extra })
         } else {
             // También a los caídos: vuelven con esa vida
             const cura = Math.min(Math.ceil(p.stats.HP_MAX * DESCANSO.cura), p.stats.HP_MAX - p.stats.HP)
             p.stats.HP += cura
-            logDescanso.push(L(p.nombre + " ha recuperado " + cura + " HP", p.nombre + " recovers " + cura + " HP"))
+            resultadoDescanso.push({ ...antes, tipo: antes.hpAntes <= 0 ? "revive" : "cura", cantidad: cura })
         }
     })
 }
@@ -2555,6 +2584,18 @@ function factorTaller() {
 function cantidadTaller(p, clave) {
     return Math.max(MINIMO_TALLER[clave], Math.round(p.crecimiento[clave] * NIVELES_TALLER)) * factorTaller()
 }
+// Capilla: quién vuelve y con cuánta vida exacta (la mitad de su vida máxima, como en el efecto)
+// "Paku vuelve con 10 HP" · "Paku (10 HP) y VBZ (20 HP) vuelven"
+function detalleRezar(caidos) {
+    const conVida = caidos.map(p => ({ nombre: p.nombre, hp: Math.ceil(p.stats.HP_MAX / 2) }))
+    if (conVida.length === 1) {
+        const c = conVida[0]
+        return L(c.nombre + " vuelve con " + c.hp + " HP", c.nombre + " comes back with " + c.hp + " HP")
+    }
+    const partes = conVida.map(c => c.nombre + " (" + c.hp + " HP)")
+    const lista = (y) => partes.slice(0, -1).join(", ") + " " + y + " " + partes[partes.length - 1]
+    return L(lista("y") + " vuelven", lista("and") + " come back")
+}
 // n mejoras individuales distintas (personaje + stat) al azar para el Taller de armas
 function mejorasAlAzar(n) {
     const posibles = []
@@ -2583,6 +2624,52 @@ function textoMejora(p, cantidad, clave) {
 
 function totalObjetos() {
     return Object.values(inventario).reduce((suma, n) => suma + n, 0)
+}
+// --- Objetos fuera de combate (desde Estadísticas) ---------------------------------------
+// Se usan sobre el personaje elegido en la lista: el Botiquín le cura la mitad de su vida máxima y el
+// Kit de reanimación lo revive con la mitad. La Granada y la Batería solo tienen sentido en combate.
+let avisoObjeto = null   // { texto, hasta }: lo que ha pasado al usar un objeto en Estadísticas
+// Si ese objeto se puede usar ahora con p: { ok, motivo } con un texto corto para el botón (el
+// personaje ya se ve elegido); delPersonaje: el motivo es por cómo está él (para el aviso, con su nombre)
+function objetoUsableFuera(id, p) {
+    if (id === "granada" || id === "bateria") return { ok: false, motivo: L("Solo en combate", "Combat only") }
+    if (id === "botiquin") {
+        if (p.stats.HP <= 0) return { ok: false, delPersonaje: true, motivo: L("Ha caído", "Has fallen") }
+        if (p.stats.HP >= p.stats.HP_MAX) return { ok: false, delPersonaje: true, motivo: L("Está entero", "At full HP") }
+        const cura = Math.min(Math.ceil(p.stats.HP_MAX * 0.5), p.stats.HP_MAX - p.stats.HP)
+        return { ok: true, motivo: L("Cura " + cura + " HP", "Heals " + cura + " HP") }
+    }
+    if (id === "reanimador") {
+        if (p.stats.HP > 0) return { ok: false, delPersonaje: true, motivo: L("No ha caído", "Not fallen") }
+        const vida = Math.ceil(p.stats.HP_MAX / 2)
+        return { ok: true, motivo: L("Vuelve con " + vida + " HP", "Back with " + vida + " HP") }
+    }
+    return { ok: false, motivo: "" }
+}
+function usarObjetoFuera(id, p) {
+    if (inventario[id] <= 0) return
+    const usable = objetoUsableFuera(id, p)
+    if (!usable.ok) {
+        const texto = usable.delPersonaje ? p.nombre + ": " + usable.motivo.charAt(0).toLowerCase() + usable.motivo.slice(1) : usable.motivo
+        avisoObjeto = { texto: texto, hasta: performance.now() + 2500, malo: true }
+        return
+    }
+    inventario[id]--
+    let texto
+    if (id === "botiquin") {
+        const cura = Math.min(Math.ceil(p.stats.HP_MAX * 0.5), p.stats.HP_MAX - p.stats.HP)
+        p.stats.HP += cura
+        texto = L(p.nombre + " recupera " + cura + " HP", p.nombre + " recovers " + cura + " HP")
+    } else {
+        p.stats.HP = Math.ceil(p.stats.HP_MAX / 2)
+        p.energia = 0
+        texto = L("¡" + p.nombre + " vuelve con " + p.stats.HP + " HP!", p.nombre + " is back with " + p.stats.HP + " HP!")
+    }
+    avisoObjeto = { texto: texto, hasta: performance.now() + 2500, malo: false }
+}
+// Los objetos que tenéis, en el orden de OBJETOS (es el orden de las teclas 1-4)
+function objetosEnInventario() {
+    return Object.keys(OBJETOS).filter(id => inventario[id] > 0)
 }
 function resumenInventario() {
     return Object.keys(OBJETOS).filter(id => inventario[id] > 0).map(id => tr(OBJETOS[id].nombre) + " x" + inventario[id]).join(", ")
@@ -2866,7 +2953,7 @@ function dibujarMenu() {
     dibujarFondo("fondoExploracion")
     ctx.textAlign = "center"
     ctx.fillStyle = "white"
-    ctx.font = "bold 48px sans-serif"
+    ctx.font = "40px 'Press Start 2P'"   // fuente pixel, enlazada en index.html
     ctx.fillText("MKURogue", 512, 100)
     ctx.fillStyle = "rgb(180, 180, 190)"
     ctx.font = "18px sans-serif"
@@ -3334,6 +3421,9 @@ const AYUDA = {
             { titulo: { es: "Las habilidades", en: "Abilities" },
               texto: { es: "Las que ya ha aprendido el personaje, con lo que cuestan en orbes. Algunos eventos les suben el rango y las hacen más fuertes.",
                        en: "The ones the character has already learned, with their orb cost. Some events raise their rank and make them stronger." } },
+            { titulo: { es: "Los objetos", en: "Items" },
+              texto: { es: "Debajo de las habilidades: con clic o con las teclas 1-4 se usan sobre el personaje elegido. El Botiquín cura la mitad de la vida y el Kit de reanimación revive a un caído; la Granada y la Batería solo sirven en combate.",
+                       en: "Below the abilities: click them or press 1-4 to use them on the selected character. The Medkit heals half their HP and the Revival Kit revives a fallen one; the Grenade and the Battery only work in combat." } },
             { titulo: { es: "El resumen de la partida", en: "Run summary" },
               texto: { es: "Abajo a la izquierda: tus objetos, lo preparado para el próximo combate y las mejoras que duran toda la partida.",
                        en: "At the bottom left: your items, what's set up for the next combat and the upgrades that last the whole run." } }
@@ -3579,18 +3669,7 @@ function dibujarExploracion() {
         // Los caídos no salen en el mapa hasta que vuelven a tener vida; el que va delante, encima
         const coloresMapa = { Paku: ["red", "white"], Mamuri: ["blue", "white"], VBZ: ["green", "white"], Imanps: ["yellow", "black"] }
         filaVivos().reverse().forEach(p => dibujarMiembroMapa(p, coloresMapa[p.id][0], coloresMapa[p.id][1]))
-    if (mostrarPanelDescanso) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
-        ctx.fillRect(300, 200, 400, 250)
-        ctx.fillStyle = "rgb(0, 200, 100)"
-        ctx.font = "20px sans-serif"
-        ctx.fillText(L("Descanso", "Rest"), 430, 230)
-        ctx.fillStyle = "white"
-        ctx.font = "14px sans-serif"
-    logDescanso.forEach((msg, i) => {
-        ctx.fillText(msg, 320, 270 + i * 25)
-    })
-}
+    if (mostrarPanelDescanso) dibujarPanelDescanso()
     // Contador de sector (arriba a la izquierda, sobre el muro) y aviso al despejar uno
     ctx.textAlign = "left"
     ctx.font = "bold 14px sans-serif"
@@ -3629,6 +3708,88 @@ function dibujarExploracion() {
         ctx.fillText(L("La nave manda patrullas más duras  ·  Sector ", "The ship sends tougher patrols  ·  Sector ") + sectorActual, 512, 124)
         ctx.textAlign = "left"
     }
+}
+
+// Panel del descanso: cada miembro con su sprite, su barra de vida (lo que ya tenía y, en otro color, lo
+// que acaba de ganar) y el resultado: cura, vuelta a la vida, más vida máxima o tope alcanzado
+function dibujarPanelDescanso() {
+    const x = 262, y = 160, ancho = 500, alto = 350
+    ctx.fillStyle = "rgba(22, 15, 28, 0.96)"
+    ctx.fillRect(x, y, ancho, alto)
+    ctx.strokeStyle = "rgb(140, 98, 124)"
+    ctx.lineWidth = 2
+    ctx.strokeRect(x + 1, y + 1, ancho - 2, alto - 2)
+    ctx.strokeStyle = "rgb(58, 38, 58)"
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + 6.5, y + 6.5, ancho - 13, alto - 13)
+
+    // Cabecera: la casilla de descanso y el título
+    casillaEscalada(3, x + 22, y + 22, 1.25, modoColor)
+    const verde = MODOS_COLOR[modoColor].casillas[3].map(v => Math.round(v + (255 - v) * 0.35))
+    ctx.textAlign = "left"
+    ctx.fillStyle = textoRGB(verde)
+    ctx.font = "16px 'Press Start 2P'"
+    ctx.fillText(L("Descanso", "Rest"), x + 76, y + 46)
+    ctx.fillStyle = "rgb(170, 160, 185)"
+    ctx.font = "13px sans-serif"
+    ctx.fillText(L("La tripulación recupera fuerzas", "The crew gets their strength back"), x + 76, y + 68)
+    ctx.fillStyle = "rgb(58, 38, 58)"
+    ctx.fillRect(x + 20, y + 86, ancho - 40, 1)
+
+    resultadoDescanso.forEach((r, i) => {
+        const p = r.p, fy = y + 100 + i * 54
+        dibujarSprite(p.id, x + 22, fy, 32, false, p.stats.HP / p.stats.HP_MAX)
+        ctx.textAlign = "left"
+        ctx.fillStyle = "white"
+        ctx.font = "15px sans-serif"
+        ctx.fillText(p.nombre, x + 68, fy + 13)
+        // Barra: verde lo que ya tenía; verde claro lo curado; dorado la vida máxima nueva
+        const bx = x + 68, by = fy + 22, bw = 160, bh = 8, max = p.stats.HP_MAX
+        ctx.fillStyle = "rgb(40, 30, 46)"
+        ctx.fillRect(bx, by, bw, bh)
+        const tenia = Math.max(0, Math.min(r.hpAntes, max)) / max
+        ctx.fillStyle = "rgb(80, 200, 90)"
+        ctx.fillRect(bx, by, bw * tenia, bh)
+        if (r.tipo === "cura" || r.tipo === "revive") {
+            ctx.fillStyle = "rgb(170, 250, 170)"
+            ctx.fillRect(bx + bw * tenia, by, bw * r.cantidad / max, bh)
+        } else if (r.tipo === "vidaMax") {
+            ctx.fillStyle = "rgb(250, 200, 80)"
+            ctx.fillRect(bx + bw * r.maxAntes / max, by, bw * r.cantidad / max, bh)
+        }
+        ctx.strokeStyle = "rgb(18, 12, 22)"
+        ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1)
+        ctx.fillStyle = "rgb(170, 160, 185)"
+        ctx.font = "12px sans-serif"
+        ctx.fillText(p.stats.HP + "/" + max + " HP", bx + bw + 10, by + 8)
+
+        // Resultado, a la derecha
+        ctx.textAlign = "right"
+        const derecha = x + ancho - 24
+        if (r.tipo === "cura") {
+            ctx.fillStyle = "rgb(150, 235, 160)"; ctx.font = "bold 16px sans-serif"
+            ctx.fillText("+" + r.cantidad + " HP", derecha, fy + 26)
+        } else if (r.tipo === "revive") {
+            ctx.fillStyle = "rgb(130, 220, 255)"; ctx.font = "bold 16px sans-serif"
+            ctx.fillText(L("¡En pie!", "Back up!"), derecha, fy + 18)
+            ctx.font = "13px sans-serif"
+            ctx.fillText("+" + r.cantidad + " HP", derecha, fy + 36)
+        } else if (r.tipo === "vidaMax") {
+            ctx.fillStyle = "rgb(250, 205, 90)"; ctx.font = "bold 16px sans-serif"
+            ctx.fillText("+" + r.cantidad + L(" HP máx.", " max HP"), derecha, fy + 26)
+        } else {
+            ctx.fillStyle = "rgb(150, 145, 160)"; ctx.font = "14px sans-serif"
+            ctx.fillText(L("Tope de vida", "HP cap reached"), derecha, fy + 18)
+            ctx.font = "12px sans-serif"
+            ctx.fillText(L("sube de nivel para ganar más", "level up to gain more"), derecha, fy + 35)
+        }
+    })
+
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(130, 120, 145)"
+    ctx.font = "12px sans-serif"
+    ctx.fillText(L("Pulsa cualquier tecla para seguir", "Press any key to continue"), x + ancho / 2, y + alto - 16)
+    ctx.textAlign = "left"
 }
 
 function colorNombre(p) {
@@ -3829,7 +3990,7 @@ function dibujarEnemigosCombate() {
         const muerto = en.stats.HP <= 0
         const elegido = faseCombate === "objetivo" && i === objetivoSeleccionado
         ctx.globalAlpha = muerto ? 0.25 : 1
-        dibujarSprite(en.tipo, x, y, tam, true)
+        dibujarSprite(en.tipo, x, y, tam, true, en.stats.HP / en.stats.HP_MAX)
         ctx.globalAlpha = 1
         dibujarBarraHP(x, y + tam + 6, tam, en.stats)
         ctx.fillStyle = muerto ? "gray" : elegido ? "orange" : "white"
@@ -3871,7 +4032,7 @@ function dibujarCombate() {
         const x = 60
         const y = 45 + i * 120
         ctx.globalAlpha = p.stats.HP <= 0 ? 0.35 : 1
-        dibujarSprite(p.id, x, y, tam)
+        dibujarSprite(p.id, x, y, tam, false, p.stats.HP / p.stats.HP_MAX)
         ctx.globalAlpha = 1
         dibujarBarraHP(x, y + tam + 6, tam, p.stats)
         ctx.fillStyle = colorNombre(p)
@@ -3883,9 +4044,9 @@ function dibujarCombate() {
     dibujarEnemigosCombate()
 
     // Panel inferior
-    ctx.fillStyle = "rgb(52, 52, 54)"
+    ctx.fillStyle = "rgb(30, 20, 36)"
     ctx.fillRect(0, 554, 1024, 150)
-    ctx.strokeStyle = "rgb(200, 197, 16)"
+    ctx.strokeStyle = "rgb(140, 98, 124)"
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(0, 554)
@@ -4094,8 +4255,8 @@ const DESCRIPCIONES_PERSONAJES = {
             en: "The ship's captain. Fast and decisive, always first into the fray." },
     Mamuri: { es: "El artillero pesado del equipo. Pega fuerte, pero reacciona despacio.",
               en: "The team's heavy gunner. Hits hard, but reacts slowly." },
-    VBZ: { es: "Un manojo de suerte andante: cuando se pone en racha, no hay quien lo pare.",
-           en: "A walking bundle of luck: once on a streak, there's no stopping them." },
+    VBZ: { es: "Un droide hecho de pura suerte: cuando se pone en racha, no hay quien lo pare.",
+           en: "A droid made of pure luck: once on a streak, there's no stopping them." },
     Imanps: { es: "El apoyo del grupo. Mantiene a todos en pie cuando las cosas se tuercen.",
               en: "The group's support. Keeps everyone standing when things go wrong." }
 }
@@ -4130,7 +4291,7 @@ function dibujarEstadisticas() {
     ctx.fillText(L("Estadísticas", "Stats"), 400, 50)
     ctx.font = "14px sans-serif"
     ctx.fillStyle = "rgb(180, 180, 190)"
-    ctx.fillText(L("↑↓ o clic elige personaje · M / Esc para volver", "↑↓ or click to pick a character · M / Esc to go back"), 320, 75)
+    ctx.fillText(L("↑↓ o clic elige personaje · 1-4 usa un objeto · M / Esc para volver", "↑↓ or click to pick a character · 1-4 uses an item · M / Esc to go back"), 290, 75)
 
     // Lista de la izquierda
     equipoJugador.forEach((p, i) => {
@@ -4145,7 +4306,7 @@ function dibujarEstadisticas() {
         ctx.strokeRect(20, y, 260, 78)
 
         ctx.globalAlpha = muerto ? 0.4 : 1
-        dibujarSprite(p.id, 30, y + 9, 40)
+        dibujarSprite(p.id, 30, y + 9, 40, false, p.stats.HP / p.stats.HP_MAX)
         ctx.globalAlpha = 1
 
         ctx.fillStyle = muerto ? "gray" : "white"
@@ -4176,7 +4337,7 @@ function dibujarEstadisticas() {
 
     const muertoSel = p.stats.HP <= 0
     ctx.globalAlpha = muertoSel ? 0.4 : 1
-    dibujarSprite(p.id, px + 20, 120, 90)
+    dibujarSprite(p.id, px + 20, 120, 90, false, p.stats.HP / p.stats.HP_MAX)
     ctx.globalAlpha = 1
 
     ctx.fillStyle = muertoSel ? "gray" : "white"
@@ -4224,6 +4385,8 @@ function dibujarEstadisticas() {
             ctx.fillText("• " + tr(h.nombre) + "  (" + h.coste + L(" orbes)", " orbs)") + rango, xInterior, 410 + i * 22)
         })
     }
+
+    dibujarObjetosEstadisticas(p, xInterior, 520)
 
     const tiempoActual = tiempoInicio > 0 ? performance.now() - tiempoInicio : 0
     const totalDerrotados = Object.values(enemigosDerrotados).reduce((suma, v) => suma + v, 0)
@@ -4287,6 +4450,52 @@ function dibujarResumenPartida(x, y, ancho, yMaximo) {
     linea(L("Objetos: ", "Items: ") + (totalObjetos() > 0 ? resumenInventario() : L("ninguno", "none")), "rgb(200, 200, 210)")
     if (preparado.length > 0) linea(L("Próximo combate: ", "Next combat: ") + preparado.join(", "), "rgb(240, 200, 120)")
     if (partida.length > 0) linea(L("Toda la partida: ", "Whole run: ") + partida.join(" · "), "rgb(120, 220, 140)", 10)
+}
+
+// Botones de los objetos que tenéis, para usarlos sobre el personaje elegido (p). En gris los que ahora
+// no se pueden usar con él, con el motivo debajo; debajo de todo, lo que acaba de pasar al usar uno.
+function dibujarObjetosEstadisticas(p, x, y) {
+    ctx.textAlign = "left"
+    ctx.fillStyle = "white"
+    ctx.font = "15px sans-serif"
+    ctx.fillText(L("Objetos", "Items"), x, y)
+    const ids = objetosEnInventario()
+    if (ids.length === 0) {
+        ctx.fillStyle = "rgb(150, 150, 160)"
+        ctx.font = "13px sans-serif"
+        ctx.fillText(L("No tenéis ninguno", "You don't have any"), x, y + 22)
+    }
+    const ancho = 150, alto = 48, hueco = 10
+    ids.forEach((id, i) => {
+        const bx = x + i * (ancho + hueco), by = y + 10
+        const usable = objetoUsableFuera(id, p)
+        ctx.fillStyle = usable.ok ? "rgba(60, 140, 255, 0.18)" : "rgba(255, 255, 255, 0.03)"
+        ctx.fillRect(bx, by, ancho, alto)
+        ctx.strokeStyle = usable.ok ? "rgb(120, 200, 255)" : "rgba(255, 255, 255, 0.2)"
+        ctx.lineWidth = 1
+        ctx.strokeRect(bx, by, ancho, alto)
+        // Nombre a la izquierda y cantidad a la derecha; el nombre baja de tamaño si no cabe
+        ctx.fillStyle = usable.ok ? "white" : "rgb(130, 130, 140)"
+        ctx.font = "12px sans-serif"
+        const cantidad = "x" + inventario[id]
+        ctx.textAlign = "right"
+        ctx.fillText(cantidad, bx + ancho - 8, by + 19)
+        ctx.textAlign = "left"
+        const nombre = (i + 1) + " · " + tr(OBJETOS[id].nombre)
+        const sitio = ancho - 22 - ctx.measureText(cantidad).width
+        let tamaño = 13
+        do { ctx.font = tamaño + "px sans-serif" } while (ctx.measureText(nombre).width > sitio && --tamaño > 9)
+        ctx.fillText(nombre, bx + 8, by + 19)
+        ctx.font = "11px sans-serif"
+        ctx.fillStyle = usable.ok ? "rgb(170, 220, 255)" : "rgb(130, 130, 140)"
+        ctx.fillText(usable.motivo, bx + 8, by + 37)
+        zonasEstadisticas.push({ tipo: "objeto", id: id, x: bx, y: by, w: ancho, h: alto })
+    })
+    if (avisoObjeto && performance.now() < avisoObjeto.hasta) {
+        ctx.font = "14px sans-serif"
+        ctx.fillStyle = avisoObjeto.malo ? "rgb(240, 160, 120)" : "rgb(120, 220, 140)"
+        ctx.fillText(avisoObjeto.texto, x, y + 82)
+    }
 }
 
 function formatearTiempo(ms) {
