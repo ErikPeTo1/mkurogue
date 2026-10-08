@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.7.0"
+const VERSION = "0.8.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -57,6 +57,8 @@ function ajustarTamaño() {
     // Cambiar el tamaño del canvas lo borra y le quita la transformación: se vuelve a poner
     ctx.setTransform(canvas.width / ANCHO_JUEGO, 0, 0, canvas.height / ALTO_JUEGO, 0, 0)
 }
+// Copias de las capas que no cambian (ver dibujarCapaFija)
+const capasFijas = {}
 ajustarTamaño()
 if (typeof window !== "undefined" && window.addEventListener) window.addEventListener("resize", ajustarTamaño)
 const tamTile = 32
@@ -152,6 +154,10 @@ const MAX_GOLPES = 10               // tope de golpes encadenados en un solo ata
 // Progresión
 const XP_BASE_NIVEL = 20            // XP para pasar del nivel 1 al 2
 const XP_EXPONENTE = 1.5            // la XP necesaria crece como nivel^1.5 (no hay tope de nivel)
+// Freno: cada nivel pide además un (nivel / XP_FRENO_NIVEL) más. Los enemigos dan XP que crece también
+// como nivel^1.5, así que sin freno cada nivel costaba siempre los mismos combates (nivel ~430 en el
+// sector 12); con él, al principio casi no se nota y luego cada nivel cuesta cada vez más.
+const XP_FRENO_NIVEL = 25
 // Por cada nivel medio del equipo por encima de 1, estas stats enemigas suben este porcentaje (0.20 = +20%)
 // El ATK no está aquí: su multiplicador y crecimiento dependen de la dificultad (DIFICULTADES)
 const ESCALA_STATS_ENEMIGO = { HP_MAX: 0.20, DEF: 0.10, VEL: 0.03, PRE: 0.05, EVA: 0.05 }
@@ -169,14 +175,14 @@ const DAÑO_REFILON = 0.5
 // equipo; xp = multiplicador de la experiencia que dan los enemigos.
 const DIFICULTADES = [
     { nombre: { es: "Fácil", en: "Easy" },
-      descripcion: { es: ["Enemigos más flojos", "Subes de nivel más rápido"], en: ["Weaker enemies", "You level up faster"] },
-      multiplicador: 1.1,  crecimiento: 0.14, xp: 1.5 },
+      descripcion: { es: ["Enemigos más flojos", "Subes de nivel más rápido", "Subir de nivel cura"], en: ["Weaker enemies", "You level up faster", "Leveling up heals"] },
+      multiplicador: 1.1,  crecimiento: 0.14, xp: 1.5, sorpresa: 2, curaAlSubir: 0.5 },
     { nombre: { es: "Normal", en: "Normal" },
       descripcion: { es: ["El reto pensado", "para el juego"], en: ["The challenge the game", "was designed for"] },
-      multiplicador: 1.35, crecimiento: 0.18, xp: 1 },
+      multiplicador: 1.35, crecimiento: 0.18, xp: 1, sorpresa: 1 },
     { nombre: { es: "Difícil", en: "Hard" },
       descripcion: { es: ["Enemigos más duros", "Subes de nivel más despacio"], en: ["Tougher enemies", "You level up slower"] },
-      multiplicador: 1.7,  crecimiento: 0.24, xp: 0.75 }
+      multiplicador: 1.7,  crecimiento: 0.24, xp: 0.75, sorpresa: 0 }
 ]
 let dificultadElegida = 1   // índice en DIFICULTADES; por defecto, Normal
 
@@ -186,8 +192,9 @@ const VELOCIDAD_PAKU = 120
 // Intervalo "virtual" al que se graba el rastro que siguen los compañeros, también en tiempo real
 // y no en fotogramas: así el hueco entre Paku y cada compañero es el mismo a cualquier framerate.
 const PASO_HISTORIAL = 1000 / 60   // ~16.67 ms
-// Pasos del rastro que se guardan: Mamuri va en el 50, VBZ en el 100, Imanps en el 150 y el robot
-// de servicio (si lo tenéis) en el 190
+// Pasos del rastro que se guardan: el primero vivo de la fila (Paku, Mamuri, VBZ, Imanps) va delante
+// y los demás en el 50, 100 y 150; el robot de servicio (si lo tenéis), detrás del último y como mucho
+// en el 190
 const LARGO_HISTORIAL = 191
 let acumuladorHistorial = 0
 // Tope del delta entre fotogramas (ms): si la pestaña estuvo en segundo plano, evita un salto enorme
@@ -253,10 +260,14 @@ const imanps = { id: "Imanps", nombre: "Imanps", x: 0, y: 0, width: 18, height: 
     ],
     stats: { HP:25, HP_MAX:25, ATK:7,  DEF:4, VEL:5, LUCK:8, PRE:5, EVA:6 }}
 // Stats de nivel 1 (base) y extras permanentes (HP de los descansos, mejoras del Taller de armas)
+// Posición del que va delante en el mapa: la mueve el jugador y es la que choca con paredes y casillas.
+// La ocupa el primero que siga en pie (Paku, y si ha caído Mamuri, VBZ o Imanps, en ese orden).
+const lider = { x: paku.x, y: paku.y, width: paku.width, height: paku.height }
 ;[paku, mamuri, vbz, imanps].forEach(p => {
     p.base = { HP_MAX: p.stats.HP_MAX, ATK: p.stats.ATK, DEF: p.stats.DEF, VEL: p.stats.VEL, LUCK: p.stats.LUCK, PRE: p.stats.PRE, EVA: p.stats.EVA }
     p.bonus = { HP_MAX: 0, ATK: 0, DEF: 0, VEL: 0, LUCK: 0, PRE: 0, EVA: 0 }
     p.bonusOrbes = 0   // orbes máximos extra (Núcleo de energía)
+    p.vidaDescansos = 0   // HP máximo ganado en descansos (parte de bonus.HP_MAX), para su tope
 })
 // xp = experiencia base que da cada enemigo (crece con el nivel medio del equipo)
 // peso = probabilidad relativa de aparecer: un enemigo con peso 10 sale el doble que uno con peso 5
@@ -321,7 +332,7 @@ const ACOMPAÑANTES = {
 }
 
 // Tamaño de los grupos enemigos: peso de 1, 2, 3, 4 y 5 enemigos en el sector 1, y lo que gana cada
-// peso por cada sector nuevo (hasta SECTORES_CRECE_GRUPO sectores). Sector 1: 45/32/17/5/1 (%);
+// peso por cada sector nuevo (hasta SECTORES_CRECE_GRUPO sectores). Sector 1: 48/34/18 (%), sin grupos de 4 ni 5;
 // sector 4: 36/26/21/11/6; sector 8 en adelante: 29/21/24/17/10. Los de 6 solo salen por eventos.
 const PESOS_GRUPO = [45, 32, 17, 5, 1]
 const CRECE_GRUPO = [0, 0, 3, 3, 2]
@@ -851,11 +862,18 @@ const EVENTOS = [
                  en: "Behind a half-open hatch, a guard post full of soldiers playing cards. Their armory is at the back." },
         // A partir del segundo sector: en el primero, 6 enemigos de golpe serían demasiado pronto
         disponible: () => sectorActual >= 2,
-        opciones: () => [
-            { texto: L("Asaltar el puesto", "Storm the post"), detalle: L("6 enemigos, pillados por sorpresa: no reaccionan en 2 rondas · +50% de XP", "6 enemies, caught by surprise: they don't react for 2 rounds · +50% XP"),
+        // Las rondas que tardan en reaccionar dependen de la dificultad (en Difícil, ninguna)
+        opciones: () => {
+            const rondas = DIFICULTADES[dificultadElegida].sorpresa
+            const detalleAsalto = rondas === 0
+                ? L("6 enemigos, y están en guardia · +50% de XP", "6 enemies, and they're on guard · +50% XP")
+                : L("6 enemigos, pillados por sorpresa: no reaccionan en " + rondas + (rondas === 1 ? " ronda" : " rondas") + " · +50% de XP",
+                    "6 enemies, caught by surprise: they don't react for " + rondas + (rondas === 1 ? " round" : " rounds") + " · +50% XP")
+            return [
+            { texto: L("Asaltar el puesto", "Storm the post"), detalle: detalleAsalto,
               efecto: () => {
                   preparativos.cantidadEnemigos = 6
-                  preparativos.sorpresa = 2
+                  preparativos.sorpresa = rondas
                   preparativos.xpExtra = 1.5
                   return { lineas: [L("Abrís la compuerta de una patada. ¡Se acabó la partida de cartas!", "You kick the hatch open. Card game's over!")], combate: true }
               } },
@@ -869,7 +887,8 @@ const EVENTOS = [
               } },
             { texto: L("Pasar de largo", "Walk past"), detalle: L("Que sigan con su partida", "Let them finish their game"),
               efecto: () => ({ lineas: [L("Cerráis la compuerta sin hacer ruido.", "You close the hatch quietly.")] }) }
-        ]
+            ]
+        }
     },
     {
         titulo: { es: "Cámara criogénica", en: "Cryo chamber" },
@@ -1040,8 +1059,8 @@ const PRUEBAS_DUELO = {
               gana: { es: "las esquiva todas sin despeinarse", en: "dodges every single one without breaking a sweat" },
               pierde: { es: "se lleva un pelotazo detrás de otro", en: "takes one ball after another" } }
 }
-let anteriorX = paku.x
-let anteriorY = paku.y
+let anteriorX = lider.x
+let anteriorY = lider.y
 let estado = "menu"    // "menu" | "exploracion" | "combate" | "descanso" | "estadisticas" | "victoria" | "derrota"
 let tileActual = 0
 let equipoJugador = [paku, mamuri, vbz, imanps]
@@ -1066,7 +1085,7 @@ let historial = []
 // Todo el rastro en la posición de Paku (al empezar, y tras cada combate)
 function reiniciarHistorial() {
     historial = []
-    for (let i = 0; i < LARGO_HISTORIAL; i++) historial.push({ x: paku.x, y: paku.y })
+    for (let i = 0; i < LARGO_HISTORIAL; i++) historial.push({ x: lider.x, y: lider.y })
 }
 reiniciarHistorial()
 
@@ -1098,26 +1117,151 @@ const mapa = [
 ]
 // Reparte casillas especiales por el pasillo vacío: 80% vacío, 10% combate, 8% descanso, 2% evento.
 // "libre" es una casilla que se deja vacía (donde está Paku, para no caer en algo nada más empezar).
+// Descansos: pocos, separados entre sí y que siempre merezcan la pena (ver descansar())
+const DESCANSO = {
+    probabilidad: 0.03,    // de cada casilla libre al repartir (unos 6-8 por sector, tras la separación)
+    separacion: 6,         // casillas (en horizontal + vertical) que tiene que haber como mínimo entre dos
+    cura: 0.35,            // a quien no está entero (o ha caído): este tanto de su vida máxima
+    vidaMaxima: 0.04,      // a quien ya está entero: nivel x crecimiento de vida x esto (con 0.15, en el sector 12 el 92% de la vida máxima venía de descansos)
+    tope: 0.5              // lo ganado en descansos no pasa de este tanto de la vida que da el nivel (sin tope, en el
+                           // sector 12 era el 77% de la vida máxima; con él, ~26%). Sube con cada nivel
+}
+// Casillas (en horizontal + vertical) hasta el descanso más cercano
+function distanciaADescanso(fila, col) {
+    let minima = Infinity
+    for (let f = 0; f < mapa.length; f++) {
+        for (let c = 0; c < mapa[f].length; c++) {
+            if (mapa[f][c] === 3) minima = Math.min(minima, Math.abs(f - fila) + Math.abs(c - col))
+        }
+    }
+    return minima
+}
+function lejosDeDescansos(fila, col) {
+    return distanciaADescanso(fila, col) >= DESCANSO.separacion
+}
+
+// --- Zonas de la nave -----------------------------------------------------------------
+// En cada sector el laberinto se reparte en zonas, cada una con su color de suelo (según el modo de
+// color, ver MODOS_COLOR) y su forma de
+// repartir casillas y enemigos. Cada zona nace en una casilla lo más lejos posible (andando) de las
+// demás y crece por los pasillos: cada casilla es de la zona a la que se llega antes.
+// casillas: multiplica la probabilidad de cada tipo de casilla · clases: multiplica el peso de los
+// enemigos de esa clase · fuerza: vida y ataque de los enemigos · xp: la experiencia que dan
+const ZONAS = [
+    { id: "bodega", nombre: { es: "Bodega", en: "Cargo hold" },
+      descripcion: { es: "Cajas y contrabando: el doble de eventos", en: "Crates and contraband: twice as many events" },
+      casillas: { combate: 1, descanso: 1, evento: 2 } },
+    { id: "maquinas", nombre: { es: "Sala de máquinas", en: "Engine room" },
+      descripcion: { es: "Casi todos los enemigos son máquinas", en: "Almost every enemy is a machine" },
+      casillas: { combate: 1, descanso: 1, evento: 1 }, clases: { maquina: 4 } },
+    { id: "armeria", nombre: { es: "Armería", en: "Armory" },
+      descripcion: { es: "Más guardias, casi todos humanos", en: "More guards, almost all human" },
+      casillas: { combate: 1.3, descanso: 0.5, evento: 1 }, clases: { humano: 4 } },
+    { id: "enfermeria", nombre: { es: "Enfermería", en: "Infirmary" },
+      descripcion: { es: "Más descansos y menos combates", en: "More rests and fewer combats" },
+      casillas: { combate: 0.6, descanso: 4, evento: 1 } },
+    { id: "puente", nombre: { es: "Puente de mando", en: "Bridge" },
+      descripcion: { es: "Desde el sector 2: enemigos un 20% más fuertes, pero dan un 30% más de XP", en: "From sector 2: enemies are 20% stronger, but give 30% more XP" },
+      casillas: { combate: 1.2, descanso: 0.5, evento: 1 }, fuerza: 1.2, xp: 1.3 }
+]
+let zonaDe = []   // [fila][col]: índice en ZONAS de cada casilla de pasillo (null en las paredes)
+
+const VECINOS = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+// Pasos andando desde una casilla hasta cada una de las demás (búsqueda en anchura por los pasillos)
+function distanciasDesde(origen) {
+    const dist = mapa.map(fila => fila.map(() => Infinity))
+    dist[origen.fila][origen.col] = 0
+    const cola = [origen]
+    for (let k = 0; k < cola.length; k++) {
+        const c = cola[k]
+        for (const [df, dc] of VECINOS) {
+            const fila = c.fila + df, col = c.col + dc
+            if (esParedMapa(fila, col) || dist[fila][col] !== Infinity) continue
+            dist[fila][col] = dist[c.fila][c.col] + 1
+            cola.push({ fila: fila, col: col })
+        }
+    }
+    return dist
+}
+function generarZonas() {
+    const libres = []
+    mapa.forEach((filaMapa, fila) => filaMapa.forEach((t, col) => { if (t !== 1) libres.push({ fila, col }) }))
+    // Semillas: la primera al azar; cada siguiente, una de las 5 casillas más lejos de las que ya hay
+    // (no siempre la más lejana, para que los sectores no se parezcan tanto)
+    const semillas = [libres[Math.floor(Math.random() * libres.length)]]
+    let minima = distanciasDesde(semillas[0])
+    while (semillas.length < ZONAS.length) {
+        const lejanas = libres.filter(c => minima[c.fila][c.col] !== Infinity)
+            .sort((a, b) => minima[b.fila][b.col] - minima[a.fila][a.col]).slice(0, 5)
+        const nueva = lejanas[Math.floor(Math.random() * lejanas.length)]
+        semillas.push(nueva)
+        const d = distanciasDesde(nueva)
+        minima = minima.map((filaD, i) => filaD.map((v, j) => Math.min(v, d[i][j])))
+    }
+    // Todas crecen a la vez, un paso cada vez, hasta repartirse el mapa
+    const tipos = mezclar(ZONAS.map((_, i) => i))
+    zonaDe = mapa.map(filaMapa => filaMapa.map(() => null))
+    const cola = []
+    semillas.forEach((c, i) => { zonaDe[c.fila][c.col] = tipos[i]; cola.push(c) })
+    for (let k = 0; k < cola.length; k++) {
+        const c = cola[k]
+        for (const [df, dc] of VECINOS) {
+            const fila = c.fila + df, col = c.col + dc
+            if (esParedMapa(fila, col) || zonaDe[fila][col] !== null) continue
+            zonaDe[fila][col] = zonaDe[c.fila][c.col]
+            cola.push({ fila: fila, col: col })
+        }
+    }
+    delete capasFijas.mapa   // el suelo cambia de color: la capa del mapa se vuelve a pintar
+}
+function zonaEn(fila, col) {
+    const i = zonaDe[fila] ? zonaDe[fila][col] : null
+    return i === null || i === undefined ? null : ZONAS[i]
+}
+// La zona en la que está el grupo (la que cuenta para los combates)
+function zonaActual() {
+    const c = casillaPaku()
+    return zonaEn(c.fila, c.col)
+}
+
+// Reparte las casillas del sector (y antes, sus zonas)
 function generarCasillas(libre) {
+    generarZonas()
     for (let fila = 0; fila < mapa.length; fila++) {
         for (let col = 0; col < mapa[fila].length; col++) {
             if (mapa[fila][col] !== 0 || (fila === libre.fila && col === libre.col)) continue
+            const z = (zonaEn(fila, col) || { casillas: { combate: 1, descanso: 1, evento: 1 } }).casillas
+            const combate = 0.10 * z.combate, descanso = DESCANSO.probabilidad * z.descanso, evento = 0.02 * z.evento
             const roll = Math.random()
-            if (roll < 0.80) mapa[fila][col] = 0
-            else if (roll < 0.90) mapa[fila][col] = 2
-            else if (roll < 0.98) mapa[fila][col] = 3
-            else mapa[fila][col] = 4
+            if (roll < combate) mapa[fila][col] = 2
+            else if (roll < combate + descanso) mapa[fila][col] = lejosDeDescansos(fila, col) ? 3 : 0
+            else if (roll < combate + descanso + evento) mapa[fila][col] = 4
+            else mapa[fila][col] = 0
         }
     }
+    // Cada zona tiene al menos un descanso: si le ha tocado ninguno, se pone en una de sus casillas
+    // libres, a ser posible respetando la separación (si no se puede, la más lejos de los demás)
+    ZONAS.forEach((_, z) => {
+        const suyas = []
+        mapa.forEach((filaMapa, fila) => filaMapa.forEach((t, col) => {
+            if (zonaDe[fila][col] === z) suyas.push({ fila, col, t })
+        }))
+        if (suyas.some(c => c.t === 3)) return
+        const libres = suyas.filter(c => c.t === 0 && (c.fila !== libre.fila || c.col !== libre.col))
+        if (libres.length === 0) return
+        libres.forEach(c => c.distancia = distanciaADescanso(c.fila, c.col))
+        const separadas = mezclar(libres.filter(c => c.distancia >= DESCANSO.separacion))
+        const elegida = separadas[0] || libres.reduce((a, b) => b.distancia > a.distancia ? b : a)
+        mapa[elegida.fila][elegida.col] = 3
+    })
 }
-generarCasillas({ fila: 3, col: 2 })
 
-// Sectores: cuando no queda ninguna casilla especial, el mapa se vuelve a llenar y se pasa al siguiente.
+// Sectores: cuando no queda ninguna casilla de combate, el mapa se vuelve a llenar y se pasa al siguiente.
 // Cada sector por encima del primero endurece a los enemigos, y dan algo más de XP (por sector, sumado).
-// Es suave porque los grupos también crecen con el sector (PESOS_GRUPO): con +10% vida y +8% ATK por
-// sector, sumado a los grupos grandes, en el sector 8 casi 1 de cada 4 combates acababa en derrota.
+// Con la subida de nivel sin freno se dejó en +5% vida y +4% ATK, y desde el sector 6 ya no se perdía
+// nunca (aunque solo se atacara); con el freno de XP_FRENO_NIVEL se sube a +12% y +10%.
 let sectorActual = 1
-const ESCALADO_SECTOR = { vida: 0.05, ataque: 0.04, xp: 0.10 }
+const ESCALADO_SECTOR = { vida: 0.12, ataque: 0.10, xp: 0.10 }
 let avisoSectorHasta = 0              // hasta cuándo se ve el aviso de "Sector despejado"
 const DURACION_AVISO_SECTOR = 3500    // ms
 
@@ -1127,6 +1271,9 @@ const DURACION_AVISO_SECTOR = 3500    // ms
 function esParedMapa(fila, col) {
     return mapa[fila] === undefined || mapa[fila][col] === undefined || mapa[fila][col] === 1
 }
+// Primer reparto de zonas y casillas (aquí, porque generarZonas usa esParedMapa)
+generarCasillas({ fila: 3, col: 2 })
+
 const bordesPared = mapa.map((filaMapa, fila) => filaMapa.map((tile, col) => {
     if (tile !== 1) return null
     const n = esParedMapa(fila - 1, col), s = esParedMapa(fila + 1, col)
@@ -1151,6 +1298,8 @@ document.addEventListener("keydown", function(e) {
         if (e.key === "Escape") cerrarReporte()
         return
     }
+    // Flechas y espacio son del juego: que no desplacen la página que lo contiene (p. ej. en itch.io)
+    if (e.key === " " || e.key.startsWith("Arrow")) e.preventDefault()
     // Con la ayuda abierta, el juego no ve las teclas: Esc, H, Enter o espacio la cierran
     if (ayudaAbierta) {
         const t = e.key.toLowerCase()
@@ -1424,12 +1573,12 @@ function identificarTile(x, y) {
 }
 
 function colisiones() {
-    if (esPared(paku.x, paku.y) ||
-        esPared(paku.x + paku.width, paku.y) ||
-        esPared(paku.x, paku.y + paku.height) ||
-        esPared(paku.x + paku.width, paku.y + paku.height)) {
-        paku.x = anteriorX
-        paku.y = anteriorY
+    if (esPared(lider.x, lider.y) ||
+        esPared(lider.x + lider.width, lider.y) ||
+        esPared(lider.x, lider.y + lider.height) ||
+        esPared(lider.x + lider.width, lider.y + lider.height)) {
+        lider.x = anteriorX
+        lider.y = anteriorY
     }
 }
 
@@ -1444,11 +1593,15 @@ function crearEnemigo(base) {
     const maquina = base.clase === "maquina"
     const hambre = mejorasPartida.combatesHambrientos > 0 ? HAMBRE : 1
     const sector = sectorActual - 1   // sectores por encima del primero
-    let vida = base.stats.HP_MAX * escala("HP_MAX") * mejorasPartida.vidaEnemigos * (1 + ESCALADO_SECTOR.vida * sector)
+    // El puente de mando los hace más duros (y dan más XP), pero no en el primer sector: a nivel bajo
+    // ese +20% se llevaba casi la mitad de las derrotas del sector 1
+    const zona = sectorActual > 1 ? (zonaActual() || {}) : {}
+    const fuerza = zona.fuerza || 1
+    let vida = base.stats.HP_MAX * escala("HP_MAX") * mejorasPartida.vidaEnemigos * (1 + ESCALADO_SECTOR.vida * sector) * fuerza
     if (maquina) vida *= mejorasPartida.vidaMaquinas
     stats.HP_MAX = Math.max(1, Math.round(vida))
     stats.HP = stats.HP_MAX
-    let ataque = base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n) * hambre * (1 + ESCALADO_SECTOR.ataque * sector)
+    let ataque = base.stats.ATK * dificultad.multiplicador * (1 + dificultad.crecimiento * n) * hambre * (1 + ESCALADO_SECTOR.ataque * sector) * fuerza
     if (maquina) ataque *= mejorasPartida.ataqueMaquinas
     stats.ATK = Math.round(ataque)
     stats.DEF = Math.round(base.stats.DEF * escala("DEF"))
@@ -1457,21 +1610,24 @@ function crearEnemigo(base) {
     stats.VEL = Math.round(base.stats.VEL * escala("VEL") * hambre)
     stats.PRE = Math.round(base.stats.PRE * escala("PRE"))
     stats.EVA = Math.round(base.stats.EVA * escala("EVA"))
-    const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp * (1 + ESCALADO_SECTOR.xp * sector))
+    const xp = Math.round(base.xp * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp * (1 + ESCALADO_SECTOR.xp * sector) * (zona.xp || 1))
     // tipo = identificador interno (para todo el código); nombre = el que se ve, en el idioma elegido
     return { ...base, tipo: base.nombre, nombre: nombreDe(base.nombre), xp: xp, stats: stats }
 }
 
 // Elige una plantilla de poolEnemigos al azar, respetando su "peso" (los de más peso salen más);
 // si se pide una clase ("humano"/"maquina"), solo entre las de esa clase; excluir = nombre de un tipo que no puede salir
+// La zona en la que se lucha multiplica el peso de algunas clases (en la sala de máquinas, máquinas)
 function elegirEnemigoDelPool(clase = null, excluir = null) {
-    return elegirPorPeso(poolEnemigos.filter(en => (!clase || en.clase === clase) && en.nombre !== excluir))
+    const zona = zonaActual()
+    const pesoEnZona = en => en.peso * ((zona && zona.clases && zona.clases[en.clase]) || 1)
+    return elegirPorPeso(poolEnemigos.filter(en => (!clase || en.clase === clase) && en.nombre !== excluir), pesoEnZona)
 }
-function elegirPorPeso(pool) {
-    const total = pool.reduce((suma, en) => suma + en.peso, 0)
+function elegirPorPeso(pool, peso = en => en.peso) {
+    const total = pool.reduce((suma, en) => suma + peso(en), 0)
     let tirada = Math.random() * total
     for (const en of pool) {
-        tirada -= en.peso
+        tirada -= peso(en)
         if (tirada < 0) return en
     }
     return pool[pool.length - 1]
@@ -1481,6 +1637,9 @@ function elegirPorPeso(pool) {
 function tamañoGrupoAlAzar() {
     const sectores = Math.min(sectorActual - 1, SECTORES_CRECE_GRUPO)
     const pesos = PESOS_GRUPO.map((peso, i) => peso + CRECE_GRUPO[i] * sectores)
+    // En el primer sector, como mucho 3 (salvo eventos): los de 4 eran el 5% de los combates del sector
+    // 1 pero la mitad de las derrotas
+    if (sectorActual === 1) { pesos[3] = 0; pesos[4] = 0 }
     let tirada = Math.random() * pesos.reduce((suma, p) => suma + p, 0)
     for (let i = 0; i < pesos.length; i++) {
         tirada -= pesos[i]
@@ -1640,7 +1799,7 @@ function energiaMaxima(personaje) {
 }
 
 function xpParaSubir(nivel) {
-    return Math.round(XP_BASE_NIVEL * Math.pow(nivel, XP_EXPONENTE))
+    return Math.round(XP_BASE_NIVEL * Math.pow(nivel, XP_EXPONENTE) * (1 + nivel / XP_FRENO_NIVEL))
 }
 
 function nivelMedio() {
@@ -1682,6 +1841,9 @@ function repartirXP(total) {
                     p.stats[clave] = nuevas[clave]
                 }
                 p.stats.HP += r.mejoras.HP_MAX || 0
+                // En Fácil, subir de nivel cura además una parte de la vida máxima
+                const cura = DIFICULTADES[dificultadElegida].curaAlSubir || 0
+                if (cura > 0) p.stats.HP = Math.min(p.stats.HP_MAX, p.stats.HP + Math.ceil(p.stats.HP_MAX * cura))
                 r.nuevasHabilidades = p.habilidades
                     .filter(h => h.nivelMin > r.nivelAntes && h.nivelMin <= p.nivel)
                     .map(h => tr(h.nombre))
@@ -1719,7 +1881,7 @@ function calcularDaño(atacante, defensor, opciones = {}) {
 }
 
 function comprobarTile() {
-    const tile = identificarTile(paku.x + paku.width / 2, paku.y + paku.height / 2)
+    const tile = identificarTile(lider.x + lider.width / 2, lider.y + lider.height / 2)
     if (tile !== tileActual) {
         tileActual = tile
         if (tile === 2) iniciarCombate()
@@ -1731,8 +1893,8 @@ function comprobarTile() {
         }
         if (tile === 4) iniciarEvento()
         if (tile === 3 || tile === 4) {
-            const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
-            const col = Math.floor((paku.x + paku.width / 2) / tamTile)
+            const fila = Math.floor((lider.y + lider.height / 2) / tamTile)
+            const col = Math.floor((lider.x + lider.width / 2) / tamTile)
             mapa[fila][col] = 0
         }
         if (tile === 0) mostrarPanelDescanso = false
@@ -2097,8 +2259,8 @@ function ejecutarRonda() {
         }
 
         if (enemigosVivos().length === 0) {
-            const fila = Math.floor((paku.y + paku.height / 2) / tamTile)
-            const col = Math.floor((paku.x + paku.width / 2) / tamTile)
+            const fila = Math.floor((lider.y + lider.height / 2) / tamTile)
+            const col = Math.floor((lider.x + lider.width / 2) / tamTile)
             mapa[fila][col] = 0
             // Los kamikazes que han estallado y los que han huido no dan XP: no los has derrotado tú
             xpTotalVictoria = Math.round(enemigosCombate.filter(en => !en.estallo && !en.huyo).reduce((suma, en) => suma + en.xp, 0) * xpCombate)
@@ -2282,14 +2444,14 @@ function accionEnemigo(enemigo) {
     comprobarDerrota()
 }
 function movimiento(deltaMs) {
-    anteriorX = paku.x
-    anteriorY = paku.y
+    anteriorX = lider.x
+    anteriorY = lider.y
 
     const paso = VELOCIDAD_PAKU * (deltaMs / 1000)
-    if (teclas["arrowleft"] || teclas["a"]) paku.x -= paso
-    if (teclas["arrowright"] || teclas["d"]) paku.x += paso
-    if (teclas["arrowup"] || teclas["w"]) paku.y -= paso
-    if (teclas["arrowdown"] || teclas["s"]) paku.y += paso
+    if (teclas["arrowleft"] || teclas["a"]) lider.x -= paso
+    if (teclas["arrowright"] || teclas["d"]) lider.x += paso
+    if (teclas["arrowup"] || teclas["w"]) lider.y -= paso
+    if (teclas["arrowdown"] || teclas["s"]) lider.y += paso
 }
 
 // Se llama después de colisiones() y bordes(): así el rastro solo guarda posiciones donde Paku ha
@@ -2299,26 +2461,58 @@ function movimiento(deltaMs) {
 function actualizarRastro(deltaMs) {
     acumuladorHistorial += deltaMs
     while (acumuladorHistorial >= PASO_HISTORIAL) {
-        historial.unshift({ x: paku.x, y: paku.y })
+        historial.unshift({ x: lider.x, y: lider.y })
         if (historial.length > LARGO_HISTORIAL) historial.pop()
         acumuladorHistorial -= PASO_HISTORIAL
     }
 
-    if (historial[50]) { mamuri.x = historial[50].x; mamuri.y = historial[50].y }
-    if (historial[100]) { vbz.x = historial[100].x; vbz.y = historial[100].y }
-    if (historial[150]) { imanps.x = historial[150].x; imanps.y = historial[150].y }
+    // Los caídos salen de la fila y los de detrás suben un puesto: el primero vivo va delante (lo
+    // mueve el jugador), el segundo en el 50, el tercero en el 100 y el cuarto en el 150. Al revivir
+    // vuelven a su sitio en la fila.
+    filaVivos().forEach((p, i) => {
+        const punto = i === 0 ? lider : puntoRastro(i * 50)
+        if (punto) { p.x = punto.x; p.y = punto.y }
+    })
+}
+// Posición en el rastro "indice" pasos atrás, pero contando el tiempo que ya ha pasado desde el último
+// paso grabado: queda entre ese punto y el siguiente más reciente. Así los compañeros se mueven a los
+// mismos FPS que Paku (144 Hz, por ejemplo) y no a saltos de 60 por segundo.
+function puntoRastro(indice) {
+    const a = historial[indice], b = historial[indice - 1]
+    if (!a) return null
+    if (!b) return a
+    const t = Math.min(1, acumuladorHistorial / PASO_HISTORIAL)
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+}
+function filaVivos() {
+    return [paku, mamuri, vbz, imanps].filter(p => p.stats.HP > 0)
+}
+// El robot de servicio va justo detrás del último de la fila (como mucho, al final del rastro)
+function puestoRobot() {
+    return Math.min(LARGO_HISTORIAL - 1, Math.max(1, filaVivos().length) * 50)
 }
 function descansar() {
     logDescanso = []
     equipoJugador.forEach(p => {
+        // Ambas cosas crecen con el personaje, para que un descanso siempre se note
         if (p.stats.HP === p.stats.HP_MAX) {
-            p.bonus.HP_MAX += 5
-            p.stats.HP_MAX += 5
-            p.stats.HP += 5
-            logDescanso.push(L(p.nombre + " ha ganado 5 de HP máximo", p.nombre + " gains 5 max HP"))
+            const vidaNivel = Math.round(p.base.HP_MAX + p.crecimiento.HP_MAX * (p.nivel - 1))
+            const margen = Math.max(0, Math.floor(vidaNivel * DESCANSO.tope) - p.vidaDescansos)
+            const extra = Math.min(margen, Math.max(1, Math.ceil(p.nivel * p.crecimiento.HP_MAX * DESCANSO.vidaMaxima)))
+            if (extra === 0) {
+                logDescanso.push(L(p.nombre + ": tope de vida alcanzado, sube de nivel", p.nombre + ": HP cap reached, level up first"))
+                return
+            }
+            p.vidaDescansos += extra
+            p.bonus.HP_MAX += extra
+            p.stats.HP_MAX += extra
+            p.stats.HP += extra
+            logDescanso.push(L(p.nombre + " ha ganado " + extra + " de HP máximo", p.nombre + " gains " + extra + " max HP"))
         } else {
-            p.stats.HP = Math.min(p.stats.HP + 15, p.stats.HP_MAX)
-            logDescanso.push(L(p.nombre + " ha recuperado 15 HP", p.nombre + " recovers 15 HP"))
+            // También a los caídos: vuelven con esa vida
+            const cura = Math.min(Math.ceil(p.stats.HP_MAX * DESCANSO.cura), p.stats.HP_MAX - p.stats.HP)
+            p.stats.HP += cura
+            logDescanso.push(L(p.nombre + " ha recuperado " + cura + " HP", p.nombre + " recovers " + cura + " HP"))
         }
     })
 }
@@ -2471,7 +2665,7 @@ function casillasDeTipo(tipo) {
     return lista
 }
 function casillaPaku() {
-    return { fila: Math.floor((paku.y + paku.height / 2) / tamTile), col: Math.floor((paku.x + paku.width / 2) / tamTile) }
+    return { fila: Math.floor((lider.y + lider.height / 2) / tamTile), col: Math.floor((lider.x + lider.width / 2) / tamTile) }
 }
 function distanciaPaku(c) {
     const p = casillaPaku()
@@ -2515,6 +2709,11 @@ function pintarCasillas(cuenta) {
     let i = 0
     for (const tipo of [2, 3, 4]) {
         for (let k = 0; k < (cuenta[tipo] || 0) && i < libres.length; k++, i++) {
+            // Un descanso, a ser posible lejos de los demás: se busca entre las libres que quedan
+            if (tipo === 3) {
+                const j = libres.findIndex((c, n) => n >= i && lejosDeDescansos(c.fila, c.col))
+                if (j > i) [libres[i], libres[j]] = [libres[j], libres[i]]
+            }
             mapa[libres[i].fila][libres[i].col] = tipo
         }
     }
@@ -2735,7 +2934,7 @@ const DESPLEGABLES = {
         etiqueta: () => L("Colores", "Colors"),
         opciones: () => MODOS_COLOR.map(m => tr(m.nombre)),
         actual: () => modoColor,
-        elegir: i => { modoColor = i },
+        elegir: i => { modoColor = i; delete capasFijas.mapa },
         // En la lista, el nombre de cada modo y sus casillas de muestra
         dibujarFila: (i, x, y, ancho) => {
             ctx.fillText(tr(MODOS_COLOR[i].nombre), x + 12, y + 23)
@@ -3044,7 +3243,7 @@ function enviarReporte() {
 // casillas: true para la lista de casillas del mapa con sus símbolos.
 const CASILLAS_AYUDA = [
     { tipo: 2, texto: { es: "Combate: una patrulla enemiga", en: "Combat: an enemy patrol" } },
-    { tipo: 3, texto: { es: "Descanso: cura 15 HP, o da +5 de vida máxima a quien ya esté entero", en: "Rest: heals 15 HP, or gives +5 max HP to anyone already at full health" } },
+    { tipo: 3, texto: { es: "Descanso: cura un 35% (también a los caídos); a quien ya está entero, más vida máxima", en: "Rest: heals 35% (fallen allies too); anyone at full health gets more max HP" } },
     { tipo: 4, texto: { es: "Evento: una decisión con premio... y a veces con riesgo", en: "Event: a choice with a reward... and sometimes a risk" } }
 ]
 const AYUDA = {
@@ -3052,8 +3251,8 @@ const AYUDA = {
         titulo: { es: "Cómo jugar", en: "How to play" },
         bloques: [
             { titulo: { es: "El objetivo", en: "Your goal" },
-              texto: () => L("Guía a " + nombreDe("Paku") + " y su tripulación por los pasillos de una nave pirata. Un sector se despeja pisando todas sus casillas especiales; entonces llega el siguiente, más peligroso. La partida termina cuando cae todo el equipo: llega tan lejos como puedas.",
-                             "Guide " + nombreDe("Paku") + " and his crew through the corridors of a pirate ship. A sector is cleared by stepping on all of its special tiles; then the next one arrives, more dangerous. The run ends when the whole team falls: get as far as you can.") },
+              texto: () => L("Guía a " + nombreDe("Paku") + " y su tripulación por los pasillos de una nave pirata. Un sector se despeja ganando todos sus combates; entonces llega el siguiente, más peligroso. La partida termina cuando cae todo el equipo: llega tan lejos como puedas.",
+                             "Guide " + nombreDe("Paku") + " and his crew through the corridors of a pirate ship. A sector is cleared by winning all of its combats; then the next one arrives, more dangerous. The run ends when the whole team falls: get as far as you can.") },
             { titulo: { es: "El mapa", en: "The map" },
               texto: { es: "Muévete con WASD o las flechas; el resto del equipo te sigue. Estas son las casillas especiales:",
                        en: "Move with WASD or the arrow keys; the rest of the team follows you. These are the special tiles:" } },
@@ -3079,8 +3278,11 @@ const AYUDA = {
               texto: { es: "Cada casilla especial se gasta al pisarla:", en: "Each special tile is used up when you step on it:" } },
             { casillas: true },
             { titulo: { es: "Los sectores", en: "Sectors" },
-              texto: { es: "Cuando no queda ninguna casilla especial, el sector está despejado: aparecen casillas nuevas y empieza el siguiente, con enemigos más fuertes y grupos más grandes, pero que dan más experiencia. El sector en el que estás aparece arriba a la izquierda.",
-                       en: "When no special tiles are left, the sector is cleared: new tiles appear and the next one begins, with stronger enemies and bigger groups that also give more experience. Your current sector is shown at the top left." } },
+              texto: { es: "Cuando no queda ningún combate, el sector está despejado: los descansos y eventos que no hayas pisado se pierden, aparecen casillas nuevas y empieza el siguiente, con enemigos más fuertes y grupos más grandes, pero que dan más experiencia. El sector en el que estás aparece arriba a la izquierda.",
+                       en: "When no combats are left, the sector is cleared: any rests and events you haven't stepped on are lost, new tiles appear and the next one begins, with stronger enemies and bigger groups that also give more experience. Your current sector is shown at the top left." } },
+            { titulo: { es: "Zonas de la nave", en: "Ship zones" },
+              texto: { es: "Cada sector se reparte en zonas, cada una con su color de suelo: bodega, sala de máquinas, armería, enfermería y puente de mando. En cada una salen más o menos combates, descansos o eventos, y enemigos distintos. Abajo a la izquierda ves en cuál estás y qué tiene de especial.",
+                       en: "Each sector is split into zones, each with its own floor color: cargo hold, engine room, armory, infirmary and bridge. Each one has more or fewer combats, rests or events, and different enemies. The bottom left shows which one you're in and what makes it special." } },
             { titulo: { es: "Atajos", en: "Shortcuts" },
               texto: { es: "M: estadísticas del equipo, objetos y mejoras de la partida  ·  R (en Estadísticas): reportar un bug o una idea",
                        en: "M: team stats, items and run upgrades  ·  R (in Stats): report a bug or an idea" } }
@@ -3201,6 +3403,24 @@ function dibujarAyuda() {
     ctx.textAlign = "left"
 }
 
+// El suelo de cada zona, teñido de su color, y una raya discontinua donde se pasa de una zona a otra
+function dibujarSueloZonas() {
+    for (let fila = 0; fila < mapa.length; fila++) {
+        for (let col = 0; col < mapa[fila].length; col++) {
+            const zona = zonaEn(fila, col)
+            if (!zona) continue
+            const x = col * tamTile, y = fila * tamTile
+            const color = colorZona(zona)
+            ctx.fillStyle = "rgba(" + color.join(", ") + ", 0.22)"
+            ctx.fillRect(x, y, tamTile, tamTile)
+            ctx.fillStyle = "rgba(" + color.join(", ") + ", 0.6)"
+            const derecha = zonaEn(fila, col + 1), abajo = zonaEn(fila + 1, col)
+            if (derecha && derecha !== zona) for (let k = 0; k < tamTile; k += 8) ctx.fillRect(x + tamTile - 1, y + k + 2, 2, 4)
+            if (abajo && abajo !== zona) for (let k = 0; k < tamTile; k += 8) ctx.fillRect(x + k + 2, y + tamTile - 1, 4, 2)
+        }
+    }
+}
+
 function dibujarPared(x, y, b) {
     const g = 3
     ctx.fillStyle = "rgb(40, 44, 66)"
@@ -3216,12 +3436,14 @@ function dibujarPared(x, y, b) {
     if (b.esqSE) ctx.fillRect(x + tamTile - g, y + tamTile - g, g, g)
 }
 
-// Si ya no queda ninguna casilla de combate, descanso ni evento, la nave manda nuevas patrullas:
-// se vuelven a repartir casillas por el pasillo (nunca debajo de Paku) y sube el contador de sector
+// Cuando ya no queda ninguna casilla de combate, la nave manda nuevas patrullas: los descansos y
+// eventos que no se han pisado se pierden (si no, se irían acumulando sector tras sector), se vuelven
+// a repartir casillas por el pasillo (nunca debajo del grupo) y sube el contador de sector
 function comprobarSectorDespejado() {
-    const quedan = mapa.some(filaMapa => filaMapa.some(t => t === 2 || t === 3 || t === 4))
+    const quedan = mapa.some(filaMapa => filaMapa.some(t => t === 2))
     if (quedan) return
     sectorActual++
+    mapa.forEach(filaMapa => filaMapa.forEach((t, col) => { if (t === 3 || t === 4) filaMapa[col] = 0 }))
     generarCasillas(casillaPaku())
     pintarCasillas(mejorasPartida.casillasExtra)   // las de más del Mapa estelar, después del reparto
     avisoSectorHasta = performance.now() + DURACION_AVISO_SECTOR
@@ -3243,17 +3465,28 @@ const SIMBOLOS_CASILLA = {
 //   tritanopia; la de cada modo, 47-58
 // - equipo: los colores convencionales se confunden entre sí y con las casillas (ΔE 3-5); los de cada
 //   modo, 28-32. Paku nunca es rojo fuera del modo Convencional.
+// - zonas (suelo al 22%, en el orden de ZONAS: bodega, máquinas, armería, enfermería, puente): con una
+//   sola paleta para todos, en deuteranopia dos zonas quedaban con un ΔE de 0,9 (iguales); con la de
+//   cada modo, el ΔE mínimo entre zonas es 16-26.
 // equipo: null = los colores de siempre (ESTILOS_PLACEHOLDER en combate y los del mapa)
 const MODOS_COLOR = [
-    { nombre: { es: "Convencional", en: "Conventional" }, casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255] }, equipo: null },
+    { nombre: { es: "Convencional", en: "Conventional" }, casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255] }, equipo: null,
+      zonas: [[255, 255, 0], [191, 96, 0], [51, 187, 255], [0, 191, 96], [191, 0, 128]] },
     { nombre: { es: "Protanopia (rojo)", en: "Protanopia (red)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255] },
-      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255] } },
+      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255] },
+      zonas: [[128, 170, 255], [191, 38, 38], [255, 255, 0], [0, 0, 191], [51, 255, 119]] },
     { nombre: { es: "Deuteranopia (verde)", en: "Deuteranopia (green)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166] },
-      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26] } },
+      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26] },
+      zonas: [[43, 0, 255], [255, 255, 0], [255, 85, 0], [221, 51, 255], [191, 0, 32]] },
     { nombre: { es: "Tritanopia (azul)", en: "Tritanopia (blue)" }, casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255] },
-      equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] } }
+      equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] },
+      zonas: [[128, 0, 191], [0, 191, 0], [166, 191, 38], [0, 32, 191], [255, 42, 0]] }
 ]
 let modoColor = 0   // índice en MODOS_COLOR (no se guarda: cada vez que se abre el juego empieza en Convencional)
+// Color del suelo de una zona en el modo de color elegido ([r, g, b])
+function colorZona(zona) {
+    return MODOS_COLOR[modoColor].zonas[ZONAS.indexOf(zona)]
+}
 
 // Color de un miembro del equipo en el modo actual ([r, g, b]), o null si el modo usa los de siempre
 function colorEquipoModo(nombre) {
@@ -3273,11 +3506,32 @@ function dibujarCasilla(tipo, x, y, modo = modoColor) {
     ctx.fillRect(x, y, tamTile, tamTile)
     // El símbolo, del mismo color pero mucho más claro, para que resalte sobre el relleno
     ctx.fillStyle = "rgb(" + c.map(v => Math.round(v + (255 - v) * 0.55)).join(", ") + ")"
+    const forma = formaSimbolo(tipo)
+    if (forma) {
+        ctx.translate(x, y)
+        ctx.fill(forma)
+        ctx.translate(-x, -y)
+        return
+    }
     SIMBOLOS_CASILLA[tipo].forEach((fila, f) => {
         for (let k = 0; k < fila.length; k++) {
             if (fila[k] === "X") ctx.fillRect(x + 4 + k * 3, y + 4 + f * 3, 3, 3)
         }
     })
+}
+// Cada símbolo, como una sola figura (Path2D) hecha de sus "píxeles": se pinta de una vez en lugar
+// de cuadradito a cuadradito. Sin Path2D (pruebas fuera del navegador) se pinta a mano.
+const formasSimbolo = {}
+function formaSimbolo(tipo) {
+    if (typeof Path2D === "undefined") return null
+    if (!formasSimbolo[tipo]) {
+        const p = new Path2D()
+        SIMBOLOS_CASILLA[tipo].forEach((fila, f) => {
+            for (let k = 0; k < fila.length; k++) if (fila[k] === "X") p.rect(4 + k * 3, 4 + f * 3, 3, 3)
+        })
+        formasSimbolo[tipo] = p
+    }
+    return formasSimbolo[tipo]
 }
 
 // El equipo en el mapa: cuadrado de su color con la inicial encima (así no depende solo del color).
@@ -3300,26 +3554,31 @@ function dibujarMiembroMapa(p, color, colorLetra) {
 }
 
 function dibujarExploracion() {
-    dibujarFondo("fondoExploracion")
-    for (let fila = 0; fila < mapa.length; fila++) {
-    for (let col = 0; col < mapa[fila].length; col++) {
-        if (mapa[fila][col] === 1) {
-            dibujarPared(col * tamTile, fila * tamTile, bordesPared[fila][col])
+    // Fondo y paredes no cambian nunca (el mapa es fijo): van en una capa fija
+    dibujarCapaFija("mapa", () => {
+        dibujarFondo("fondoExploracion")
+        dibujarSueloZonas()
+        for (let fila = 0; fila < mapa.length; fila++) {
+            for (let col = 0; col < mapa[fila].length; col++) {
+                if (mapa[fila][col] === 1) dibujarPared(col * tamTile, fila * tamTile, bordesPared[fila][col])
+            }
         }
-    else if (SIMBOLOS_CASILLA[mapa[fila][col]]) {
-        dibujarCasilla(mapa[fila][col], col * tamTile, fila * tamTile)
+    })
+    // Las casillas sí cambian (se pisan y se reparten de nuevo en cada sector)
+    for (let fila = 0; fila < mapa.length; fila++) {
+        for (let col = 0; col < mapa[fila].length; col++) {
+            if (SIMBOLOS_CASILLA[mapa[fila][col]]) dibujarCasilla(mapa[fila][col], col * tamTile, fila * tamTile)
+        }
     }
-    }}
-        // El robot de servicio va el último del rastro, más pequeño
-        if (mejorasPartida.robots > 0 && historial[LARGO_HISTORIAL - 1]) {
-            const r = historial[LARGO_HISTORIAL - 1]
+        // El robot de servicio va el último de la fila, más pequeño
+        if (mejorasPartida.robots > 0 && puntoRastro(puestoRobot())) {
+            const r = puntoRastro(puestoRobot())
             ctx.fillStyle = "rgb(150, 190, 200)"
             ctx.fillRect(r.x + 4, r.y + 4, 10, 10)
         }
-        dibujarMiembroMapa(imanps, "yellow", "black")
-        dibujarMiembroMapa(vbz, "green", "white")
-        dibujarMiembroMapa(mamuri, "blue", "white")
-        dibujarMiembroMapa(paku, "red", "white")
+        // Los caídos no salen en el mapa hasta que vuelven a tener vida; el que va delante, encima
+        const coloresMapa = { Paku: ["red", "white"], Mamuri: ["blue", "white"], VBZ: ["green", "white"], Imanps: ["yellow", "black"] }
+        filaVivos().reverse().forEach(p => dibujarMiembroMapa(p, coloresMapa[p.id][0], coloresMapa[p.id][1]))
     if (mostrarPanelDescanso) {
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)"
         ctx.fillRect(300, 200, 400, 250)
@@ -3337,6 +3596,17 @@ function dibujarExploracion() {
     ctx.font = "bold 14px sans-serif"
     ctx.fillStyle = "rgb(220, 220, 235)"
     ctx.fillText("Sector " + sectorActual, 8, 21)
+    // Zona en la que está el grupo y lo que tiene de especial (abajo, sobre el muro)
+    const zona = zonaActual()
+    if (zona) {
+        ctx.font = "bold 14px sans-serif"
+        ctx.fillStyle = "rgb(" + colorZona(zona).map(v => Math.round(v + (255 - v) * 0.35)).join(", ") + ")"
+        ctx.fillText(tr(zona.nombre), 8, ALTO_JUEGO - 11)
+        const anchoNombre = ctx.measureText(tr(zona.nombre)).width
+        ctx.font = "13px sans-serif"
+        ctx.fillStyle = "rgb(190, 190, 210)"
+        ctx.fillText("·  " + tr(zona.descripcion), 8 + anchoNombre + 8, ALTO_JUEGO - 11)
+    }
     // Atajos, arriba a la derecha (también sobre el muro)
     ctx.textAlign = "right"
     ctx.font = "13px sans-serif"
@@ -3433,6 +3703,26 @@ function dibujarSprite(clave, x, y, tam, izquierda = false) {
     ctx.font = fuenteAnterior   // sin esto, el texto que se dibuje después hereda la negrita grande
 }
 
+// Capas que no cambian (los fondos y las paredes del mapa): la primera vez se pintan normal y se
+// guarda una copia en un canvas aparte, a la resolución real; los fotogramas siguientes solo copian
+// esa imagen, que es mucho más rápido que volver a pintar degradados, rejilla y cientos de paredes.
+// Tienen que ser lo primero que se pinta en el fotograma (tapan todo). Si cambia el tamaño del
+// canvas (ajustarTamaño), la copia ya no vale y se rehace.
+function dibujarCapaFija(clave, dibujar) {
+    const guardada = capasFijas[clave]
+    if (guardada && guardada.width === canvas.width && guardada.height === canvas.height) {
+        ctx.drawImage(guardada, 0, 0, ANCHO_JUEGO, ALTO_JUEGO)
+        return
+    }
+    dibujar()
+    const capa = document.createElement("canvas")
+    if (!capa.getContext) return   // sin un navegador de verdad (pruebas), simplemente no se guarda
+    capa.width = canvas.width
+    capa.height = canvas.height
+    capa.getContext("2d").drawImage(canvas, 0, 0)
+    capasFijas[clave] = capa
+}
+
 // Fondo a pantalla completa: la imagen real si existe; si no, degradado (+ rejilla o estrellas)
 function dibujarFondo(clave) {
     const img = imagenLista(clave)
@@ -3440,6 +3730,9 @@ function dibujarFondo(clave) {
         ctx.drawImage(img, 0, 0, ANCHO_JUEGO, ALTO_JUEGO)
         return
     }
+    dibujarCapaFija(clave, () => pintarFondo(clave))
+}
+function pintarFondo(clave) {
     const colores = COLORES_FONDO[clave]
     const degradado = ctx.createLinearGradient(0, 0, 0, ALTO_JUEGO)
     degradado.addColorStop(0, colores[0])
@@ -3947,6 +4240,7 @@ function dibujarEstadisticas() {
     dibujarVersion()
 }
 
+
 // Columna bajo la lista de personajes: objetos, lo preparado para el próximo combate y lo que
 // dura toda la partida (cada línea larga se parte; si no cabe todo, se corta antes de yMaximo)
 function dibujarResumenPartida(x, y, ancho, yMaximo) {
@@ -4051,17 +4345,17 @@ function dibujarDerrota() {
     ctx.fillText(L("Pulsa Enter para volver a intentarlo", "Press Enter to try again"), 380, 620)
 }
 function bordes() {
-    if (paku.x < 0) {
-        paku.x = 0
+    if (lider.x < 0) {
+        lider.x = 0
     }
-    if (paku.y < 0) {
-        paku.y = 0
+    if (lider.y < 0) {
+        lider.y = 0
     }
-    if (paku.y > ALTO_JUEGO - paku.height) {
-        paku.y = ALTO_JUEGO - paku.height
+    if (lider.y > ALTO_JUEGO - lider.height) {
+        lider.y = ALTO_JUEGO - lider.height
     }
-    if (paku.x > ANCHO_JUEGO - paku.width) {
-        paku.x = ANCHO_JUEGO - paku.width
+    if (lider.x > ANCHO_JUEGO - lider.width) {
+        lider.x = ANCHO_JUEGO - lider.width
     }
 
 }
