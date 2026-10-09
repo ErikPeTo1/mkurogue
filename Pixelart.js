@@ -406,12 +406,14 @@ const LETRAS_A_V2 = { K: "K", A: "A", a: "a", L: "L", S: "S", s: "s", H: "H", W:
 // Cada sprite se pinta una vez (a su tamaño de rejilla, volteado o no y con su nivel de daño) en un
 // canvas propio, guardado por modo de color. Usa el sprite v2 si lo hay; si no, el del primer estilo
 // con las letras pasadas a la paleta v2.
+// grande: false = 16 x 16, true = 32 x 32, 48 = 48 x 48 (Sprites48.js)
 const cacheSprites = {}
+const hay48 = clave => typeof SPRITES48 !== "undefined" && !!SPRITES48[clave]
 function lienzoSprite(clave, volteado, grande = false, daño = 0) {
-    const nuevo = grande ? SPRITES_V2[clave] : SPRITES_V2_16[clave]
-    const filas = nuevo || (grande ? SPRITES_PIXEL_32[clave] : SPRITES_PIXEL[clave])
+    const n = grande === 48 ? 48 : grande ? 32 : 16
+    const nuevo = n === 48 ? (hay48(clave) ? SPRITES48[clave] : null) : grande ? SPRITES_V2[clave] : SPRITES_V2_16[clave]
+    const filas = nuevo || (n === 48 ? null : grande ? SPRITES_PIXEL_32[clave] : SPRITES_PIXEL[clave])
     if (!filas) return null
-    const n = grande ? 32 : 16
     const propio = colorPropioPixel(clave)
     const id = [clave, volteado, n, daño, propio.join(",")].join("|")
     if (cacheSprites[id]) return cacheSprites[id]
@@ -442,11 +444,14 @@ function lienzoSprite(clave, volteado, grande = false, daño = 0) {
 // Sustituye a la de Juego.js: la imagen real si la hay; si no, el sprite pixel art.
 // vida (opcional): fracción de vida que le queda (0-1), para el nivel de daño.
 // Desde 32 px se usa el sprite de 32 x 32; por debajo, el de 16 x 16. Siempre a un múltiplo exacto.
+// Desde 48 px, el de 48 x 48 si sale igual o más grande que el de 32 (96 px: x2), o siempre para los
+// enemigos rediseñados (su sprite de 32 es del diseño viejo).
 const dibujarSpriteOriginal = dibujarSprite
 dibujarSprite = function (clave, x, y, tam, izquierda = false, vida) {
     if (imagenLista(clave)) return dibujarSpriteOriginal(clave, x, y, tam, izquierda)
-    const grande = tam >= 32 && !!SPRITES_PIXEL_32[clave]
-    const n = grande ? 32 : 16
+    let grande = tam >= 32 && !!SPRITES_PIXEL_32[clave]
+    if (tam >= 48 && hay48(clave) && (SOLO_48.has(clave) || Math.floor(tam / 48) * 48 >= Math.floor(tam / 32) * 32)) grande = 48
+    const n = grande === 48 ? 48 : grande ? 32 : 16
     const lienzo = lienzoSprite(clave, izquierda, grande, nivelDaño(vida))
     if (!lienzo) return dibujarSpriteOriginal(clave, x, y, tam, izquierda)
     const suavizado = ctx.imageSmoothingEnabled
@@ -455,6 +460,29 @@ dibujarSprite = function (clave, x, y, tam, izquierda = false, vida) {
     const margen = (tam - lado) / 2
     ctx.drawImage(lienzo, Math.round(x + margen), Math.round(y + margen), lado, lado)
     ctx.imageSmoothingEnabled = suavizado
+}
+
+// Número del temporizador del kamikaze, pintado encima de su pantalla (fuera del sprite, así no hace
+// falta un sprite por turno ni por nivel de daño, y se lee bien aunque el sprite vaya volteado).
+// x, y, tam: los mismos con los que se pintó el sprite
+const DIGITOS_PIXEL = {
+    0: ["###", "#.#", "#.#", "#.#", "###"], 1: [".#.", "##.", ".#.", ".#.", "###"], 2: ["###", "..#", "###", "#..", "###"],
+    3: ["###", "..#", ".##", "..#", "###"], 4: ["#.#", "#.#", "###", "..#", "..#"], 5: ["###", "#..", "###", "..#", "###"],
+    6: ["###", "#..", "###", "#.#", "###"], 7: ["###", "..#", ".#.", ".#.", ".#."], 8: ["###", "#.#", "###", "#.#", "###"],
+    9: ["###", "#.#", "###", "..#", "###"]
+}
+function dibujarContadorKamikaze(x, y, tam, numero, color) {
+    if (tam < 48 || !hay48("Dron kamikaze")) return
+    const lado = Math.floor(tam / 48) * 48, p = lado / 48
+    const x0 = Math.round(x + (tam - lado) / 2), y0 = Math.round(y + (tam - lado) / 2)
+    const texto = String(Math.max(0, numero)).padStart(2, "0")
+    const pant = PANTALLA_KAMIKAZE
+    const anchoTexto = texto.length * 4 - 1
+    const px = pant.x + Math.floor((pant.ancho - anchoTexto) / 2), py = pant.y + 1
+    ctx.fillStyle = color
+    texto.split("").forEach((d, i) => DIGITOS_PIXEL[d].forEach((fila, fy) => fila.split("").forEach((c, fx) => {
+        if (c === "#") ctx.fillRect(x0 + (px + i * 4 + fx) * p, y0 + (py + fy) * p, p, p)
+    })))
 }
 
 // El equipo en el mapa: el sprite de 16 x 16 (con su daño), un poco mayor que su casilla de choque
@@ -511,12 +539,66 @@ dibujarPared = function (x, y, b) {
 const BAYER4 = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
 const FONDOS_PIXEL = {
     fondoExploracion: { colores: [[10, 7, 15], [16, 11, 23], [20, 14, 29]], suelo: true },
-    fondoCombate:     { colores: [[8, 6, 13], [16, 10, 24], [30, 16, 40], [44, 22, 52]], estrellas: 70, estructuras: true },
-    fondoVictoria:    { colores: [[10, 26, 28], [8, 14, 20], [6, 6, 12]], estrellas: 40 },
-    fondoDerrota:     { colores: [[56, 12, 22], [26, 8, 18], [8, 4, 10]], estrellas: 20 }
+    fondoCombate:     { colores: [[8, 6, 13], [16, 10, 24], [30, 16, 40], [44, 22, 52]], estrellas: 30, estructuras: true },
+    // Victoria y derrota: el hangar de la nave (ver pintarHangar)
+    fondoVictoria:    { hangar: "victoria" },
+    fondoDerrota:     { hangar: "derrota" }
 }
+
+// Hangar de la nave a 256 x 176: pared de paneles, suelo de cubierta y lámparas en el techo con su cono
+// de luz tramado. Victoria: luz verde y dorada con confeti. Derrota: alarma roja, una lámpara rota y
+// brasas cayendo por toda la pantalla.
+function pintarHangar(victoria) {
+    const W = 256, H = 176
+    const lienzo = document.createElement("canvas")
+    if (!lienzo.getContext) return null
+    lienzo.width = W; lienzo.height = H
+    const c = lienzo.getContext("2d")
+    const datos = c.createImageData(W, H), d = datos.data
+    const pon = (x, y, col) => {
+        if (x < 0 || y < 0 || x >= W || y >= H) return
+        const k = (y * W + x) * 4
+        d[k] = col[0]; d[k + 1] = col[1]; d[k + 2] = col[2]; d[k + 3] = 255
+    }
+    const mezcla = (x, y, a, b, t) => t > (BAYER4[y % 4][x % 4] + 0.5) / 16 ? b : a
+    const pared = victoria ? [[14, 22, 26], [24, 36, 40]] : [[26, 8, 14], [44, 14, 22]]
+    const junta = victoria ? [10, 16, 20] : [18, 6, 10]
+    const luz = victoria ? [[60, 140, 120], [250, 210, 120]] : [[200, 40, 40], [255, 120, 70]]
+    const lamparas = victoria ? [40, 128, 216] : [40, 128]   // en la derrota, la de la derecha está rota
+    const suelo = 156   // por debajo de los textos de la victoria (el último acaba a 616 px de juego)
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let col = mezcla(x, y, pared[0], pared[1], 0.35 + 0.25 * Math.sin(x / 9))
+        if (x % 32 === 0 || y % 22 === 0) col = junta
+        for (const lx of lamparas) {
+            const dx = Math.abs(x - lx), ancho = 6 + y * 0.35
+            if (dx < ancho && y < suelo) col = mezcla(x, y, col, luz[0], (1 - dx / ancho) * (1 - y / 160) * 0.55)
+        }
+        // Suelo de cubierta
+        if (y >= suelo) col = y === suelo ? [110, 80, 104] : x % 24 === 0 ? [22, 13, 26] : mezcla(x, y, [36, 22, 38], [58, 36, 56], (176 - y) / 34)
+        pon(x, y, col)
+    }
+    for (const lx of lamparas) for (let x = lx - 5; x <= lx + 5; x++) { pon(x, 0, luz[1]); pon(x, 1, luz[0]) }
+    let semilla = victoria ? 9 : 11
+    const azar = () => (semilla = (semilla * 1103515245 + 12345) % 2147483648) / 2147483648
+    if (victoria) {
+        // Confeti
+        for (let i = 0; i < 60; i++) pon(Math.floor(azar() * W), Math.floor(azar() * (suelo - 4)), [[250, 210, 120], [120, 220, 180], [230, 120, 200]][i % 3])
+    } else {
+        // Lámpara rota y brasas cayendo en diagonal, con su estela
+        for (let x = 211; x <= 221; x++) { pon(x, 0, [60, 30, 30]); pon(x, 1, [40, 20, 24]) }
+        for (let i = 0; i < 45; i++) {
+            const x = Math.floor(azar() * W), y = Math.floor(azar() * (suelo - 2))
+            pon(x, y, [255, 200, 110]); pon(x - 1, y - 1, [230, 110, 60])
+            if (azar() < 0.5) pon(x - 2, y - 2, [120, 40, 40])
+        }
+    }
+    c.putImageData(datos, 0, 0)
+    return lienzo
+}
+
 function pintarFondoPixel(clave) {
     const def = FONDOS_PIXEL[clave]
+    if (def.hangar) return pintarHangar(def.hangar === "victoria")
     const W = 256, H = 176
     const lienzo = document.createElement("canvas")
     if (!lienzo.getContext) return null
@@ -549,7 +631,10 @@ function pintarFondoPixel(clave) {
     let semilla = 99
     const azar = () => (semilla = (semilla * 1103515245 + 12345) % 2147483648) / 2147483648
     for (let i = 0; i < (def.estrellas || 0); i++) {
-        const x = Math.floor(azar() * W), y = Math.floor(azar() * H * 0.85), brillo = azar()
+        // En el combate, solo en el hueco central (entre la tripulación y los enemigos): pegadas a los
+        // sprites o detrás de los textos parecían píxeles sueltos
+        const x = def.estructuras ? 60 + Math.floor(azar() * 120) : Math.floor(azar() * W), y = Math.floor(azar() * H * 0.85), brillo = azar()
+        if (def.estructuras && brillo <= 0.5) continue
         c.fillStyle = brillo > 0.85 ? "rgb(255, 255, 255)" : brillo > 0.5 ? "rgb(170, 180, 220)" : "rgb(90, 96, 140)"
         c.fillRect(x, y, 1, 1)
         if (brillo > 0.93) {
@@ -558,7 +643,8 @@ function pintarFondoPixel(clave) {
         }
     }
     if (def.estructuras) {
-        // Estructuras de la nave a los lados (como los edificios de "definicion") y restos flotando
+        // Estructuras de la nave a los lados (como los edificios de "definicion"). Sin restos flotando ni
+        // estrellas tenues: a x4 parecían píxeles sueltos junto a los sprites
         const bloque = (x, y, w, h) => {
             c.fillStyle = "rgb(58, 36, 56)"; c.fillRect(x, y, w, h)
             c.fillStyle = "rgb(86, 56, 80)"; c.fillRect(x, y, w, 1); c.fillRect(x, y, 1, h)
@@ -566,15 +652,9 @@ function pintarFondoPixel(clave) {
             c.fillStyle = "rgb(30, 18, 32)"
             for (let i = 3; i < h - 3; i += 6) c.fillRect(x + 2, y + i, Math.max(1, w - 5), 1)
         }
-        ;[[0, 0, 9, 30], [0, 32, 12, 26], [0, 60, 8, 34], [0, 96, 11, 40]].forEach(b => bloque(...b))
-        ;[[248, 0, 8, 22], [244, 24, 12, 30], [249, 56, 7, 40], [245, 98, 11, 38]].forEach(b => bloque(...b))
-        let semillaRestos = 7
-        const azarRestos = () => (semillaRestos = (semillaRestos * 1103515245 + 12345) % 2147483648) / 2147483648
-        for (let i = 0; i < 18; i++) {
-            const x = 40 + Math.floor(azarRestos() * 170), y = 8 + Math.floor(azarRestos() * 110), w = 1 + Math.floor(azarRestos() * 3)
-            c.fillStyle = azarRestos() < 0.5 ? "rgb(46, 30, 46)" : "rgb(64, 42, 60)"
-            c.fillRect(x, y, w, 1 + Math.floor(azarRestos() * 2))
-        }
+        // Estrechas (como mucho 7 px = 28 px de juego) para no pisar a la tripulación ni a los enemigos
+        ;[[0, 0, 6, 30], [0, 32, 7, 26], [0, 60, 5, 34], [0, 96, 7, 40]].forEach(b => bloque(...b))
+        ;[[250, 0, 6, 22], [249, 24, 7, 30], [251, 56, 5, 40], [249, 98, 7, 38]].forEach(b => bloque(...b))
     }
     return lienzo
 }

@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.9.0"
+const VERSION = "0.10.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -131,7 +131,9 @@ const COLORES_FONDO = {   // [arriba, abajo] del degradado placeholder
     fondoVictoria:    ["rgb(6, 36, 30)",  "rgb(0, 0, 0)"],
     fondoDerrota:     ["rgb(56, 6, 6)",   "rgb(0, 0, 0)"]
 }
-const ESCALA_ENEMIGO = { "Bisotuf": 1.25 }
+// Con los sprites de 48 solo se ven nítidos a 48 o 96 px: Bisotuf ya no se agranda (a 120 saldría a 96
+// igual y quitaría sitio a la formación)
+const ESCALA_ENEMIGO = {}
 
 // Estrellas fijas para los fondos de espacio (generadas una vez, sin depender de Math.random)
 const estrellas = []
@@ -415,7 +417,10 @@ const EVENTOS = [
             { texto: L("Forzarla", "Force it open"), detalle: L("Dos objetos, pero un 40% de que salte la alarma", "Two items, but a 40% chance of setting off the alarm"),
               efecto: () => {
                   const lineas = [darObjeto(objetoAlAzar()), darObjeto(objetoAlAzar())]
-                  if (Math.random() < 0.4) return { lineas: [...lineas, L("¡Salta la alarma! Llega una patrulla.", "The alarm goes off! A patrol is coming.")], combate: true }
+                  if (Math.random() < 0.4) {
+                      preparativos.cantidadEnemigos = tamañoGrupoAlAzar(2)
+                      return { lineas: [...lineas, L("¡Salta la alarma! Llega una patrulla.", "The alarm goes off! A patrol is coming.")], combate: true }
+                  }
                   return { lineas }
               } },
             { texto: L("Abrirla con cuidado", "Open it carefully"), detalle: L("Un objeto, sin riesgo", "One item, no risk"),
@@ -543,6 +548,7 @@ const EVENTOS = [
             { texto: L("Plantar cara", "Stand your ground"), detalle: L("Combate ahora, con un 50% más de experiencia", "Fight now, with 50% more experience"),
               efecto: () => {
                   preparativos.xpExtra = 1.5
+                  preparativos.cantidadEnemigos = tamañoGrupoAlAzar(2)
                   return { lineas: [L("Os preparáis para luchar.", "You get ready to fight.")], combate: true }
               } },
             { texto: L("Huir", "Flee"), detalle: L("Escapáis, pero todos pierden un 10% de su vida máxima", "You escape, but everyone loses 10% of their max HP"),
@@ -852,6 +858,7 @@ const EVENTOS = [
               efecto: () => {
                   if (Math.random() < 0.6) return { lineas: [L("Un técnico atrapado os agradece el rescate.", "A trapped technician thanks you for the rescue."), darObjeto("reanimador")] }
                   preparativos.xpExtra = 1.5
+                  preparativos.cantidadEnemigos = tamañoGrupoAlAzar(2)
                   return { lineas: [L("¡Era una trampa! Os rodea una patrulla.", "It was a trap! A patrol surrounds you.")], combate: true }
               } },
             { texto: L("Ignorarla", "Ignore it"), detalle: L("Seguís adelante", "You move on"),
@@ -1641,9 +1648,10 @@ function elegirPorPeso(pool, peso = en => en.peso) {
 }
 
 // De 1 a 5 enemigos según el sector (ver PESOS_GRUPO)
-function tamañoGrupoAlAzar() {
+// minimo: los eventos que hablan de "una patrulla" piden al menos 2 (nunca un enemigo suelto)
+function tamañoGrupoAlAzar(minimo = 1) {
     const sectores = Math.min(sectorActual - 1, SECTORES_CRECE_GRUPO)
-    const pesos = PESOS_GRUPO.map((peso, i) => peso + CRECE_GRUPO[i] * sectores)
+    const pesos = PESOS_GRUPO.map((peso, i) => i + 1 < minimo ? 0 : peso + CRECE_GRUPO[i] * sectores)
     // En el primer sector, como mucho 3 (salvo eventos): los de 4 eran el 5% de los combates del sector
     // 1 pero la mitad de las derrotas
     if (sectorActual === 1) { pesos[3] = 0; pesos[4] = 0 }
@@ -1837,16 +1845,20 @@ function statsParaNivel(personaje, nivel) {
     return stats
 }
 
-// Reparte la XP a partes iguales entre los que siguen en pie y sube niveles (sin tope).
+// Reparte la XP a partes iguales entre los que siguen en pie y sube niveles (sin tope). Lo que no da
+// para repartir a partes iguales (41 entre 4 → 10 y sobra 1) se lo llevan los primeros, de 1 en 1:
+// así no se pierde nada y el total coincide con el de la pantalla de victoria.
 // Al subir solo se cura el HP máximo ganado. Devuelve el resumen para la pantalla de victoria.
 function repartirXP(total) {
     const vivos = equipoJugador.filter(p => p.stats.HP > 0)
     const cada = vivos.length > 0 ? Math.floor(total / vivos.length) : 0
+    let sobrante = vivos.length > 0 ? total - cada * vivos.length : 0
     return equipoJugador.map(p => {
         const r = { nombre: p.nombre, vivo: p.stats.HP > 0, xpGanada: 0, nivelAntes: p.nivel, mejoras: {}, nuevasHabilidades: [] }
         if (r.vivo) {
-            r.xpGanada = cada
-            p.xp += cada
+            r.xpGanada = cada + (sobrante > 0 ? 1 : 0)
+            if (sobrante > 0) sobrante--
+            p.xp += r.xpGanada
             const antes = { ...p.stats }
             while (p.xp >= xpParaSubir(p.nivel)) {
                 p.xp -= xpParaSubir(p.nivel)
@@ -2879,51 +2891,84 @@ function dibujarEvento() {
     zonasEvento = []
     ctx.fillStyle = "rgba(0, 0, 0, 0.55)"
     ctx.fillRect(0, 0, ANCHO_JUEGO, ALTO_JUEGO)
-    const x = 162, y = 70, ancho = 700, alto = 570
-    ctx.fillStyle = "rgb(24, 28, 46)"
-    ctx.fillRect(x, y, ancho, alto)
-    ctx.strokeStyle = "rgb(90, 140, 255)"
-    ctx.lineWidth = 2
-    ctx.strokeRect(x, y, ancho, alto)
-    ctx.lineWidth = 1
-
     const ev = eventoEnCurso.evento
-    ctx.textAlign = "center"
-    ctx.fillStyle = "rgb(120, 180, 255)"
-    ctx.font = "bold 26px sans-serif"
-    ctx.fillText(tr(ev.titulo), x + ancho / 2, y + 45)
-    ctx.textAlign = "left"
-    ctx.fillStyle = "rgb(210, 210, 220)"
+    const ancho = 700, anchoTexto = ancho - 60
+
+    // Primero se mide el contenido para que el panel tenga la altura justa y quede centrado
     ctx.font = "15px sans-serif"
-    dibujarTextoEnvuelto(textoEvento(), x + 30, y + 82, ancho - 60, 21, 3)
+    const lineasTexto = Math.min(3, partirEnLineas(textoEvento(), anchoTexto).length)
+    const inicio = 92 + (lineasTexto - 1) * 21 + 32   // donde empiezan las opciones o el resultado
+    let altoContenido
+    if (!eventoEnCurso.resultado) {
+        let alturaMensaje = 0
+        if (eventoEnCurso.mensaje) {
+            eventoEnCurso.mensaje.forEach(linea => { alturaMensaje += 21 * Math.min(2, partirEnLineas(linea, anchoTexto).length) })
+            alturaMensaje += 8
+        }
+        altoContenido = inicio + alturaMensaje + eventoEnCurso.opciones.length * 62 - 8
+    } else {
+        ctx.font = "16px sans-serif"
+        let alturaLineas = 0
+        eventoEnCurso.resultado.lineas.forEach(linea => { alturaLineas += 24 * Math.min(3, partirEnLineas(linea, anchoTexto).length) + 4 })
+        altoContenido = inicio + 10 + alturaLineas - 18
+    }
+    const alto = Math.max(260, altoContenido + 52)
+    const x = (ANCHO_JUEGO - ancho) / 2, y = Math.round((ALTO_JUEGO - alto) / 2)
+
+    // Mismo estilo que el panel del descanso: fondo morado, doble borde y cabecera con la casilla
+    ctx.fillStyle = "rgba(22, 15, 28, 0.96)"
+    ctx.fillRect(x, y, ancho, alto)
+    ctx.strokeStyle = "rgb(140, 98, 124)"
+    ctx.lineWidth = 2
+    ctx.strokeRect(x + 1, y + 1, ancho - 2, alto - 2)
+    ctx.strokeStyle = "rgb(58, 38, 58)"
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + 6.5, y + 6.5, ancho - 13, alto - 13)
+
+    casillaEscalada(4, x + 22, y + 20, 1.25, modoColor)
+    const colorEvento = MODOS_COLOR[modoColor].casillas[4].map(v => Math.round(v + (255 - v) * 0.45))
+    ctx.textAlign = "left"
+    ctx.fillStyle = textoRGB(colorEvento)
+    ctx.font = "16px 'Press Start 2P'"
+    ctx.fillText(tr(ev.titulo), x + 76, y + 46)
+    ctx.fillStyle = "rgb(58, 38, 58)"
+    ctx.fillRect(x + 20, y + 66, ancho - 40, 1)
+    ctx.fillStyle = "rgb(210, 200, 225)"
+    ctx.font = "15px sans-serif"
+    dibujarTextoEnvuelto(textoEvento(), x + 30, y + 92, anchoTexto, 21, 3)
 
     let ayuda
     if (!eventoEnCurso.resultado) {
         // Lo que acaba de pasar, si el evento sigue abierto (Mercader, apuestas)
-        let yOpciones = y + 150
+        let yOpciones = y + inicio
         if (eventoEnCurso.mensaje) {
-            ctx.fillStyle = "rgb(120, 220, 140)"
+            ctx.fillStyle = "rgb(150, 235, 160)"
             ctx.font = "15px sans-serif"
             eventoEnCurso.mensaje.forEach(linea => {
-                yOpciones += 21 * Math.min(2, dibujarTextoEnvuelto(linea, x + 30, yOpciones, ancho - 60, 21, 2))
+                yOpciones += 21 * Math.min(2, dibujarTextoEnvuelto(linea, x + 30, yOpciones + 14, anchoTexto, 21, 2))
             })
             yOpciones += 8
         }
         eventoEnCurso.opciones.forEach((op, i) => {
-            const bx = x + 30, by = yOpciones + i * 62, bw = ancho - 60, bh = 54
+            const bx = x + 30, by = yOpciones + i * 62, bw = anchoTexto, bh = 54
             const elegida = i === eventoEnCurso.seleccion
-            ctx.fillStyle = elegida ? "rgba(60, 140, 255, 0.25)" : "rgba(255, 255, 255, 0.05)"
+            // Cada opción, una ficha como las del descanso; la elegida con borde dorado y marcador
+            ctx.fillStyle = elegida ? "rgba(250, 200, 80, 0.10)" : "rgba(40, 28, 48, 0.9)"
             ctx.fillRect(bx, by, bw, bh)
-            ctx.strokeStyle = elegida ? "yellow" : "rgba(255, 255, 255, 0.3)"
-            ctx.lineWidth = elegida ? 3 : 1
-            ctx.strokeRect(bx, by, bw, bh)
+            ctx.strokeStyle = elegida ? "rgb(250, 200, 80)" : "rgb(58, 38, 58)"
+            ctx.lineWidth = 2
+            ctx.strokeRect(bx + 1, by + 1, bw - 2, bh - 2)
             ctx.lineWidth = 1
-            ctx.fillStyle = elegida ? "yellow" : "white"
+            if (elegida) {
+                ctx.fillStyle = "rgb(250, 200, 80)"
+                ctx.beginPath(); ctx.moveTo(bx + 12, by + 17); ctx.lineTo(bx + 20, by + 23); ctx.lineTo(bx + 12, by + 29); ctx.closePath(); ctx.fill()
+            }
+            ctx.fillStyle = elegida ? "rgb(250, 214, 110)" : "white"
             ctx.font = "bold 17px sans-serif"
-            ctx.fillText(op.texto, bx + 16, by + 23)
-            ctx.fillStyle = "rgb(170, 170, 185)"
+            ctx.fillText(op.texto, bx + 28, by + 23)
+            ctx.fillStyle = "rgb(170, 160, 185)"
             ctx.font = "13px sans-serif"
-            ctx.fillText(op.detalle, bx + 16, by + 43)
+            ctx.fillText(op.detalle, bx + 28, by + 43)
             zonasEvento.push({ indice: i, x: bx, y: by, w: bw, h: bh })
         })
         ayuda = L("Elige con el ratón o con las flechas  ·  Clic o Enter para decidir  ·  H: ayuda", "Choose with the mouse or the arrow keys  ·  Click or Enter to decide  ·  H: help")
@@ -2931,17 +2976,17 @@ function dibujarEvento() {
         // Lo que ha pasado; cada línea larga se parte en varias
         ctx.fillStyle = "white"
         ctx.font = "16px sans-serif"
-        let yLinea = y + 170
+        let yLinea = y + inicio + 10
         eventoEnCurso.resultado.lineas.forEach(linea => {
-            yLinea += 24 * Math.min(3, dibujarTextoEnvuelto(linea, x + 30, yLinea, ancho - 60, 24, 3)) + 4
+            yLinea += 24 * Math.min(3, dibujarTextoEnvuelto(linea, x + 30, yLinea, anchoTexto, 24, 3)) + 4
         })
         ayuda = eventoEnCurso.resultado.combate
             ? L("¡A combatir!  ·  Pulsa una tecla o haz clic", "To battle!  ·  Press a key or click")
             : L("Pulsa una tecla o haz clic para continuar", "Press a key or click to continue")
     }
     ctx.textAlign = "center"
-    ctx.fillStyle = "rgb(150, 150, 165)"
-    ctx.font = "14px sans-serif"
+    ctx.fillStyle = "rgb(130, 120, 145)"
+    ctx.font = "13px sans-serif"
     ctx.fillText(ayuda, x + ancho / 2, y + alto - 18)
     ctx.textAlign = "left"
 }
@@ -3076,7 +3121,7 @@ function dibujarBarraMenu() {
         ctx.lineWidth = 1
         ctx.textAlign = "left"
         ctx.font = "15px sans-serif"
-        ctx.fillStyle = enfocado ? "yellow" : esDesplegable ? "white" : "rgb(120, 200, 255)"
+        ctx.fillStyle = enfocado ? "yellow" : "rgb(120, 200, 255)"   // el azul de los botones del menú (y la flecha igual)
         ctx.fillText(textos[clave], x + 12, y + 22)
         if (esDesplegable) {
             dibujarFlecha(x + ancho - 16, y + ALTO_BARRA / 2, desplegableAbierto === clave)
@@ -3968,7 +4013,7 @@ function dibujarEnemigosCombate() {
     const n = enemigosCombate.length
     const tamanos = enemigosCombate.map(en => 96 * (ESCALA_ENEMIGO[en.tipo] || 1))
     const formacion = n > 3
-    let factor, paso
+    let factor, paso, enRejilla = false
     if (formacion) {
         // Cada enemigo ocupa su sprite más ~70 px de texto; entre columnas van desfasados medio hueco
         const ALTO_TEXTO = 74
@@ -3976,6 +4021,13 @@ function dibujarEnemigosCombate() {
         const cabe = (Y_MAXIMA_ENEMIGOS - 20 - ALTO_TEXTO + 4 - (ALTO_TEXTO / 2) * (n - 1)) / ((n + 1) / 2)
         factor = Math.min(1, cabe / tamMax, (ANCHO_COLUMNA_FORMACION - 20) / tamMax)
         paso = (tamMax * factor + ALTO_TEXTO) / 2
+        // Si en zigzag no caben a su tamaño (grupos de 6), en rejilla de dos columnas sí: filas alineadas
+        const cabeRejilla = (Y_MAXIMA_ENEMIGOS - 20) / Math.ceil(n / 2) - ALTO_TEXTO
+        if (cabe < tamMax && cabeRejilla > cabe) {
+            enRejilla = true
+            factor = Math.min(1, cabeRejilla / tamMax, (ANCHO_COLUMNA_FORMACION - 20) / tamMax)
+            paso = tamMax * factor + ALTO_TEXTO
+        }
     } else {
         const sumaTamanos = tamanos.reduce((suma, t) => suma + t, 0)
         factor = Math.min(1, (520 + 12 - 62 * n) / sumaTamanos)
@@ -3986,11 +4038,18 @@ function dibujarEnemigosCombate() {
     enemigosCombate.forEach((en, i) => {
         const tam = Math.round(tamanos[i] * factor)
         const x = formacion ? COLUMNAS_FORMACION[i % 2] : 850 - tam / 2
-        const y = formacion ? 20 + i * paso : cursor
+        const y = formacion ? 20 + (enRejilla ? Math.floor(i / 2) : i) * paso : cursor
         const muerto = en.stats.HP <= 0
         const elegido = faseCombate === "objetivo" && i === objetivoSeleccionado
         ctx.globalAlpha = muerto ? 0.25 : 1
         dibujarSprite(en.tipo, x, y, tam, true, en.stats.HP / en.stats.HP_MAX)
+        // Kamikaze: los turnos que le quedan, en su pantalla (mismos colores que el texto de debajo)
+        if (en.rol === "estallar" && !muerto && !en.estallo && typeof dibujarContadorKamikaze === "function") {
+            const quedan = TURNOS_KAMIKAZE - (en.turnosCargando || 0)
+            const color = en.dron && mejorasPartida.dronesPirateados ? "rgb(110, 220, 200)" : quedan <= 1 ? "rgb(255, 80, 60)" : "orange"
+            // En el último turno, el número parpadea
+            if (quedan > 1 || Math.floor(performance.now() / 350) % 2 === 0) dibujarContadorKamikaze(x, y, tam, quedan, color)
+        }
         ctx.globalAlpha = 1
         dibujarBarraHP(x, y + tam + 6, tam, en.stats)
         ctx.fillStyle = muerto ? "gray" : elegido ? "orange" : "white"
@@ -4026,18 +4085,19 @@ function dibujarCombate() {
     dibujarFondo("fondoCombate")
     ctx.font = "14px sans-serif"
 
-    // Equipo: columna vertical a la izquierda
+    // Equipo: columna vertical a la izquierda. Sprites a 96 px (32 x 3, píxeles exactos); el nombre y la
+    // vida, a la derecha y centrados con el sprite, sin pisar el registro del combate (empieza en x = 212)
     equipoJugador.forEach((p, i) => {
-        const tam = 64
-        const x = 60
-        const y = 45 + i * 120
+        const tam = 96
+        const x = 30
+        const y = 22 + i * 130
         ctx.globalAlpha = p.stats.HP <= 0 ? 0.35 : 1
         dibujarSprite(p.id, x, y, tam, false, p.stats.HP / p.stats.HP_MAX)
         ctx.globalAlpha = 1
-        dibujarBarraHP(x, y + tam + 6, tam, p.stats)
+        dibujarBarraHP(x + 8, y + tam + 4, tam - 16, p.stats)
         ctx.fillStyle = colorNombre(p)
-        ctx.fillText(p.nombre, x + tam + 12, y + 28)
-        ctx.fillText(p.stats.HP + "/" + p.stats.HP_MAX + " HP", x + tam + 12, y + 48)
+        ctx.fillText(p.nombre, x + tam + 10, y + 44)
+        ctx.fillText(p.stats.HP + "/" + p.stats.HP_MAX + " HP", x + tam + 10, y + 64)
         if (equipoJugador[personajeActual] === p) dibujarMarcador(x - 4, y + tam / 2, "derecha")
     })
 
@@ -4183,50 +4243,118 @@ function dibujarFilaStats(x, y, stats, mejoras) {
     ctx.font = fuenteAnterior
 }
 
+// Marco de retrato al estilo de la nave: fondo oscuro, borde granate, filo interior y remaches dorados
+function dibujarMarco(x, y, ancho, alto, borde = "rgb(140, 98, 124)") {
+    ctx.fillStyle = "rgba(22, 15, 28, 0.92)"
+    ctx.fillRect(x, y, ancho, alto)
+    ctx.strokeStyle = borde
+    ctx.lineWidth = 2
+    ctx.strokeRect(x + 1, y + 1, ancho - 2, alto - 2)
+    ctx.strokeStyle = "rgb(58, 38, 58)"
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + 4.5, y + 4.5, ancho - 9, alto - 9)
+    ctx.fillStyle = "rgb(250, 200, 80)"
+    for (const [rx, ry] of [[x + 3, y + 3], [x + ancho - 5, y + 3], [x + 3, y + alto - 5], [x + ancho - 5, y + alto - 5]]) ctx.fillRect(rx, ry, 2, 2)
+}
+// Título en fuente pixel con sombra dura
+function dibujarTituloPixel(texto, x, y, tam, color) {
+    ctx.textAlign = "center"
+    ctx.font = tam + "px 'Press Start 2P'"
+    ctx.fillStyle = "rgb(18, 10, 22)"
+    ctx.fillText(texto, x + 4, y + 4)
+    ctx.fillStyle = color
+    ctx.fillText(texto, x, y)
+    ctx.textAlign = "left"
+}
+
+// Pantalla de victoria: arriba, los enemigos de este combate enmarcados como trofeos (derrotados,
+// estallados o huidos); debajo, una ficha por miembro del equipo con su experiencia y lo que ha mejorado
 function dibujarVictoria() {
     dibujarFondo("fondoVictoria")
-    ctx.fillStyle = "white"
-    ctx.font = "32px sans-serif"
-    ctx.fillText(L("Victoria", "Victory"), 450, 70)
-    ctx.font = "16px sans-serif"
-    ctx.fillText(L("Experiencia obtenida: ", "Experience gained: ") + xpTotalVictoria + " XP", 380, 108)
+    dibujarTituloPixel(L("¡Victoria!", "Victory!"), 512, 52, 28, "rgb(150, 235, 160)")
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(250, 214, 110)"
+    ctx.font = "bold 16px sans-serif"
+    ctx.fillText("+" + xpTotalVictoria + L(" XP para el equipo", " XP for the team"), 512, 80)
 
+    // Trofeos: cada enemigo del combate en su marco, a 96 px (el sprite de 48 a x2)
+    const lado = 106, hueco = 10, n = enemigosCombate.length, ty = 90
+    let mx = 512 - (n * lado + (n - 1) * hueco) / 2
+    enemigosCombate.forEach(en => {
+        const huyo = !!en.huyo, estallo = !!en.estallo
+        dibujarMarco(mx, ty, lado, lado, huyo ? "rgb(90, 84, 104)" : "rgb(140, 98, 124)")
+        ctx.globalAlpha = huyo ? 0.45 : 1
+        dibujarSprite(en.tipo, mx + 5, ty + 5, 96, true, huyo ? 1 : 0)
+        ctx.globalAlpha = 1
+        if (!huyo) {
+            // Aspa roja de "derrotado" en la esquina
+            ctx.fillStyle = "rgb(222, 52, 60)"
+            for (let k = 0; k < 7; k++) { ctx.fillRect(mx + lado - 18 + k * 2, ty + 6 + k * 2, 3, 3); ctx.fillRect(mx + lado - 6 - k * 2, ty + 6 + k * 2, 3, 3) }
+        }
+        if (huyo || estallo) {
+            ctx.fillStyle = "rgba(14, 9, 20, 0.85)"
+            ctx.fillRect(mx + 4, ty + lado - 20, lado - 8, 16)
+            ctx.fillStyle = huyo ? "rgb(170, 165, 185)" : "rgb(255, 160, 80)"
+            ctx.font = "11px sans-serif"
+            ctx.textAlign = "center"
+            ctx.fillText(huyo ? L("Huyó", "Fled") : L("Estalló", "Exploded"), mx + lado / 2, ty + lado - 8)
+            ctx.textAlign = "left"
+        }
+        mx += lado + hueco
+    })
+
+    // Fichas del equipo
     resumenVictoria.forEach((r, i) => {
-        const y = 140 + i * 105
-        ctx.font = "16px sans-serif"
-        ctx.fillStyle = r.vivo ? "white" : "gray"
-        ctx.fillText(r.nombre, 120, y + 18)
+        const p = equipoJugador[i]
+        const x = 112, y = 208 + i * 92, ancho = 800, alto = 84
+        const sube = r.vivo && r.nivelDespues > r.nivelAntes
+        dibujarMarco(x, y, ancho, alto, sube ? "rgb(250, 200, 80)" : "rgb(140, 98, 124)")
+        ctx.globalAlpha = r.vivo ? 1 : 0.4
+        dibujarSprite(p.id, x + 12, y + 10, 64, false, p.stats.HP / p.stats.HP_MAX)
+        ctx.globalAlpha = 1
+        ctx.textAlign = "left"
+        ctx.font = "bold 17px sans-serif"
+        ctx.fillStyle = r.vivo ? "white" : "rgb(140, 135, 150)"
+        ctx.fillText(r.nombre, x + 92, y + 28)
+        const anchoNombre = ctx.measureText(r.nombre).width
+        ctx.font = "15px sans-serif"
         if (!r.vivo) {
-            ctx.fillText(L("Fuera de combate: no gana experiencia", "Knocked out: gains no experience"), 260, y + 18)
-            dibujarFilaStats(260, y + 46, r.statsFinal, {})
+            ctx.fillStyle = "rgb(140, 135, 150)"
+            ctx.fillText(L("Fuera de combate: no gana experiencia", "Knocked out: gains no experience"), x + 92, y + 52)
+            dibujarFilaStats(x + 92, y + 74, r.statsFinal, {})
             return
         }
-        const sube = r.nivelDespues > r.nivelAntes
-        ctx.fillStyle = sube ? "yellow" : "white"
         const nv = L("Nv ", "Lv ")
-        ctx.fillText(sube ? nv + r.nivelAntes + " -> " + r.nivelDespues + L("  ¡SUBE DE NIVEL!", "  LEVEL UP!") : nv + r.nivelDespues, 260, y + 18)
-        ctx.fillStyle = "white"
-        ctx.fillText("+" + r.xpGanada + " XP", 600, y + 18)
-
+        ctx.fillStyle = sube ? "rgb(250, 214, 110)" : "rgb(200, 195, 215)"
+        ctx.fillText(sube ? nv + r.nivelAntes + " → " + r.nivelDespues : nv + r.nivelDespues, x + 104 + anchoNombre, y + 28)
+        if (sube) {
+            // Insignia de subida de nivel
+            const texto = L("¡SUBE DE NIVEL!", "LEVEL UP!")
+            ctx.font = "10px 'Press Start 2P'"
+            const w = ctx.measureText(texto).width + 16
+            ctx.fillStyle = "rgb(250, 200, 80)"; ctx.fillRect(x + ancho - w - 14, y + 12, w, 22)
+            ctx.fillStyle = "rgb(40, 24, 20)"; ctx.fillText(texto, x + ancho - w - 6, y + 28)
+        }
         // Barra de experiencia hacia el siguiente nivel
-        const proporcion = Math.min(1, r.xp / r.xpSiguiente)
-        ctx.fillStyle = "rgb(40, 40, 40)"
-        ctx.fillRect(260, y + 30, 400, 10)
-        ctx.fillStyle = "rgb(60, 140, 255)"
-        ctx.fillRect(260, y + 30, 400 * proporcion, 10)
-        ctx.strokeStyle = "black"
-        ctx.lineWidth = 1
-        ctx.strokeRect(260, y + 30, 400, 10)
-        ctx.fillStyle = "white"
-        ctx.font = "16px sans-serif"
-        ctx.fillText(r.xp + "/" + r.xpSiguiente + " XP", 680, y + 40)
-
-        dibujarFilaStats(260, y + 66, r.statsFinal, r.mejoras)
-
+        const bx = x + 92, by = y + 38, bw = 330
+        ctx.fillStyle = "rgb(40, 30, 46)"; ctx.fillRect(bx, by, bw, 9)
+        ctx.fillStyle = "rgb(60, 140, 255)"; ctx.fillRect(bx, by, bw * Math.min(1, r.xp / r.xpSiguiente), 9)
+        ctx.strokeStyle = "rgb(18, 12, 22)"; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 8)
+        ctx.font = "13px sans-serif"
+        ctx.fillStyle = "rgb(170, 160, 185)"
+        ctx.fillText(r.xp + "/" + r.xpSiguiente + " XP", bx + bw + 10, by + 9)
+        ctx.fillStyle = "rgb(150, 235, 160)"
+        ctx.font = "bold 14px sans-serif"
+        ctx.fillText("+" + r.xpGanada + " XP", bx + bw + 120, by + 9)
+        dibujarFilaStats(x + 92, y + 74, r.statsFinal, r.mejoras)
         if (r.nuevasHabilidades.length > 0) {
-            ctx.fillStyle = "rgb(120, 200, 255)"
-            ctx.font = "16px sans-serif"
-            ctx.fillText(L("¡Nueva habilidad: ", "New ability: ") + r.nuevasHabilidades.join(", ") + "!", 260, y + 86)
+            // Segunda insignia, debajo de la de subir de nivel, para que no pise la fila de stats
+            // La fuente pixel no tiene mayúsculas con tilde: se quitan
+            const texto = (L("NUEVA: ", "NEW: ") + r.nuevasHabilidades.join(", ")).toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+            ctx.font = "10px 'Press Start 2P'"
+            const w = ctx.measureText(texto).width + 16
+            ctx.fillStyle = "rgb(120, 210, 255)"; ctx.fillRect(x + ancho - w - 14, y + 40, w, 22)
+            ctx.fillStyle = "rgb(16, 30, 44)"; ctx.fillText(texto, x + ancho - w - 6, y + 56)
         }
     })
 
@@ -4234,18 +4362,16 @@ function dibujarVictoria() {
     if (curaRobotVictoria > 0) {
         ctx.fillStyle = "rgb(150, 190, 200)"
         ctx.font = "15px sans-serif"
-        ctx.fillText(L("El robot de servicio os cura un " + curaRobotVictoria + "% de vida.", "The service robot heals you " + curaRobotVictoria + "% HP."), 512, 615)
+        ctx.fillText(L("El robot de servicio os cura un " + curaRobotVictoria + "% de vida.", "The service robot heals you " + curaRobotVictoria + "% HP."), 512, 588)
     }
     if (eventoTrasVictoria) {
         ctx.fillStyle = "rgb(120, 180, 255)"
         ctx.font = "bold 16px sans-serif"
-        ctx.fillText(L("Entre los restos del combate, algo os llama la atención...", "Among the wreckage of the battle, something catches your eye..."), 512, 640)
+        ctx.fillText(L("Entre los restos del combate, algo os llama la atención...", "Among the wreckage of the battle, something catches your eye..."), 512, 616)
     }
-    ctx.textAlign = "left"
-    ctx.fillStyle = "white"
-    ctx.font = "16px sans-serif"
-    ctx.textAlign = "center"
-    ctx.fillText(L("Pulsa algo para continuar", "Press any key to continue"), 512, 675)
+    ctx.fillStyle = "rgb(170, 160, 185)"
+    ctx.font = "14px sans-serif"
+    ctx.fillText(L("Pulsa cualquier tecla para continuar", "Press any key to continue"), 512, 668)
     ctx.textAlign = "left"
 }
 
@@ -4262,11 +4388,11 @@ const DESCRIPCIONES_PERSONAJES = {
 }
 
 // Reparte el texto en líneas que quepan en anchoMax (según measureText con la fuente ya puesta)
-function dibujarTextoEnvuelto(texto, x, y, anchoMax, lineHeight, maxLineas = 3) {
-    const palabras = texto.split(" ")
+// Parte un texto en líneas que caben en anchoMax con la fuente actual (sin dibujar nada)
+function partirEnLineas(texto, anchoMax) {
     const lineas = []
     let actual = ""
-    palabras.forEach(palabra => {
+    texto.split(" ").forEach(palabra => {
         const prueba = actual ? actual + " " + palabra : palabra
         if (ctx.measureText(prueba).width > anchoMax && actual) {
             lineas.push(actual)
@@ -4276,6 +4402,10 @@ function dibujarTextoEnvuelto(texto, x, y, anchoMax, lineHeight, maxLineas = 3) 
         }
     })
     if (actual) lineas.push(actual)
+    return lineas
+}
+function dibujarTextoEnvuelto(texto, x, y, anchoMax, lineHeight, maxLineas = 3) {
+    const lineas = partirEnLineas(texto, anchoMax)
     lineas.slice(0, maxLineas).forEach((linea, i) => ctx.fillText(linea, x, y + i * lineHeight))
     return lineas.length
 }
@@ -4337,7 +4467,7 @@ function dibujarEstadisticas() {
 
     const muertoSel = p.stats.HP <= 0
     ctx.globalAlpha = muertoSel ? 0.4 : 1
-    dibujarSprite(p.id, px + 20, 120, 90, false, p.stats.HP / p.stats.HP_MAX)
+    dibujarSprite(p.id, px + 17, 117, 96, false, p.stats.HP / p.stats.HP_MAX)
     ctx.globalAlpha = 1
 
     ctx.fillStyle = muertoSel ? "gray" : "white"
@@ -4507,51 +4637,60 @@ function formatearTiempo(ms) {
     return h > 0 ? h + ":" + dos(m) + ":" + dos(s) : dos(m) + ":" + dos(s)
 }
 
-function dibujarSpriteEnemigo(tipo, x, y) {
-    dibujarSprite(tipo, x, y, 28, true)
-}
-
-// n sprites solapados, cada uno asomando lo justo para poder contarlos
-function dibujarPilaSprites(tipo, n, x, y, anchoMax) {
-    const paso = n > 1 ? Math.min(14, (anchoMax - 28) / (n - 1)) : 0
-    for (let i = 0; i < n; i++) dibujarSpriteEnemigo(tipo, x + i * paso, y)
-}
-
+// Pantalla de derrota: la tripulación caída y una pared de trofeos con cada tipo de enemigo
+// derrotado en la partida, enmarcado, con cuántos han caído
 function dibujarDerrota() {
     dibujarFondo("fondoDerrota")
-    ctx.fillStyle = "red"
-    ctx.font = "32px sans-serif"
-    ctx.fillText(L("Derrota", "Defeat"), 450, 120)
-    ctx.fillStyle = "white"
-    ctx.font = "18px sans-serif"
-    ctx.fillText(L("Tiempo de partida: ", "Time played: ") + formatearTiempo(tiempoPartida) + "   ·   Sector " + sectorActual, 380, 180)
+    dibujarTituloPixel(L("Derrota", "Defeat"), 512, 64, 30, "rgb(240, 90, 90)")
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(220, 205, 215)"
+    ctx.font = "16px sans-serif"
+    ctx.fillText(L("La tripulación ha caído en el sector " + sectorActual, "The crew fell in sector " + sectorActual) +
+                 "   ·   " + L("Tiempo: ", "Time: ") + formatearTiempo(tiempoPartida), 512, 96)
 
-    // De más a menos derrotados (a igualdad, por orden alfabético)
+    // La tripulación, caída
+    equipoJugador.forEach((p, i) => {
+        const x = 512 - 2 * 84 + i * 84 + 4
+        dibujarMarco(x, 112, 76, 76, "rgb(110, 50, 60)")
+        ctx.globalAlpha = 0.55
+        dibujarSprite(p.id, x + 6, 118, 64, false, 0)
+        ctx.globalAlpha = 1
+    })
+
+    // Pared de trofeos: de más a menos derrotados (a igualdad, por orden alfabético)
     const tipos = Object.keys(enemigosDerrotados)
         .sort((a, b) => enemigosDerrotados[b] - enemigosDerrotados[a] || a.localeCompare(b))
     const total = tipos.reduce((suma, t) => suma + enemigosDerrotados[t], 0)
-    ctx.fillText(L("Enemigos derrotados: ", "Enemies defeated: ") + total, 380, 220)
-
-    ctx.font = "16px sans-serif"
+    ctx.fillStyle = "white"
+    ctx.font = "bold 17px sans-serif"
+    ctx.fillText(L("Enemigos derrotados: ", "Enemies defeated: ") + total, 512, 224)
     if (tipos.length === 0) {
-        ctx.fillStyle = "gray"
-        ctx.fillText(L("Ninguno", "None"), 380, 270)
+        ctx.fillStyle = "rgb(150, 140, 155)"
+        ctx.font = "15px sans-serif"
+        ctx.fillText(L("Ninguno", "None"), 512, 270)
     }
-    // Dos columnas (la primera se llena antes): con todos los tipos del juego caben de sobra
-    // por encima del "Pulsa Enter"
-    const porColumna = Math.ceil(tipos.length / 2)
-    const altoFila = Math.min(46, Math.floor(330 / Math.max(1, porColumna)))
+    // Hasta 6 por fila (los 11 tipos caben en dos filas)
+    const ancho = 120, alto = 152, hueco = 12, porFila = 6
     tipos.forEach((tipo, i) => {
-        const x = i < porColumna ? 110 : 540
-        const y = 245 + (i % porColumna) * altoFila
-        ctx.fillStyle = "white"
-        ctx.fillText(nombreDe(tipo) + ": " + enemigosDerrotados[tipo], x, y + 20)
-        dibujarPilaSprites(tipo, enemigosDerrotados[tipo], x + 210, y, 170)
+        const fila = Math.floor(i / porFila), enFila = Math.min(porFila, tipos.length - fila * porFila)
+        const x = 512 - (enFila * ancho + (enFila - 1) * hueco) / 2 + (i % porFila) * (ancho + hueco)
+        const y = 240 + fila * (alto + hueco)
+        dibujarMarco(x, y, ancho, alto)
+        dibujarSprite(tipo, x + (ancho - 96) / 2, y + 8, 96, true)
+        ctx.textAlign = "center"
+        ctx.fillStyle = "rgb(250, 214, 110)"
+        ctx.font = "14px 'Press Start 2P'"
+        ctx.fillText("×" + enemigosDerrotados[tipo], x + ancho / 2, y + 124)
+        ctx.fillStyle = "rgb(200, 195, 215)"
+        ctx.font = "12px sans-serif"
+        ctx.fillText(nombreDe(tipo), x + ancho / 2, y + 143)
     })
 
-    ctx.fillStyle = "white"
-    ctx.font = "16px sans-serif"
-    ctx.fillText(L("Pulsa Enter para volver a intentarlo", "Press Enter to try again"), 380, 620)
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(220, 205, 215)"
+    ctx.font = "15px sans-serif"
+    ctx.fillText(L("Pulsa Enter para volver a intentarlo", "Press Enter to try again"), 512, 680)
+    ctx.textAlign = "left"
 }
 function bordes() {
     if (lider.x < 0) {
