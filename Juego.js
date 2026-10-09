@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.10.0"
+const VERSION = "0.11.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -44,8 +44,10 @@ const ctx = canvas.getContext("2d")
 // de estirado y borroso. Además mantiene la proporción, con bandas a los lados o arriba y abajo, en vez
 // de deformarse (por ejemplo, en pantalla completa en un monitor 16:9).
 const ANCHO_JUEGO = 1024, ALTO_JUEGO = 704
+// En el móvil se reserva un margen a cada lado para los controles táctiles (ver Movil.js)
+let margenLateral = 0
 function ajustarTamaño() {
-    const ventanaAncho = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : ANCHO_JUEGO
+    const ventanaAncho = (typeof window !== "undefined" && window.innerWidth ? window.innerWidth : ANCHO_JUEGO) - 2 * margenLateral
     const ventanaAlto = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : ALTO_JUEGO
     const escala = Math.min(ventanaAncho / ANCHO_JUEGO, ventanaAlto / ALTO_JUEGO)
     const cssAncho = Math.floor(ANCHO_JUEGO * escala), cssAlto = Math.floor(ALTO_JUEGO * escala)
@@ -394,7 +396,7 @@ const HAMBRE = 0.85      // enemigos hambrientos: ATK y VEL al 85%
 const COMBATES_HAMBRE = 3
 const DAÑO_GRAVEDAD = [0.15, 0.20, 0.25]   // vida que cuesta la Sala de gravedad, por dificultad
 const NIVELES_POR_RANGO = 5                // cada rango de habilidad (Biblioteca) equivale a 5 niveles
-const CURA_ROBOT = 0.10                    // lo que cura cada robot de servicio al acabar un combate
+const CURA_ROBOT = 0.05                    // lo que cura cada robot de servicio al acabar un combate (se acumula por robot)
 const CURA_DRON_ALIADO = 0.15              // lo que cura el dron reprogramado al final de cada ronda
 const COSTE_IMPLANTE = 10                  // vida máxima (y actual) que cobra el Mercader de implantes
 
@@ -1379,7 +1381,7 @@ document.addEventListener("keydown", function(e) {
         return
     }
     if (estado === "derrota") {
-        if (e.key === "Enter") location.reload()
+        if (confirmar) location.reload()
         return
     }
     if (estado === "exploracion") {
@@ -4169,6 +4171,12 @@ function dibujarCombate() {
     ctx.fillText(L("H: ayuda del combate", "H: combat help"), 472, 24)
     ctx.textAlign = "left"
     ctx.font = "14px sans-serif"
+    // Panel del registro, siempre pintado (aunque aún esté vacío): arriba, las dos líneas de ayuda de la
+    // acción que se elige; debajo, separado por una línea, el registro de la ronda
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
+    ctx.fillRect(212, 314, 520, 240)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.12)"
+    ctx.fillRect(220, 364, 504, 1)
     if (faseCombate === "objetivo") {
         ctx.fillStyle = "orange"
         ctx.fillText(L("Elige objetivo: W/S o flechas, Enter confirma, Esc vuelve", "Choose a target: W/S or arrows, Enter confirms, Esc goes back"), 222, 352)
@@ -4198,10 +4206,7 @@ function dibujarCombate() {
         ctx.fillStyle = "rgb(120, 220, 140)"
         ctx.fillText(tr(OBJETOS[objetos[objetoSeleccionado].id].descripcion) + L(" · Esc vuelve", " · Esc goes back"), 222, 352)
     }
-    if (logCombate.length > 0) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
-        ctx.fillRect(212, 368, 520, 186)
-    }
+
     ctx.fillStyle = "white"
     // El log cabe en 9 líneas: si hay más (golpes encadenados), se ven las últimas
     logCombate.slice(-9).forEach((msg, i) => {
@@ -4534,8 +4539,9 @@ function dibujarEstadisticas() {
 }
 
 
-// Columna bajo la lista de personajes: objetos, lo preparado para el próximo combate y lo que
-// dura toda la partida (cada línea larga se parte; si no cabe todo, se corta antes de yMaximo)
+// Columna bajo la lista de personajes: objetos, los efectos temporales (duran unos combates, con
+// cuántos les quedan) y los permanentes (toda la partida). Cada línea larga se parte; si no cabe
+// todo, se corta antes de yMaximo
 function dibujarResumenPartida(x, y, ancho, yMaximo) {
     const preparado = []
     if (preparativos.orbesExtra > 0) preparado.push("+" + preparativos.orbesExtra + L(" orbe(s)", " orb(s)"))
@@ -4559,7 +4565,6 @@ function dibujarResumenPartida(x, y, ancho, yMaximo) {
     if (mejorasPartida.ataqueMaquinas < 1) partida.push(L("máquinas −", "machines −") + pct(mejorasPartida.ataqueMaquinas) + " ATK")
     if (mejorasPartida.dronesPirateados) partida.push(L("drones pirateados", "hacked drones"))
     if (mejorasPartida.robots > 0) partida.push(L("robot: +", "robot: +") + Math.round(CURA_ROBOT * mejorasPartida.robots * 100) + L("% vida tras combate", "% HP after combat"))
-    if (mejorasPartida.combatesHambrientos > 0) partida.push(L("enemigos hambrientos (", "hungry enemies (") + mejorasPartida.combatesHambrientos + ")")
     const extra = mejorasPartida.casillasExtra
     if (extra[2] + extra[3] + extra[4] > 0) partida.push(L("por sector: +" + extra[2] + " combate, +" + extra[3] + " descanso, +" + extra[4] + " evento",
                                                          "per sector: +" + extra[2] + " combat, +" + extra[3] + " rest, +" + extra[4] + " event"))
@@ -4578,8 +4583,12 @@ function dibujarResumenPartida(x, y, ancho, yMaximo) {
     }
     ctx.font = "12px sans-serif"
     linea(L("Objetos: ", "Items: ") + (totalObjetos() > 0 ? resumenInventario() : L("ninguno", "none")), "rgb(200, 200, 210)")
-    if (preparado.length > 0) linea(L("Próximo combate: ", "Next combat: ") + preparado.join(", "), "rgb(240, 200, 120)")
-    if (partida.length > 0) linea(L("Toda la partida: ", "Whole run: ") + partida.join(" · "), "rgb(120, 220, 140)", 10)
+    // Temporales: lo preparado vale para el próximo combate; el hambre, para los que le queden
+    const duracion = n => n === 1 ? L("próximo combate", "next combat") : n + L(" combates", " combats")
+    const temporales = preparado.map(t => t + " (" + duracion(1) + ")")
+    if (mejorasPartida.combatesHambrientos > 0) temporales.push(L("enemigos hambrientos", "hungry enemies") + " (" + duracion(mejorasPartida.combatesHambrientos) + ")")
+    if (temporales.length > 0) linea(L("Temporales: ", "Temporary: ") + temporales.join(" · "), "rgb(240, 200, 120)", 4)
+    if (partida.length > 0) linea(L("Permanentes: ", "Permanent: ") + partida.join(" · "), "rgb(120, 220, 140)", 10)
 }
 
 // Botones de los objetos que tenéis, para usarlos sobre el personaje elegido (p). En gris los que ahora

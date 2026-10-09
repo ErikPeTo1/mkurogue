@@ -126,3 +126,104 @@ canvas {
     opacity: 0.5;
     cursor: default;
 }
+/* --- Móvil: controles táctiles (ver Movil.js) ------------------------------------------------ */
+body.movil {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.controles {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+.cruceta, .botones {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: auto;
+}
+/* Cruceta: un círculo con las cuatro flechas; la que se pulsa se ilumina */
+.cruceta {
+    top: 66%;   /* más abajo que el centro: donde descansa el pulgar */
+    left: calc(var(--margen-controles, 140px) / 2 - min(64px, calc(var(--margen-controles, 140px) * 0.45)));
+    width: min(128px, calc(var(--margen-controles, 140px) * 0.9));
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: rgba(30, 20, 36, 0.85);
+    border: 2px solid rgb(140, 98, 124);
+    touch-action: none;
+}
+.flecha {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 11px solid transparent;
+}
+.flecha.arriba { left: 50%; top: 10%; transform: translateX(-50%); border-bottom: 16px solid rgb(200, 180, 210); border-top: 0; }
+.flecha.abajo { left: 50%; bottom: 10%; transform: translateX(-50%); border-top: 16px solid rgb(200, 180, 210); border-bottom: 0; }
+.flecha.izquierda { top: 50%; left: 10%; transform: translateY(-50%); border-right: 16px solid rgb(200, 180, 210); border-left: 0; }
+.flecha.derecha { top: 50%; right: 10%; transform: translateY(-50%); border-left: 16px solid rgb(200, 180, 210); border-right: 0; }
+.cruceta[data-dir="ArrowUp"] .arriba { border-bottom-color: rgb(250, 200, 80); }
+.cruceta[data-dir="ArrowDown"] .abajo { border-top-color: rgb(250, 200, 80); }
+.cruceta[data-dir="ArrowLeft"] .izquierda { border-right-color: rgb(250, 200, 80); }
+.cruceta[data-dir="ArrowRight"] .derecha { border-left-color: rgb(250, 200, 80); }
+/* Botones: ✓ grande abajo, ✕ a su lado, y ☰ / ? pequeños arriba */
+.botones {
+    right: calc(var(--margen-controles, 140px) / 2 - min(64px, calc(var(--margen-controles, 140px) * 0.45)));
+    width: min(128px, calc(var(--margen-controles, 140px) * 0.9));
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    justify-items: center;
+    align-items: center;
+}
+.boton {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 2px solid rgb(140, 98, 124);
+    background: rgba(30, 20, 36, 0.85);
+    color: rgb(220, 205, 230);
+    font: 22px sans-serif;
+    padding: 0;
+    touch-action: none;
+}
+.boton-pequeño { width: 80%; font-size: 18px; }
+.boton-a { grid-column: 1 / 3; width: 70%; border-color: rgb(250, 200, 80); color: rgb(250, 214, 110); font-size: 30px; }
+.boton-b { grid-column: 1 / 3; width: 50%; order: -1; }
+/* Pantalla completa: arriba a la izquierda, fuera del camino de los pulgares */
+.boton-pantalla {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 44px;
+    font-size: 20px;
+    pointer-events: auto;
+}
+.boton.pulsado { background: rgba(250, 200, 80, 0.3); }
+.boton.apagado { opacity: 0.35; }
+/* En vertical: aviso para girar el móvil (el juego es apaisado) */
+.girar-movil { display: none; }
+@media (orientation: portrait) {
+    body.movil .girar-movil {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        box-sizing: border-box;
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        padding: 32px;
+        text-align: center;
+        overflow-wrap: break-word;
+        background: rgb(20, 14, 29);
+        color: rgb(250, 214, 110);
+        font: 16px 'Press Start 2P', sans-serif;
+        line-height: 1.6;
+    }
+    body.movil .controles { display: none; }
+}
