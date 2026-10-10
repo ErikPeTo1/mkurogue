@@ -228,3 +228,25 @@ body.movil {
     }
     body.movil .controles { display: none; }
 }
+
+/* --- Mando: aviso al conectarlo o desconectarlo (ver Mando.js) ------------------------------- */
+.aviso-mando {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translate(-50%, 20px);
+    padding: 10px 16px;
+    background: rgba(22, 15, 28, 0.95);
+    border: 2px solid rgb(140, 98, 124);
+    color: rgb(250, 214, 110);
+    font: 14px sans-serif;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 15;
+}
+.aviso-mando.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}

@@ -13,11 +13,11 @@ const ajustesSonido = { silencio: false, efectos: 0.6, musica: 0.4 }
 let audioCtx = null, busEfectos = null, busMusica = null
 
 // --- Ajustes guardados en el navegador -----------------------------------------------------------
-// Solo la configuración (idioma, colores, volúmenes, silencio y temblor), en localStorage. Se carga al
+// Solo la configuración (idioma, colores, volúmenes, silencio, temblor y botones del mando), en localStorage. Se carga al
 // abrir el juego y se guarda sola cuando cambia algo (ver vigilarSonido). Si el navegador no deja
 // guardar (incógnito, almacenamiento bloqueado), el juego funciona igual con los valores de siempre.
 const CLAVE_AJUSTES = "mkurogue-ajustes"
-const fotoAjustes = () => JSON.stringify({ idioma, modoColor, nivelTemblor, silencio: ajustesSonido.silencio, efectos: ajustesSonido.efectos, musica: ajustesSonido.musica })
+const fotoAjustes = () => JSON.stringify({ idioma, modoColor, nivelTemblor, esquemaMando, silencio: ajustesSonido.silencio, efectos: ajustesSonido.efectos, musica: ajustesSonido.musica })
 let ajustesGuardados = null
 ;(function cargarAjustes() {
     try {
@@ -26,6 +26,7 @@ let ajustesGuardados = null
         if (IDIOMAS.some(i => i.id === g.idioma)) idioma = g.idioma
         if (Number.isInteger(g.modoColor) && MODOS_COLOR[g.modoColor]) modoColor = g.modoColor
         if (Number.isInteger(g.nivelTemblor) && NIVELES_TEMBLOR[g.nivelTemblor]) nivelTemblor = g.nivelTemblor
+        if (Number.isInteger(g.esquemaMando) && ESQUEMAS_MANDO[g.esquemaMando]) esquemaMando = g.esquemaMando
         if (typeof g.silencio === "boolean") ajustesSonido.silencio = g.silencio
         for (const k of ["efectos", "musica"]) if (typeof g[k] === "number" && g[k] >= 0 && g[k] <= 1) ajustesSonido[k] = g[k]
     } catch (e) { }

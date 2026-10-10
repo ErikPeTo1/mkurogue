@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.12.0"
+const VERSION = "0.12.1"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -37,6 +37,15 @@ const NIVELES_TEMBLOR = [
     { nombre: { es: "Normal", en: "Normal" }, fuerza: 0.35 }
 ]
 let nivelTemblor = 2
+// Qué nombres de botones se enseñan en los textos del mando (Mando.js). "Automático" mira el mando
+// conectado (PlayStation y Nintendo se reconocen por su nombre; el resto, como Xbox)
+const ESQUEMAS_MANDO = [
+    { id: "auto", nombre: { es: "Automático", en: "Automatic" } },
+    { id: "xbox", nombre: { es: "Xbox", en: "Xbox" } },
+    { id: "playstation", nombre: { es: "PlayStation", en: "PlayStation" } },
+    { id: "nintendo", nombre: { es: "Nintendo", en: "Nintendo" } }
+]
+let esquemaMando = 0
 let idioma = typeof navigator === "undefined" || /^es/i.test(navigator.language || "es") ? "es" : "en"
 function L(es, en) { return idioma === "en" ? en : es }
 function tr(texto) {
@@ -1460,11 +1469,17 @@ function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
         teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, escape)
         return
     }
+    if (focoMenu === "mando") {
+        if (arriba || escape) focoMenu = "dificultad"
+        if (confirmar) abrirAyudaMando()
+        return
+    }
     if (focoMenu === "dificultad") {
         const n = DIFICULTADES.length
         if (izquierda) dificultadElegida = (dificultadElegida - 1 + n) % n
         if (derecha) dificultadElegida = (dificultadElegida + 1) % n
         if (arriba) focoMenu = "ajustes"
+        if (abajo) focoMenu = "mando"
         if (confirmar) empezarPartida()
         return
     }
@@ -1522,7 +1537,7 @@ canvas.addEventListener("mousemove", function(e) {
         } else {
             z = zonaCercana(zonasMenu, p.x, p.y)
             if (z && z.tipo === "dificultad") { dificultadElegida = z.indice; focoMenu = "dificultad" }
-            if (z && ORDEN_BARRA.includes(z.tipo)) focoMenu = z.tipo
+            if (z && (ORDEN_BARRA.includes(z.tipo) || z.tipo === "mando")) focoMenu = z.tipo
         }
     } else if (estado === "estadisticas") {
         z = zonaCercana(zonasEstadisticas, p.x, p.y)
@@ -1557,6 +1572,7 @@ canvas.addEventListener("click", function(e) {
         if (!z) return
         if (z.tipo === "sonido") { focoMenu = "sonido"; alternarSonidoBoton(); return }
         if (z.tipo === "ajustes") { focoMenu = "ajustes"; panelAjustes = { fila: 0 }; return }
+        if (z.tipo === "mando") { focoMenu = "mando"; abrirAyudaMando(); return }
         if (z.tipo === "ayuda") {
             abrirAyuda()
             return
@@ -3053,13 +3069,17 @@ function dibujarMenu() {
     ctx.fillStyle = "rgb(150, 150, 160)"
     ctx.font = "15px sans-serif"
     const ayuda = focoMenu === "dificultad"
-        ? L("Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↑ opciones",
-            "Choose with the mouse or ← →  ·  Click or Enter to start  ·  ↑ options")
+        ? L("Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↑ opciones  ·  ↓ mando",
+            "Choose with the mouse or ← →  ·  Click or Enter to start  ·  ↑ options  ·  ↓ controller")
+        : focoMenu === "mando"
+        ? L("Enter: cómo jugar con mando  ·  ↑ o Esc vuelve a la dificultad", "Enter: how to play with a controller  ·  ↑ or Esc back to the difficulty")
         : L("← → para moverte por los botones  ·  Enter lo usa  ·  ↓ o Esc vuelve a la dificultad",
             "← → to move between the buttons  ·  Enter uses it  ·  ↓ or Esc back to the difficulty")
     ctx.fillText(ayuda, 512, 400)
 
     zonasMenu.push(dibujarBoton(L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)"), 512, 600, "reportar"))
+    // Abajo a la izquierda, un botón pequeño con un mando: explica cómo conectarlo
+    zonasMenu.push(dibujarBotonIcono(14, ALTO_JUEGO - 14 - 36, "mando", "mando", focoMenu === "mando"))
     // La barra de arriba va lo último: si el panel de ajustes está abierto, queda por encima de todo
     dibujarBarraMenu()
     dibujarVersion()
@@ -3118,6 +3138,14 @@ function dibujarBotonIcono(x, y, icono, tipo, resaltado = false) {
             ctx.beginPath(); ctx.arc(cx + 2, cy, 11, -0.8, 0.8); ctx.stroke()
         }
         ctx.lineWidth = 1
+    } else if (icono === "mando") {
+        // Mando: cuerpo con dos asas, cruceta a la izquierda y dos botones a la derecha
+        ctx.beginPath()
+        ctx.moveTo(cx - 14, cy - 6); ctx.lineTo(cx + 14, cy - 6); ctx.lineTo(cx + 17, cy + 8); ctx.lineTo(cx + 11, cy + 9)
+        ctx.lineTo(cx + 7, cy + 4); ctx.lineTo(cx - 7, cy + 4); ctx.lineTo(cx - 11, cy + 9); ctx.lineTo(cx - 17, cy + 8); ctx.closePath(); ctx.fill()
+        ctx.fillStyle = "rgb(20, 16, 30)"
+        ctx.fillRect(cx - 11, cy - 2, 7, 2); ctx.fillRect(cx - 8.5, cy - 4.5, 2, 7)
+        ctx.beginPath(); ctx.arc(cx + 6, cy - 2, 1.6, 0, Math.PI * 2); ctx.arc(cx + 10, cy + 1, 1.6, 0, Math.PI * 2); ctx.fill()
     } else {
         // Tuerca: ocho dientes, el cuerpo y el agujero del centro
         ctx.save(); ctx.translate(cx, cy)
@@ -3158,6 +3186,8 @@ function filasAjustes() {
     }
     filas.push({ texto: L("Temblor", "Screen shake"), valor: () => tr(NIVELES_TEMBLOR[nivelTemblor].nombre),
         cambiar: d => { nivelTemblor = (nivelTemblor + d + NIVELES_TEMBLOR.length) % NIVELES_TEMBLOR.length } })
+    filas.push({ texto: L("Mando", "Controller"), valor: () => tr(ESQUEMAS_MANDO[esquemaMando].nombre) + (esquemaMando === 0 && typeof esquemaMandoActual === "function" ? " (" + tr(ESQUEMAS_MANDO.find(e => e.id === esquemaMandoActual()).nombre) + ")" : ""),
+        cambiar: d => { esquemaMando = (esquemaMando + d + ESQUEMAS_MANDO.length) % ESQUEMAS_MANDO.length } })
     return filas
 }
 function dibujarPanelAjustes(x, y) {
@@ -3431,6 +3461,19 @@ const CASILLAS_AYUDA = [
     { tipo: 4, texto: { es: "Evento: una decisión con premio... y a veces con riesgo", en: "Event: a choice with a reward... and sometimes a risk" } }
 ]
 const AYUDA = {
+    mando: {
+        titulo: { es: "Jugar con mando", en: "Playing with a controller" },
+        bloques: [
+            { titulo: { es: "Para que el juego lo detecte", en: "So the game detects it" },
+              texto: () => L("Conecta el mando como quieras (por Bluetooth, con su receptor inalámbrico o por cable) y pulsa cualquier botón con la ventana del juego delante. Los navegadores no dejan que una página vea los mandos hasta que se pulsa uno con ella abierta: es una norma de seguridad del navegador, no del juego. Al detectarlo sale un aviso abajo." + (typeof mandoConectado !== "undefined" && mandoConectado ? " Ahora mismo hay un mando conectado." : " Ahora mismo no se detecta ningún mando."),
+                             "Connect the controller however you like (Bluetooth, its wireless receiver or a cable) and press any button with the game window in front. Browsers don't let a page see controllers until a button is pressed while it's open: it's a browser security rule, not the game's. When it's detected, a notice appears at the bottom." + (typeof mandoConectado !== "undefined" && mandoConectado ? " A controller is connected right now." : " No controller is detected right now.")) },
+            { titulo: { es: "Los botones", en: "The buttons" },
+              texto: () => textoBotonesMando(true) + L(" En Ajustes (la tuerca) puedes elegir si ver los botones de Xbox, PlayStation o Nintendo.", " In Settings (the gear) you can choose Xbox, PlayStation or Nintendo button names.") },
+            { titulo: { es: "Si no lo detecta", en: "If it isn't detected" },
+              texto: { es: "Prueba en otro navegador (Chrome y Edge son los que mejor funcionan), vuelve a conectarlo y pulsa un botón otra vez. El mando vibra en los golpes fuertes si tiene vibración y el temblor de pantalla está activado.",
+                       en: "Try another browser (Chrome and Edge work best), reconnect it and press a button again. The controller rumbles on heavy hits if it supports it and screen shake is on." } }
+        ]
+    },
     menu: {
         titulo: { es: "Cómo jugar", en: "How to play" },
         bloques: [
@@ -3448,8 +3491,7 @@ const AYUDA = {
               texto: { es: "Ganando combates subes de nivel (sin tope) y aprendes habilidades nuevas. Los eventos dan objetos y mejoras que duran toda la partida.",
                        en: "Winning combats levels you up (with no cap) and teaches you new abilities. Events give you items and upgrades that last the whole run." } },
             { titulo: { es: "Consejo", en: "Tip" },
-              texto: { es: "Durante la partida, pulsa H para ver la ayuda de lo que estés haciendo: el mapa, el combate, un evento o las estadísticas.",
-                       en: "During a run, press H to see help about whatever you're doing: the map, combat, an event or the stats." } }
+              texto: () => L("Durante la partida, pulsa H para ver la ayuda de lo que estés haciendo. ", "During a run, press H to see help about whatever you're doing. ") + (typeof textoBotonesMando === "function" ? textoBotonesMando(false) : "") }
         ]
     },
     exploracion: {
@@ -3534,6 +3576,10 @@ function abrirAyuda() {
     panelAjustes = null
     // Que Paku no siga andando con una tecla que estaba pulsada al abrirla
     for (const t in teclas) teclas[t] = false
+}
+function abrirAyudaMando() {
+    ayudaAbierta = "mando"
+    panelAjustes = null
 }
 function cerrarAyuda() {
     ayudaAbierta = null

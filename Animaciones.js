@@ -118,6 +118,7 @@ const suave = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
 const sacudir = (amp, dur, ms = 0) => despues(ms, () => {
     const fuerza = typeof nivelTemblor !== "undefined" ? NIVELES_TEMBLOR[nivelTemblor].fuerza : 0.35   // sin ajuste, el Normal
     if (fuerza > 0) temblorAnim = { amp: amp * fuerza, hasta: relojAnim + dur, dur }
+    if (typeof vibrarMando === "function") vibrarMando(amp * fuerza / 5, dur)   // y el mando vibra
 })
 const sonarEn = (ms, nombre, ...args) => despues(ms, () => sonar(nombre, ...args))
 
