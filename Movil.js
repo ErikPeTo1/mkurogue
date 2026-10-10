@@ -44,6 +44,7 @@ if (ES_MOVIL) {
         '<div class="cruceta"><span class="flecha arriba"></span><span class="flecha abajo"></span>' +
         '<span class="flecha izquierda"></span><span class="flecha derecha"></span></div>' +
         '<div class="botones">' +
+        '<button class="boton boton-pequeño" data-tecla="p" aria-label="Pausa">❚❚</button>' +
         '<button class="boton boton-pequeño" data-tecla="m" aria-label="Estadísticas">☰</button>' +
         '<button class="boton boton-pequeño" data-tecla="h" aria-label="Ayuda">?</button>' +
         '<button class="boton boton-b" data-tecla="Escape" aria-label="Atrás">✕</button>' +

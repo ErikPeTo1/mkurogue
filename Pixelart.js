@@ -285,6 +285,9 @@ const SPRITES_PIXEL = {
 
 // Color propio de cada sprite: el de la tripulación sigue el modo de color elegido
 function colorPropioPixel(clave) {
+    // El que se haya elegido en el selector de tripulación (Tripulacion.js), si lo hay
+    const elegido = typeof colorElegido === "function" ? colorElegido(clave) : null
+    if (elegido) return elegido
     const delModo = colorEquipoModo(clave)
     if (delModo) return delModo
     const estilo = ESTILOS_PLACEHOLDER[clave]
@@ -410,6 +413,8 @@ const LETRAS_A_V2 = { K: "K", A: "A", a: "a", L: "L", S: "S", s: "s", H: "H", W:
 const cacheSprites = {}
 const hay48 = clave => typeof SPRITES48 !== "undefined" && !!SPRITES48[clave]
 function lienzoSprite(clave, volteado, grande = false, daño = 0) {
+    // "Paku*": su reflejo (Sala de los espejos), el mismo sprite teñido de morado
+    if (clave.endsWith("*")) return lienzoReflejo(clave.slice(0, -1), volteado, grande, daño)
     const n = grande === 48 ? 48 : grande ? 32 : 16
     const nuevo = n === 48 ? (hay48(clave) ? SPRITES48[clave] : null) : grande ? SPRITES_V2[clave] : SPRITES_V2_16[clave]
     const filas = nuevo || (n === 48 ? null : grande ? SPRITES_PIXEL_32[clave] : SPRITES_PIXEL[clave])
@@ -441,6 +446,22 @@ function lienzoSprite(clave, volteado, grande = false, daño = 0) {
     return lienzo
 }
 
+function lienzoReflejo(clave, volteado, grande, daño) {
+    const base = lienzoSprite(clave, volteado, grande, daño)
+    if (!base) return null
+    const id = ["reflejo", clave, volteado, grande, daño, modoColor].join("|")
+    if (cacheSprites[id]) return cacheSprites[id]
+    const lienzo = document.createElement("canvas")
+    lienzo.width = base.width; lienzo.height = base.height
+    const c = lienzo.getContext("2d")
+    c.drawImage(base, 0, 0)
+    c.globalCompositeOperation = "source-atop"
+    c.fillStyle = "rgba(150, 90, 230, 0.55)"
+    c.fillRect(0, 0, lienzo.width, lienzo.height)
+    cacheSprites[id] = lienzo
+    return lienzo
+}
+
 // Sustituye a la de Juego.js: la imagen real si la hay; si no, el sprite pixel art.
 // vida (opcional): fracción de vida que le queda (0-1), para el nivel de daño.
 // Desde 32 px se usa el sprite de 32 x 32; por debajo, el de 16 x 16. Siempre a un múltiplo exacto.
@@ -449,8 +470,9 @@ function lienzoSprite(clave, volteado, grande = false, daño = 0) {
 const dibujarSpriteOriginal = dibujarSprite
 dibujarSprite = function (clave, x, y, tam, izquierda = false, vida) {
     if (imagenLista(clave)) return dibujarSpriteOriginal(clave, x, y, tam, izquierda)
-    let grande = tam >= 32 && !!SPRITES_PIXEL_32[clave]
-    if (tam >= 48 && hay48(clave) && (SOLO_48.has(clave) || Math.floor(tam / 48) * 48 >= Math.floor(tam / 32) * 32)) grande = 48
+    const original = clave.endsWith("*") ? clave.slice(0, -1) : clave
+    let grande = tam >= 32 && !!SPRITES_PIXEL_32[original]
+    if (tam >= 48 && hay48(original) && (SOLO_48.has(original) || Math.floor(tam / 48) * 48 >= Math.floor(tam / 32) * 32)) grande = 48
     const n = grande === 48 ? 48 : grande ? 32 : 16
     const lienzo = lienzoSprite(clave, izquierda, grande, nivelDaño(vida))
     if (!lienzo) return dibujarSpriteOriginal(clave, x, y, tam, izquierda)

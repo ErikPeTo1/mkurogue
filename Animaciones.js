@@ -13,7 +13,7 @@ let grabacion = null         // mientras se ejecuta la ronda: { eventos, golpes,
 let acelerar = false
 
 // --- Grabar la ronda -------------------------------------------------------------------------
-const combatientes = () => [...equipoJugador, ...enemigosCombate]
+const combatientes = () => [...equipoJugador, ...aliados, ...enemigosCombate]
 function fotoVida() { const m = new Map(); combatientes().forEach(c => m.set(c, c.stats.HP)); return m }
 function cambiosVida(antes, despues) {
     const lista = []
@@ -55,6 +55,7 @@ envolverAccion("ataqueBasico", (p, objetivo) => ({ tipo: "ataque", actor: p, obj
 envolverAccion("usarHabilidad", (p, h, objetivo) => ({ tipo: "habilidad", actor: p, habilidad: h, objetivo }))
 envolverAccion("usarObjeto", (p, id, objetivo) => ({ tipo: "objeto", actor: p, objeto: id, objetivo }))
 envolverAccion("accionEnemigo", en => ({ tipo: "enemigo", actor: en }))
+envolverAccion("accionAliado", al => ({ tipo: "enemigo", actor: al }))
 const calcularDañoSinGrabar = calcularDaño
 calcularDaño = function (atacante, defensor, opciones = {}) {
     const r = calcularDañoSinGrabar(atacante, defensor, opciones)
@@ -84,6 +85,9 @@ ejecutarRonda = function () {
     estado = "combate"
     faseCombate = "animando"
     combatientes().forEach(c => { c.anim = { dx: 0, dy: 0, alfa: 1, flash: 0, brillo: null } })
+    // Y cualquiera que salga en la ronda aunque ya no esté en la lista (un aliado que se despide al ganar)
+    eventos.forEach(ev => [ev.actor, ...ev.golpes.flatMap(g => [g.atacante, g.defensor]), ...ev.cambios.map(k => k.c)]
+        .forEach(x => { if (x && !x.anim) x.anim = { dx: 0, dy: 0, alfa: 1, flash: 0, brillo: null } }))
     relojAnim = 0
     // El reloj vuelve a 0 en cada ronda: el temblor de la ronda anterior no puede seguir vivo (si no,
     // con su "hasta" de la ronda pasada, la siguiente empezaba temblando muchísimo)
@@ -199,9 +203,11 @@ const mostrarVida = (c, hp, ms) => despues(ms, () => { c.stats.HP = hp })
 const ORO = "rgb(250, 214, 110)", BLANCO = "rgb(245, 240, 230)", ROJO = "rgb(255, 90, 80)", VERDE = "rgb(140, 240, 150)", CIAN = "rgb(120, 220, 255)", GRIS = "rgb(170, 165, 185)"
 const finalDe = (ev, c) => { const x = ev.cambios.find(k => k.c === c); return x ? x.despues : c.stats.HP }
 const NOMBRES_CARTEL = {
-    embestida: ["EMBESTIDA", "CHARGE", ORO], rafaga: ["RÁFAGA", "BARRAGE", CIAN], golpePesado: ["GOLPE PESADO", "HEAVY BLOW", ROJO],
-    terremoto: ["TERREMOTO", "EARTHQUAKE", "rgb(220, 160, 90)"], apuesta: ["APUESTA", "GAMBLE", ORO], racha: ["RACHA", "STREAK", ORO],
-    reparacion: ["REPARACIÓN", "REPAIR", VERDE], oleada: ["OLEADA", "HEALING WAVE", VERDE]
+    abordaje: ["¡ABORDAJE!", "BOARDING!", ORO], rafaga: ["RÁFAGA", "BARRAGE", CIAN], todosAUna: ["¡TODOS A UNA!", "ALL TOGETHER!", ORO],
+    golpePesado: ["GOLPE PESADO", "HEAVY BLOW", ROJO], terremoto: ["TERREMOTO", "EARTHQUAKE", "rgb(220, 160, 90)"], muralla: ["MURALLA", "BULWARK", "rgb(120, 190, 255)"],
+    dobleONada: ["DOBLE O NADA", "DOUBLE OR NOTHING", ORO], monedaSuerte: ["MONEDA DE LA SUERTE", "LUCKY COIN", ORO], jackpot: ["JACKPOT", "JACKPOT", ORO],
+    senalar: ["SEÑALAR", "MARK TARGET", "rgb(255, 150, 90)"], rompeguardias: ["ROMPEGUARDIAS", "GUARD BREAKER", ROJO], tiradaRapida: ["TIRADA RÁPIDA", "QUICK ROLL", ORO],
+    primerosAuxilios: ["PRIMEROS AUXILIOS", "FIRST AID", VERDE], reparacion: ["REPARACIÓN", "REPAIR", VERDE], oleada: ["OLEADA", "HEALING WAVE", VERDE], reanimar: ["REANIMAR", "REVIVE", VERDE]
 }
 
 // Golpe de la tripulación a un enemigo: proyectil, destello, número (y su sonido)
@@ -344,16 +350,25 @@ function reproducirHabilidad(ev) {
     const vida = (g, t) => mostrarVida(g.defensor, finalDe(ev, g.defensor), t)
     let fin = 600
 
-    if (id === "embestida" && ev.golpes.length) {
-        const g = ev.golpes[0], o = g.defensor, dist = rectDe(o).x - rectDe(a).x - 70
-        cargar(a, ORO, 0, 300); sonarEn(0, "carga"); sonarEn(300, "embestida")
-        efecto(300, 260, t => { a.anim.dx = suave(t) * dist })
-        efecto(300, 260, t => { const r = rectDe(a); for (let k = 1; k <= 3; k++) { ctx.globalAlpha = 0.25 / k; dibujarSiluetaAnim(a, r.x + Math.max(0, suave(t) * dist - k * 50), r.y, false) } ctx.globalAlpha = 1 })
-        golpeado(o, 560, 2); sacudir(9, 260, 560); destello(BLANCO, 560)
-        const p = centroDe(o); chispas(p.x - 30, p.y, [ORO, BLANCO, ROJO], 20, 560, 6, 600)
-        numero(o, String(g.daño), g.critico ? ORO : ORO, 560, 30, g.critico ? L("CRÍTICO", "CRITICAL") : null); sonarEn(560, "critico"); vida(g, 560)
-        efecto(700, 300, t => { a.anim.dx = (1 - suave(t)) * dist }); despues(1000, () => { a.anim.dx = 0 })
-        fin = 1000
+    if (id === "abordaje" && ev.golpes.length) {
+        // Salta de un enemigo al siguiente; con cada uno, tajo y número; el último, más fuerte
+        const ra = rectDe(a)
+        cargar(a, ORO, 0, 250); sonarEn(0, "carga")
+        let antes = { x: 0, y: 0 }
+        ev.golpes.forEach((g, k) => {
+            const o = g.defensor, ro = rectDe(o), ms = 250 + k * 300, ultimo = k === ev.golpes.length - 1
+            const destino = { x: ro.x - ra.x - 70, y: ro.y - ra.y }, desde = antes
+            efecto(ms, 180, t => { a.anim.dx = desde.x + (destino.x - desde.x) * suave(t); a.anim.dy = desde.y + (destino.y - desde.y) * suave(t) })
+            sonarEn(ms, "embestida")
+            tajo(o, ms + 180, ultimo ? ORO : BLANCO); golpeado(o, ms + 180, ultimo ? 1.8 : 1)
+            numero(o, String(g.daño), ultimo || g.critico ? ORO : BLANCO, ms + 180, ultimo ? 30 : 22, g.critico ? L("CRÍTICO", "CRITICAL") : null)
+            sonarEn(ms + 180, ultimo ? "critico" : "impacto"); vida(g, ms + 180)
+            if (ultimo) { sacudir(9, 260, ms + 180); destello(BLANCO, ms + 180) }
+            antes = destino; fin = ms + 180
+        })
+        const vuelta = antes
+        efecto(fin + 150, 300, t => { a.anim.dx = vuelta.x * (1 - suave(t)); a.anim.dy = vuelta.y * (1 - suave(t)) }); despues(fin + 450, () => { a.anim.dx = 0; a.anim.dy = 0 })
+        fin += 500
     } else if (id === "rafaga") {
         cargar(a, CIAN, 0, 250); sonarEn(0, "carga")
         ev.golpes.forEach((g, k) => { const t = 280 + k * 110; disparo(armaDe(a), centroDe(g.defensor), "rgba(96,214,255,0.8)", "rgb(214,248,255)", t, 140); sonarEn(t, "disparo"); golpeado(g.defensor, t + 140, 0.8); numero(g.defensor, String(g.daño), g.critico ? ORO : CIAN, t + 140, 18); vida(g, t + 140); fin = t + 140 })
@@ -395,37 +410,119 @@ function reproducirHabilidad(ev) {
             fin = ms + 400
         })
         fin = Math.max(fin, 1100)
-    } else if (id === "apuesta" && ev.golpes.length) {
-        const g = ev.golpes[0], o = g.defensor, gana = g.critico
-        const simbolos = ["7", "$", "★", "7", "◆"], final = gana ? ["7", "7", "7"] : ["7", "$", "◆"]
+    } else if (id === "dobleONada") {
+        // Moneda al aire: cara, disparo dorado; cruz, nada
+        const cara = a.ultimaMoneda === "cara"
+        sonarEn(0, "lanzarMoneda")
+        efecto(0, 900, t => {
+            const c = centroDe(a), y = c.y - 60 - Math.sin(Math.PI * Math.min(1, t * 1.2)) * 90, ancho = Math.abs(Math.cos(t * 30)) * 16 + 2
+            ctx.fillStyle = ORO; ctx.beginPath(); ctx.ellipse(c.x, y, ancho, 16, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "rgb(200,140,40)"; ctx.lineWidth = 2; ctx.stroke()
+            if (t > 0.8) { ctx.font = "14px 'Press Start 2P'"; ctx.textAlign = "center"; ctx.fillStyle = "rgb(26,16,32)"; ctx.fillText(cara ? L("¡CARA!", "HEADS!") : L("CRUZ", "TAILS"), c.x + 2, y - 26); ctx.fillStyle = cara ? ORO : GRIS; ctx.fillText(cara ? L("¡CARA!", "HEADS!") : L("CRUZ", "TAILS"), c.x, y - 28); ctx.textAlign = "left" }
+        })
+        if (cara && ev.golpes.length) {
+            sonarEn(900, "jackpot")
+            ev.golpes.forEach((g, k) => {
+                const ms = 950 + k * 230
+                disparo(armaDe(a), centroDe(g.defensor), "rgba(250,200,80,0.9)", "rgb(255,250,200)", ms, 180, k ? 5 : 8)
+                golpeado(g.defensor, ms + 180, k ? 1 : 1.8); numero(g.defensor, String(g.daño), ORO, ms + 180, k ? 20 : 30, k ? "x" + (k + 1) : g.critico ? L("CRÍTICO", "CRITICAL") : null)
+                sonarEn(ms + 180, k ? "moneda" : "critico", k); vida(g, ms + 180)
+                fin = ms + 600
+            })
+            sacudir(9, 240, 1130)
+        } else { sonarEn(900, "refilon"); fin = 1200 }
+    } else if (id === "monedaSuerte" || id === "todosAUna") {
+        // Anillos desde quien la usa y brillo dorado en todo el equipo
+        const c = centroDe(a)
+        sonarEn(0, id === "todosAUna" ? "arenga" : "lanzarMoneda")
+        for (let k = 0; k < 3; k++) efecto(100 + k * 170, 550, t => { ctx.globalAlpha = 1 - t; ctx.strokeStyle = ORO; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(c.x, c.y, 10 + 260 * suave(t), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1 })
+        equipoJugador.filter(p => p.stats.HP > 0).forEach((p, k) => {
+            const ms = 400 + k * 80
+            cargar(p, ORO, ms, 600)
+            numero(p, id === "todosAUna" ? "+1" : "+" + valoresHabilidad(id, nivelHabilidad(a, ev.habilidad)).extra + "%", id === "todosAUna" ? "rgb(120,170,255)" : ORO, ms, 16, id === "todosAUna" ? L("orbe · +daño", "orb · +damage") : L("crítico", "crit"))
+        })
+        if (id === "monedaSuerte") sonarEn(400, "brillo")
+        fin = 1300
+    } else if (id === "muralla") {
+        // Da un paso al frente y sube un muro de ladrillos azules
+        sonarEn(0, "muralla")
+        efecto(0, 300, t => { a.anim.dx = suave(t) * 40 }); despues(1500, () => { a.anim.dx = 0 })
+        efecto(250, 1250, t => {
+            const r = rectDe(a), x = r.x + (a.anim.dx || 0) + r.tam + 6, alto = r.tam + 16, sube = Math.min(1, t * 4)
+            ctx.globalAlpha = t > 0.85 ? (1 - t) / 0.15 : 1
+            for (let fila = 0; fila < 6; fila++) for (let col = 0; col < 2; col++) {
+                ctx.fillStyle = (fila + col) % 2 ? "rgb(90,140,210)" : "rgb(120,180,240)"
+                ctx.fillRect(x + col * 12 + (fila % 2 ? 6 : 0), r.y + alto - 8 - (fila + 1) * (alto / 6) * sube, 11, alto / 6 - 2)
+            }
+            ctx.globalAlpha = 1
+        })
+        numero(a, L("MURALLA", "BULWARK"), "rgb(120,190,255)", 500, 14, L("½ daño", "½ damage"))
+        fin = 1500
+    } else if (id === "jackpot") {
+        // Tragaperras con lo que ha salido; después, golpes a todos, cura o descarga
+        const sale = a.ultimoJackpot || ["7", "$", "♥"], simbolos = ["7", "$", "♥", "☠", "7"]
         sonarEn(0, "tragaperras")
-        efecto(0, 1100, t => {
+        efecto(0, 1300, t => {
             const c = centroDe(a), x = c.x + 40, y = c.y - 110
             ctx.fillStyle = "rgba(22,15,28,0.95)"; ctx.fillRect(x, y, 132, 54); ctx.fillStyle = ORO; ctx.fillRect(x, y, 132, 3); ctx.fillRect(x, y + 51, 132, 3)
             ctx.font = "22px 'Press Start 2P'"; ctx.textAlign = "center"
             for (let k = 0; k < 3; k++) {
-                const quieto = t > 0.45 + k * 0.15
-                const s = quieto ? final[k] : simbolos[Math.floor(t * 60 + k * 7) % simbolos.length]
-                ctx.fillStyle = quieto ? ORO : "rgb(200,190,215)"; ctx.fillText(s, x + 24 + k * 42, y + 40)
+                const quieto = t > 0.35 + k * 0.15
+                const sim = quieto ? sale[k] : simbolos[Math.floor(t * 60 + k * 7) % simbolos.length]
+                ctx.fillStyle = !quieto ? "rgb(200,190,215)" : sim === "7" ? ROJO : sim === "♥" ? VERDE : sim === "☠" ? GRIS : ORO
+                ctx.fillText(sim, x + 24 + k * 42, y + 40)
             }
             ctx.textAlign = "left"
         })
-        if (gana) { chispas(centroDe(a).x + 106, centroDe(a).y - 84, [ORO, "rgb(255,240,180)"], 18, 900, 4, 500); sonarEn(900, "jackpot") }
-        disparo(armaDe(a), centroDe(o), "rgba(250,200,80,0.9)", "rgb(255,250,200)", 1100, 200, gana ? 7 : 4)
-        golpeado(o, 1300, gana ? 2 : 1); if (gana) { sacudir(8, 240, 1300); destello("rgb(255,230,140)", 1300) }
-        numero(o, String(g.daño), gana ? ORO : BLANCO, 1300, gana ? 32 : 22, gana ? "¡JACKPOT!" : null)
-        sonarEn(1300, gana ? "critico" : "impacto"); vida(g, 1300)
-        fin = 1800
-    } else if (id === "racha") {
-        let de = armaDe(a)
-        ev.golpes.forEach((g, k) => {
-            const ms = 250 + k * 230, hasta = centroDe(g.defensor), desde = de
-            efecto(ms, 200, t => { const x = desde.x + (hasta.x - desde.x) * t, y = desde.y + (hasta.y - desde.y) * t - Math.sin(t * Math.PI) * 50; ctx.fillStyle = "rgb(26,16,32)"; ctx.fillRect(x - 7, y - 7, 14, 14); ctx.fillStyle = ORO; ctx.fillRect(x - 6, y - 6, 12, 12); ctx.fillStyle = "rgb(255,240,180)"; ctx.fillRect(x - 3, y - 4, 4, 4) })
-            sonarEn(ms + 200, "moneda", k)
-            golpeado(g.defensor, ms + 200, 1); numero(g.defensor, String(g.daño), ORO, ms + 200, 18 + Math.min(k, 4) * 3, "x" + (k + 1)); vida(g, ms + 200)
-            de = hasta; fin = ms + 600
+        const sietes = sale.filter(x => x === "7").length
+        if (sietes >= 2) sonarEn(1000, "jackpot")
+        const curas = ev.cambios.filter(k => k.despues > k.antes)
+        if (ev.golpes.length) {
+            ev.golpes.forEach((g, k) => {
+                const ms = 1150 + k * 90
+                if (sietes >= 2) { chispas(centroDe(g.defensor).x, centroDe(g.defensor).y - 30, [ORO, "rgb(200,140,40)"], 12, ms, 3, 500, 0.25) }
+                else disparo(armaDe(a), centroDe(g.defensor), "rgba(250,200,80,0.9)", "rgb(255,250,200)", ms - 150, 150, 6)
+                golpeado(g.defensor, ms, sietes >= 2 ? 1.5 : 1.2); numero(g.defensor, String(g.daño), ORO, ms, sietes === 3 ? 30 : 24); vida(g, ms)
+                fin = ms + 300
+            })
+            if (sietes >= 2) { sacudir(8, 300, 1150); sonarEn(1150, "critico") } else sonarEn(1150, "impacto")
+        } else if (curas.length) {
+            sonarEn(1100, "curacion")
+            curas.forEach((k, i) => { const ms = 1100 + i * 90; cargar(k.c, VERDE, ms, 400); numero(k.c, "+" + (k.despues - k.antes), VERDE, ms, 20); mostrarVida(k.c, k.despues, ms) })
+            fin = 1700
+        } else {
+            sonarEn(1100, "dañoGrave"); golpeado(a, 1100, 1); numero(a, L("¡DESCARGA!", "SHOCK!"), GRIS, 1100, 14)
+            fin = 1600
+        }
+        fin = Math.max(fin, 1500)
+    } else if (id === "reanimar") {
+        const curas = ev.cambios.filter(k => k.despues > k.antes)
+        cargar(a, VERDE, 0, 500); sonarEn(0, "latido")
+        curas.forEach(k => {
+            const o = k.c, revive = k.antes <= 0
+            efecto(400, 700, t => { const p = armaDe(a), q = centroDe(o); ctx.globalAlpha = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8; ctx.strokeStyle = "rgba(140,240,150,0.8)"; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); ctx.globalAlpha = 1 })
+            efecto(400, 900, t => { const c = centroDe(o); ctx.globalAlpha = Math.sin(Math.PI * t); ctx.fillStyle = VERDE; ctx.fillRect(c.x - 8, c.y - 70 - t * 40, 16, 44); ctx.fillRect(c.x - 22, c.y - 56 - t * 40, 44, 16); ctx.globalAlpha = 1 })
+            efecto(900, 500, t => { o.anim.brillo = { color: VERDE, fuerza: 1 - t } }); despues(1400, () => { o.anim.brillo = null })
+            numero(o, "+" + (k.despues - Math.max(0, k.antes)), VERDE, 1000, 22, revive ? L("¡VUELVE!", "IS BACK!") : null); mostrarVida(o, k.despues, 1000)
         })
-    } else if (id === "reparacion" || id === "oleada") {
+        sonarEn(900, "reanimar")
+        fin = 1600
+    } else if (id === "senalar" || id === "rompeguardias" || id === "tiradaRapida") {
+        // Golpe y, después, la marca (diana) o la guardia rota (estrellas de aturdido)
+        ev.golpes.forEach((g, k) => { const t = impactoJugador(g, 300 + k * 200); vida(g, t); fin = t + 300 })
+        const g = ev.golpes[0]
+        if (id === "senalar" && g && finalDe(ev, g.defensor) > 0) {
+            efecto(500, 900, t => { const c = centroDe(g.defensor), r = 40 - 10 * Math.sin(t * Math.PI); ctx.globalAlpha = t > 0.8 ? (1 - t) * 5 : 1; ctx.strokeStyle = "rgb(255, 150, 90)"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(c.x, c.y, r / 2.5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1 })
+            numero(g.defensor, L("MARCADO", "MARKED"), "rgb(255, 150, 90)", 550, 14, "+" + Math.round(valoresHabilidad("senalar", 1).marca * 100) + "%")
+            fin = Math.max(fin, 1300)
+        }
+        if (id === "rompeguardias" && a.ultimaRotura) {
+            const o = a.ultimaRotura
+            sacudir(8, 220, 400); sonarEn(400, "critico")
+            numero(o, L("¡GUARDIA ROTA!", "GUARD BROKEN!"), ROJO, 450, 14)
+            efecto(500, 900, t => { const c = centroDe(o); for (let k = 0; k < 3; k++) { const an = t * 8 + k * 2.1; ctx.fillStyle = ORO; ctx.fillRect(c.x + Math.cos(an) * 30 - 3, c.y - 60 + Math.sin(an) * 8 - 3, 6, 6) } })
+            fin = Math.max(fin, 1400)
+        }
+    } else if (id === "reparacion" || id === "oleada" || id === "primerosAuxilios") {
         cargar(a, VERDE, 0, 300)
         const curas = ev.cambios.filter(k => k.despues > k.antes)
         if (id === "oleada") {
@@ -435,6 +532,8 @@ function reproducirHabilidad(ev) {
             sonarEn(250, "reparar")
             curas.forEach(k => disparo(armaDe(a), centroDe(k.c), "rgba(140,240,150,0.7)", "rgb(220,255,220)", 250, 200))
         }
+        // Si nadie estaba herido, se avisa encima de Imanps
+        if (!curas.length) { numero(a, L("NADIE HERIDO", "NO ONE HURT"), GRIS, 450, 14); sonarEn(450, "refilon"); fin = Math.max(fin, 1000) }
         curas.forEach((k, i) => {
             const ms = id === "oleada" ? 300 + i * 110 : 450, o = k.c
             efecto(ms, 400, t => { o.anim.brillo = { color: VERDE, fuerza: 1 - t } }); despues(ms + 400, () => { o.anim.brillo = null })

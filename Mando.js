@@ -8,14 +8,14 @@
 //   - A (abajo): aceptar (Enter; mantenerlo repite, como mantener Enter: en combate acelera)
 //   - B (derecha): atrás (Esc)       - Y (arriba): estadísticas (M)
 //   - X (izquierda): silenciar (V)   - View / Select: ayuda (H)
-//   - Menu / Start: empezar en el menú; en partida, estadísticas
+//   - Menu / Start: empezar en el menú; en partida, pausa
 //   - RB: ajustes en Estadísticas (O)
 // Los navegadores no enseñan el mando hasta que se pulsa un botón con la página delante.
 // Al conectarlo sale un aviso, y los golpes fuertes del combate hacen vibrar el mando (si se puede y
 // el temblor de pantalla no está desactivado).
 // =====================================================================================
 
-const BOTONES_MANDO = { 0: "Enter", 1: "Escape", 2: "v", 3: "m", 8: "h", 5: "o" }
+const BOTONES_MANDO = { 0: "Enter", 1: "Escape", 2: "v", 3: "m", 8: "h", 5: "o", 4: "c" }
 const ZONA_MUERTA_STICK = 0.5
 const RETRASO_REPETIR_MANDO = 380, INTERVALO_REPETIR_MANDO = 140, INTERVALO_REPETIR_ACEPTAR = 80
 
@@ -47,9 +47,9 @@ function actualizarTeclaMando(key, abajo, ahora) {
 
 // Nombre de cada botón (por su posición) en cada marca. En Nintendo, el de abajo es la B
 const NOMBRES_BOTONES = {
-    xbox:        { abajo: "A", derecha: "B", izquierda: "X", arriba: "Y", select: "View", start: "Menu", rb: "RB" },
-    playstation: { abajo: "✕", derecha: "○", izquierda: "□", arriba: "△", select: "Create", start: "Options", rb: "R1" },
-    nintendo:    { abajo: "B", derecha: "A", izquierda: "Y", arriba: "X", select: "−", start: "+", rb: "R" }
+    xbox:        { abajo: "A", derecha: "B", izquierda: "X", arriba: "Y", select: "View", start: "Menu", rb: "RB", lb: "LB" },
+    playstation: { abajo: "✕", derecha: "○", izquierda: "□", arriba: "△", select: "Create", start: "Options", rb: "R1", lb: "L1" },
+    nintendo:    { abajo: "B", derecha: "A", izquierda: "Y", arriba: "X", select: "−", start: "+", rb: "R", lb: "L" }
 }
 let idUltimoMando = ""
 // El esquema que toca: el elegido en Ajustes o, en "Automático", el del mando conectado
@@ -71,8 +71,8 @@ function textoBotonesMando(completo) {
     const b = nombreBoton
     if (!completo) return L("Con mando: " + b("aceptar") + " acepta, " + b("atras") + " vuelve, " + b("arriba") + " abre las estadísticas, " + b("izquierda") + " silencia y " + b("select") + " enseña la ayuda.",
                             "With a controller: " + b("aceptar") + " confirms, " + b("atras") + " goes back, " + b("arriba") + " opens the stats, " + b("izquierda") + " mutes and " + b("select") + " shows the help.")
-    return L("Cruceta o stick: moverse · " + b("aceptar") + ": aceptar (mantenido, acelera el combate) · " + b("atras") + ": atrás · " + b("arriba") + ": estadísticas · " + b("izquierda") + ": silenciar · " + b("select") + ": ayuda · " + b("start") + ": empezar (en partida, estadísticas) · " + b("rb") + ": ajustes en las estadísticas.",
-             "D-pad or stick: move · " + b("aceptar") + ": confirm (hold it to speed up combat) · " + b("atras") + ": back · " + b("arriba") + ": stats · " + b("izquierda") + ": mute · " + b("select") + ": help · " + b("start") + ": start (during a run, stats) · " + b("rb") + ": settings in the stats screen.")
+    return L("Cruceta o stick: moverse · " + b("aceptar") + ": aceptar (mantenido, acelera el combate) · " + b("atras") + ": atrás · " + b("arriba") + ": estadísticas · " + b("izquierda") + ": silenciar · " + b("select") + ": ayuda · " + b("start") + ": empezar (en partida, pausa) · " + b("rb") + ": ajustes en las estadísticas · " + b("lb") + ": color (al elegir tripulación) o cambiar el orden (en las estadísticas).",
+             "D-pad or stick: move · " + b("aceptar") + ": confirm (hold it to speed up combat) · " + b("atras") + ": back · " + b("arriba") + ": stats · " + b("izquierda") + ": mute · " + b("select") + ": help · " + b("start") + ": start (during a run, pause) · " + b("rb") + ": settings in the stats screen · " + b("lb") + ": color (when choosing the crew) or change the order (in the stats screen).")
 }
 
 let mandoConectado = false
@@ -115,8 +115,8 @@ function leerMando() {
         }
         // Start: empieza en el menú de inicio; durante la partida, abre las estadísticas
         const start = boton(9)
-        if (start && !leerMando.start) teclaMando("keydown", estado === "menu" ? "Enter" : "m")
-        if (!start && leerMando.start) teclaMando("keyup", estado === "menu" ? "Enter" : "m")
+        if (start && !leerMando.start) teclaMando("keydown", estado === "menu" || estado === "tripulacion" ? "Enter" : "p")
+        if (!start && leerMando.start) teclaMando("keyup", estado === "menu" || estado === "tripulacion" ? "Enter" : "p")
         leerMando.start = start
     }
     requestAnimationFrame(leerMando)

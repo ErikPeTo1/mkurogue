@@ -134,7 +134,13 @@ const SONIDOS = {
     jackpot: () => { arpegio([84, 88, 91, 96], 0.04, { vol: 0.14 }); ruido({ dur: 0.3, vol: 0.08, filtro: 8000, tipo: "highpass", cuando: 0.1 }) },
     moneda: n => { tono({ f: notaHz(88 + n * 2), dur: 0.05, vol: 0.12 }); tono({ f: notaHz(95 + n * 2), dur: 0.12, vol: 0.12, cuando: 0.05 }) },
     reparar: () => { [0, 1, 2].forEach(k => ruido({ dur: 0.04, vol: 0.12, filtro: 6000, tipo: "highpass", cuando: k * 0.09 })); arpegio([76, 83, 88], 0.07, { forma: "sine", vol: 0.18, cuando: 0.2 }) },
-    oleada: () => { tono({ f: 300, hasta: 1200, dur: 0.6, forma: "sine", vol: 0.18 }); arpegio([72, 76, 79, 84, 88], 0.07, { forma: "sine", vol: 0.14, cuando: 0.2 }) }
+    oleada: () => { tono({ f: 300, hasta: 1200, dur: 0.6, forma: "sine", vol: 0.18 }); arpegio([72, 76, 79, 84, 88], 0.07, { forma: "sine", vol: 0.14, cuando: 0.2 }) },
+    arenga: () => { arpegio([67, 72, 76, 79], 0.08, { vol: 0.14 }); tono({ f: notaHz(84), dur: 0.6, cuando: 0.32, vol: 0.14, vibrato: 5 }) },
+    muralla: () => { tono({ f: 140, dur: 0.4, forma: "square", vol: 0.12 }); ruido({ dur: 0.2, vol: 0.3, filtro: 1200 }); tono({ f: 90, dur: 0.8, forma: "sine", vol: 0.15, vibrato: 2, cuando: 0.3 }) },
+    lanzarMoneda: () => { for (let k = 0; k < 6; k++) tono({ f: 2200, dur: 0.03, forma: "triangle", vol: 0.08, cuando: k * 0.12 }) },
+    brillo: () => arpegio([84, 88, 91, 96, 100], 0.05, { forma: "sine", vol: 0.12 }),
+    latido: () => { tono({ f: 70, dur: 0.12, forma: "sine", vol: 0.3 }); tono({ f: 70, dur: 0.12, forma: "sine", vol: 0.3, cuando: 0.25 }) },
+    reanimar: () => arpegio([60, 64, 67, 72, 76, 79], 0.07, { forma: "sine", vol: 0.16 })
 }
 function sonar(nombre, ...args) {
     if (!audioCtx || ajustesSonido.silencio || ajustesSonido.efectos <= 0 || !SONIDOS[nombre]) return
@@ -236,7 +242,7 @@ function vigilarSonido() {
     if (typeof estado !== "undefined" && estado !== estadoAnteriorSonido) {
         const antes = estadoAnteriorSonido
         estadoAnteriorSonido = estado
-        if (estado === "exploracion" && antes === "menu") sonar("empezar")
+        if (estado === "exploracion" && (antes === "menu" || antes === "tripulacion")) sonar("empezar")
         if (estado === "evento") sonar("evento")
         if (estado === "descanso") sonar("descanso")
         if (estado === "victoria") {
@@ -256,7 +262,7 @@ function vigilarSonido() {
     }
     if (audioCtx) {
         const e = typeof estado !== "undefined" ? estado : "menu"
-        const musica = e === "menu" ? "menu"
+        const musica = e === "menu" || e === "tripulacion" ? "menu"
             : e === "combate" ? ultimaMusicaCombate
             : e === "victoria" || e === "derrota" ? null
             : "exploracion"
@@ -271,7 +277,7 @@ if (typeof window !== "undefined" && window.addEventListener) {
     // Sonidos de interfaz: moverse, aceptar y volver en menús, eventos y estadísticas
     document.addEventListener("keydown", e => {
         if (e.repeat || typeof estado === "undefined") return
-        const menus = estado === "menu" || estado === "evento" || estado === "estadisticas" || (estado === "combate" && faseCombate !== "animando")
+        const menus = estado === "menu" || estado === "tripulacion" || estado === "evento" || estado === "estadisticas" || (estado === "combate" && faseCombate !== "animando")
         if (!menus) return
         const k = e.key
         if (k.startsWith("Arrow") || "wasdWASD".includes(k) && k.length === 1) sonar("mover")
