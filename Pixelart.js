@@ -720,7 +720,7 @@ function pintarSueloCombate(zonaId) {
     // Adornos: siempre objetos completos (nunca se recortan). Antes de ponerlos se mira que su caja no
     // pise ninguna zona prohibida: textos (nombres, vida, ayuda, registro) ni sprites. Si pisa, no se pone.
     const PROHIBIDAS = [
-        { x0: 360, y0: 0, x1: 664, y1: 36 },                    // "H: ayuda del combate"
+        { x0: 330, y0: 0, x1: 664, y1: 46 },                    // "H: ayuda del combate" y el altavoz
         { x0: 200, y0: 306, x1: 740, y1: 554 },                  // panel del registro (con las líneas de ayuda arriba)
         { x0: 726, y0: 0, x1: 1024, y1: 554 },                   // columna de los enemigos (sprites y textos)
         ...[0, 1, 2, 3].flatMap(i => [

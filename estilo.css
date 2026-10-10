@@ -173,6 +173,7 @@ body.movil {
 .cruceta[data-dir="ArrowRight"] .derecha { border-left-color: rgb(250, 200, 80); }
 /* Botones: ✓ grande abajo, ✕ a su lado, y ☰ / ? pequeños arriba */
 .botones {
+    top: 60%;   /* un poco por debajo del centro, más cómodo para el pulgar */
     right: calc(var(--margen-controles, 140px) / 2 - min(64px, calc(var(--margen-controles, 140px) * 0.45)));
     width: min(128px, calc(var(--margen-controles, 140px) * 0.9));
     display: grid;

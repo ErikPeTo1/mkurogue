@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.11.0"
+const VERSION = "0.12.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -24,11 +24,19 @@ const REPORTES = {
 const ESPERA_ENTRE_REPORTES = 30000   // ms, para que un doble clic no mande el mismo reporte dos veces
 
 // --- Idiomas -----------------------------------------------------------------------
-// Castellano o inglés; se elige en el menú de inicio. Empieza en el del navegador (en español,
-// castellano; en cualquier otro, inglés) y no se guarda nada. Durante la partida no cambia.
+// Castellano o inglés; se elige en los ajustes (menú de inicio o Estadísticas). La primera vez empieza
+// en el del navegador (en español, castellano; en cualquier otro, inglés); después, en el guardado.
 // Los textos fijos (nombres, menús, descripciones) se guardan como { es, en } y se leen con tr();
 // los que se escriben al momento, dentro de funciones, con L(castellano, inglés).
 const IDIOMAS = [{ id: "es", nombre: "Castellano" }, { id: "en", nombre: "English" }]
+// Temblor de pantalla en los golpes fuertes (Animaciones.js): multiplica su fuerza. Se guarda con el
+// resto de ajustes (Audio.js).
+const NIVELES_TEMBLOR = [
+    { nombre: { es: "Desactivado", en: "Off" }, fuerza: 0 },
+    { nombre: { es: "Suave", en: "Light" }, fuerza: 0.15 },
+    { nombre: { es: "Normal", en: "Normal" }, fuerza: 0.35 }
+]
+let nivelTemblor = 2
 let idioma = typeof navigator === "undefined" || /^es/i.test(navigator.language || "es") ? "es" : "en"
 function L(es, en) { return idioma === "en" ? en : es }
 function tr(texto) {
@@ -1357,6 +1365,12 @@ document.addEventListener("keydown", function(e) {
         return
     }
     if (estado === "estadisticas") {
+        if (tecla === "v") { alternarSonidoBoton(); return }
+        if (tecla === "o") { panelAjustes = panelAjustes ? null : { fila: 0 }; return }
+        if (panelAjustes) {
+            teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, tecla === "escape" || tecla === "m")
+            return
+        }
         if (tecla === "m" || tecla === "escape") { estado = "exploracion"; return }
         if (tecla === "r") {
             e.preventDefault()
@@ -1388,6 +1402,7 @@ document.addEventListener("keydown", function(e) {
         teclas[tecla] = true
         if (tecla === "m") estado = "estadisticas"
     }
+    if (estado === "combate" && tecla === "v" && !e.repeat) { alternarSonidoBoton(); return }
     if (estado === "combate") {
         const atras = tecla === "escape" || tecla === "backspace"
         if (faseCombate === "objetivo") {
@@ -1434,38 +1449,34 @@ document.addEventListener("keyup", function(e) {
 function empezarPartida() {
     tiempoInicio = performance.now()
     estado = "exploracion"
-    // El idioma ya no cambia durante la partida: la tripulación toma sus nombres en el elegido
+    // La tripulación toma sus nombres en el idioma elegido (si se cambia en Estadísticas, se vuelven a poner)
     equipoJugador.forEach(p => p.nombre = nombreDe(p.id))
 }
 // ←/→ (o A/D) cambian de dificultad dando la vuelta: a la derecha de Difícil va Fácil, y a la
-// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↑ sube a las
-// opciones de arriba a la derecha (idioma, colores y ayuda; ver dibujarBarraMenu).
+// izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↑ sube a la barra de
+// arriba (altavoz, ayuda y ajustes; ver dibujarBarraMenu).
 function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
-    if (desplegableAbierto) {
-        const d = DESPLEGABLES[desplegableAbierto]
-        if (arriba) opcionResaltada = Math.max(0, opcionResaltada - 1)
-        if (abajo) opcionResaltada = Math.min(d.opciones().length - 1, opcionResaltada + 1)
-        if (confirmar) elegirOpcionDesplegable(desplegableAbierto, opcionResaltada)
-        if (escape) desplegableAbierto = null
+    if (panelAjustes) {
+        teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, escape)
         return
     }
     if (focoMenu === "dificultad") {
         const n = DIFICULTADES.length
         if (izquierda) dificultadElegida = (dificultadElegida - 1 + n) % n
         if (derecha) dificultadElegida = (dificultadElegida + 1) % n
-        if (arriba) focoMenu = ORDEN_BARRA[ORDEN_BARRA.length - 1]
+        if (arriba) focoMenu = "ajustes"
         if (confirmar) empezarPartida()
         return
     }
-    // En la columna de arriba a la derecha: ↑/↓ se mueven por ella, Enter abre y Esc (o ↓ desde
-    // el último) vuelve a la dificultad
+    // En la barra de arriba: ←/→ se mueven por ella, Enter usa el botón y ↓ o Esc vuelven
     const pos = ORDEN_BARRA.indexOf(focoMenu)
-    if (arriba) focoMenu = ORDEN_BARRA[Math.max(0, pos - 1)]
-    if (abajo) focoMenu = pos === ORDEN_BARRA.length - 1 ? "dificultad" : ORDEN_BARRA[pos + 1]
-    if (escape) focoMenu = "dificultad"
+    if (izquierda) focoMenu = ORDEN_BARRA[Math.max(haySonido() ? 0 : 1, pos - 1)]
+    if (derecha) focoMenu = ORDEN_BARRA[Math.min(ORDEN_BARRA.length - 1, pos + 1)]
+    if (abajo || escape) focoMenu = "dificultad"
     if (confirmar) {
         if (focoMenu === "ayuda") abrirAyuda()
-        else abrirDesplegable(focoMenu)
+        else if (focoMenu === "sonido") alternarSonidoBoton()
+        else panelAjustes = { fila: 0 }
     }
 }
 
@@ -1504,15 +1515,15 @@ canvas.addEventListener("mousemove", function(e) {
     if (estado === "menu") {
         // Pasar el ratón por un recuadro lo elige. Como mousemove solo salta al mover el ratón, si
         // después se usan las flechas, la selección se queda donde la dejan ellas hasta que se mueva.
-        // Con una lista desplegada, solo cuentan sus opciones y su propio botón
-        const zonas = desplegableAbierto
-            ? zonasMenu.filter(z => z.desplegable === desplegableAbierto)
-            : zonasMenu
-        z = zonaCercana(zonas, p.x, p.y)
-        if (z && z.tipo === "dificultad") { dificultadElegida = z.indice; focoMenu = "dificultad" }
-        if (z && z.tipo === "desplegable") focoMenu = z.desplegable
-        if (z && z.tipo === "ayuda") focoMenu = "ayuda"
-        if (z && z.tipo === "opcion") opcionResaltada = z.indice
+        // Con el panel de ajustes abierto, el ratón marca sus filas
+        if (panelAjustes) {
+            z = zonaEnPunto(zonasAjustes, p.x, p.y)
+            if (z) panelAjustes.fila = z.fila
+        } else {
+            z = zonaCercana(zonasMenu, p.x, p.y)
+            if (z && z.tipo === "dificultad") { dificultadElegida = z.indice; focoMenu = "dificultad" }
+            if (z && ORDEN_BARRA.includes(z.tipo)) focoMenu = z.tipo
+        }
     } else if (estado === "estadisticas") {
         z = zonaCercana(zonasEstadisticas, p.x, p.y)
         if (z && z.tipo === undefined) personajeSeleccionado = z.indice   // las fichas de personaje no tienen tipo
@@ -1534,19 +1545,18 @@ canvas.addEventListener("click", function(e) {
         return
     }
     if (estado === "menu") {
+        // Panel de ajustes abierto: un clic en él lo usa; fuera de él lo cierra (en la tuerca, solo cierra)
+        if (panelAjustes) {
+            if (clicPanelAjustes(p)) return
+            const enBoton = zonaEnPunto(zonasMenu, p.x, p.y)
+            panelAjustes = null
+            if (!enBoton || enBoton.tipo === "ajustes") return
+        }
         // Clic en un recuadro: confirma esa dificultad y empieza la partida
         const z = zonaEnPunto(zonasMenu, p.x, p.y)
-        // Con una lista desplegada, un clic elige una de sus opciones o, en cualquier otro sitio, la cierra
-        if (desplegableAbierto) {
-            if (z && z.tipo === "opcion" && z.desplegable === desplegableAbierto) elegirOpcionDesplegable(z.desplegable, z.indice)
-            else desplegableAbierto = null
-            return
-        }
         if (!z) return
-        if (z.tipo === "desplegable") {
-            abrirDesplegable(z.desplegable)
-            return
-        }
+        if (z.tipo === "sonido") { focoMenu = "sonido"; alternarSonidoBoton(); return }
+        if (z.tipo === "ajustes") { focoMenu = "ajustes"; panelAjustes = { fila: 0 }; return }
         if (z.tipo === "ayuda") {
             abrirAyuda()
             return
@@ -1559,11 +1569,21 @@ canvas.addEventListener("click", function(e) {
         empezarPartida()
         canvas.style.cursor = "default"
     } else if (estado === "estadisticas") {
+        if (panelAjustes) {
+            if (clicPanelAjustes(p)) return
+            const enBoton = zonaEnPunto(zonasEstadisticas, p.x, p.y)
+            panelAjustes = null
+            if (enBoton && enBoton.tipo === "ajustes") return
+        }
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
+        if (z && z.tipo === "sonido") { alternarSonidoBoton(); return }
+        if (z && z.tipo === "ajustes") { panelAjustes = { fila: 0 }; return }
         if (z && z.tipo === "reportar") abrirReporte()
         else if (z && z.tipo === "ayuda") abrirAyuda()
         else if (z && z.tipo === "objeto") usarObjetoFuera(z.id, equipoJugador[personajeSeleccionado])
         else if (z) personajeSeleccionado = z.indice
+    } else if (estado === "combate") {
+        if (zonaSonidoCombate && zonaEnPunto([zonaSonidoCombate], p.x, p.y)) alternarSonidoBoton()
     } else if (estado === "evento") {
         if (eventoEnCurso.resultado) {
             // Clic en cualquier sitio para continuar (no justo después de decidir, por si es un doble clic)
@@ -3035,57 +3055,37 @@ function dibujarMenu() {
     const ayuda = focoMenu === "dificultad"
         ? L("Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↑ opciones",
             "Choose with the mouse or ← →  ·  Click or Enter to start  ·  ↑ options")
-        : L("↑ ↓ para moverte por las opciones  ·  Enter abre  ·  Esc vuelve a la dificultad",
-            "↑ ↓ to move between the options  ·  Enter opens  ·  Esc back to the difficulty")
+        : L("← → para moverte por los botones  ·  Enter lo usa  ·  ↓ o Esc vuelve a la dificultad",
+            "← → to move between the buttons  ·  Enter uses it  ·  ↓ or Esc back to the difficulty")
     ctx.fillText(ayuda, 512, 400)
 
     zonasMenu.push(dibujarBoton(L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)"), 512, 600, "reportar"))
-    // Las opciones de arriba van lo último: si una lista está abierta, queda por encima de lo demás
+    // La barra de arriba va lo último: si el panel de ajustes está abierto, queda por encima de todo
     dibujarBarraMenu()
     dibujarVersion()
     ctx.textAlign = "left"
 }
 
-// --- Opciones de arriba a la derecha del menú: idioma, colores y ayuda -------------------
-// Tres botones iguales, uno debajo de otro, con solo su nombre. Los dos desplegables abren su lista
-// a la izquierda del botón (así no tapan los de abajo), con todas las opciones y la elegida marcada.
-// Ratón: clic abre y elige. Teclado: ↑ desde la dificultad sube a la columna (empezando por abajo),
-// ↑/↓ se mueven por ella, Enter abre (o enseña la ayuda) y Esc, o ↓ desde el último, vuelve; en una
-// lista abierta, ↑/↓ y Enter eligen y Esc la cierra.
-const Y_BARRA = 14, ALTO_BARRA = 34, HUECO_BARRA = 8, ALTO_FILA_LISTA = 36
-const ORDEN_BARRA = ["idioma", "colores", "ayuda"]   // de arriba abajo
-const DESPLEGABLES = {
-    idioma: {
-        anchoLista: 170,
-        etiqueta: () => L("Idioma", "Language"),
-        opciones: () => IDIOMAS.map(i => i.nombre),
-        actual: () => Math.max(0, IDIOMAS.findIndex(i => i.id === idioma)),
-        elegir: i => { idioma = IDIOMAS[i].id },
-        dibujarFila: (i, x, y) => ctx.fillText(IDIOMAS[i].nombre, x + 12, y + 23)
-    },
-    colores: {
-        anchoLista: 330,
-        etiqueta: () => L("Colores", "Colors"),
-        opciones: () => MODOS_COLOR.map(m => tr(m.nombre)),
-        actual: () => modoColor,
-        elegir: i => { modoColor = i; delete capasFijas.mapa },
-        // En la lista, el nombre de cada modo y sus casillas de muestra
-        dibujarFila: (i, x, y, ancho) => {
-            ctx.fillText(tr(MODOS_COLOR[i].nombre), x + 12, y + 23)
-            ;[2, 3, 4].forEach((tipo, k) => casillaEscalada(tipo, x + ancho - 118 + k * 28, y + 5, 0.8, i))
-        }
-    }
-}
+// --- Barra de arriba (menú de inicio y Estadísticas) ------------------------------------------
+// Arriba a la izquierda, el altavoz: silencia o activa todo el sonido de un toque. Arriba a la
+// derecha, la tuerca de ajustes y, a su izquierda, la ayuda. La tuerca abre el panel de ajustes:
+// idioma, colores, volumen de efectos y de música, y temblor de pantalla.
+// Teclado en el menú: ↑ desde la dificultad sube a la barra, ←→ se mueven por ella, Enter usa el
+// botón y ↓ o Esc vuelven. En el panel: ↑↓ eligen fila, ←→ (o Enter) cambian el valor, Esc lo cierra.
+// En Estadísticas: V silencia y O abre los ajustes.
+const ORDEN_BARRA = ["sonido", "ayuda", "ajustes"]   // de izquierda a derecha
 const TEXTO_AYUDA_MENU = () => L("¿Cómo jugar? (H)", "How to play (H)")
 let focoMenu = "dificultad"       // "dificultad" o uno de ORDEN_BARRA: a qué afectan las flechas y Enter
-let desplegableAbierto = null     // clave del desplegable con la lista abierta, o null
-let opcionResaltada = 0           // opción marcada en la lista abierta
+let panelAjustes = null           // null (cerrado) o { fila }
+let zonasAjustes = []
+const haySonido = () => typeof ajustesSonido !== "undefined"
+const ANCHO_PANEL_AJUSTES = 440, ALTO_FILA_AJUSTES = 40, ANCHO_ICONO = 44
 
 function anchoTexto(fuente, texto) {
     ctx.font = fuente
     return ctx.measureText(texto).width
 }
-// Una casilla del mapa a otro tamaño (en las listas)
+// Una casilla del mapa a otro tamaño (muestras de los modos de color)
 function casillaEscalada(tipo, x, y, escala, modo) {
     ctx.save()
     ctx.translate(x, y)
@@ -3093,95 +3093,145 @@ function casillaEscalada(tipo, x, y, escala, modo) {
     dibujarCasilla(tipo, 0, 0, modo)
     ctx.restore()
 }
-// Triángulo del desplegable: hacia abajo, o hacia la izquierda si su lista está abierta (sale por ahí)
-function dibujarFlecha(cx, cy, abierto) {
-    ctx.beginPath()
-    if (abierto) { ctx.moveTo(cx + 3, cy - 6); ctx.lineTo(cx + 3, cy + 6); ctx.lineTo(cx - 4, cy) }
-    else { ctx.moveTo(cx - 6, cy - 3); ctx.lineTo(cx + 6, cy - 3); ctx.lineTo(cx, cy + 4) }
-    ctx.closePath()
-    ctx.fill()
-}
 
-function dibujarBarraMenu() {
-    // Todos del mismo ancho: el del texto más largo, más el hueco para la flecha
-    const textos = { idioma: DESPLEGABLES.idioma.etiqueta(), colores: DESPLEGABLES.colores.etiqueta(), ayuda: TEXTO_AYUDA_MENU() }
-    const ancho = Math.max(...Object.values(textos).map(t => anchoTexto("15px sans-serif", t))) + 24 + 26
-    const x = 1010 - ancho
-    ORDEN_BARRA.forEach((clave, i) => {
-        const y = Y_BARRA + i * (ALTO_BARRA + HUECO_BARRA)
-        const esDesplegable = clave !== "ayuda"
-        const enfocado = focoMenu === clave || desplegableAbierto === clave
-        ctx.fillStyle = "rgb(30, 34, 54)"
-        ctx.fillRect(x, y, ancho, ALTO_BARRA)
-        if (enfocado) {
-            ctx.fillStyle = "rgba(60, 140, 255, 0.25)"
-            ctx.fillRect(x, y, ancho, ALTO_BARRA)
-        }
-        ctx.strokeStyle = enfocado ? "yellow" : "rgba(255, 255, 255, 0.3)"
-        ctx.lineWidth = enfocado ? 3 : 1
-        ctx.strokeRect(x, y, ancho, ALTO_BARRA)
-        ctx.lineWidth = 1
-        ctx.textAlign = "left"
-        ctx.font = "15px sans-serif"
-        ctx.fillStyle = enfocado ? "yellow" : "rgb(120, 200, 255)"   // el azul de los botones del menú (y la flecha igual)
-        ctx.fillText(textos[clave], x + 12, y + 22)
-        if (esDesplegable) {
-            dibujarFlecha(x + ancho - 16, y + ALTO_BARRA / 2, desplegableAbierto === clave)
-            DESPLEGABLES[clave].x = x
-            DESPLEGABLES[clave].y = y
-            zonasMenu.push({ tipo: "desplegable", desplegable: clave, x: x, y: y, w: ancho, h: ALTO_BARRA })
+// Botón cuadrado con un icono dibujado: "altavoz" (tachado si está en silencio) o "tuerca"
+function dibujarBotonIcono(x, y, icono, tipo, resaltado = false) {
+    const w = ANCHO_ICONO, h = 36
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)"
+    ctx.fillRect(x, y, w, h)
+    ctx.strokeStyle = resaltado ? "yellow" : "rgba(120, 200, 255, 0.5)"
+    ctx.lineWidth = resaltado ? 3 : 1
+    ctx.strokeRect(x, y, w, h)
+    ctx.lineWidth = 1
+    const color = resaltado ? "yellow" : "rgb(120, 200, 255)"
+    ctx.fillStyle = color; ctx.strokeStyle = color
+    const cx = x + w / 2, cy = y + h / 2
+    if (icono === "altavoz") {
+        ctx.fillRect(cx - 12, cy - 4, 6, 8)
+        ctx.beginPath(); ctx.moveTo(cx - 6, cy - 4); ctx.lineTo(cx + 1, cy - 10); ctx.lineTo(cx + 1, cy + 10); ctx.lineTo(cx - 6, cy + 4); ctx.closePath(); ctx.fill()
+        ctx.lineWidth = 2
+        if (haySonido() && ajustesSonido.silencio) {
+            ctx.strokeStyle = "rgb(250, 120, 110)"
+            ctx.beginPath(); ctx.moveTo(cx + 5, cy - 5); ctx.lineTo(cx + 13, cy + 5); ctx.moveTo(cx + 13, cy - 5); ctx.lineTo(cx + 5, cy + 5); ctx.stroke()
         } else {
-            zonasMenu.push({ tipo: "ayuda", x: x, y: y, w: ancho, h: ALTO_BARRA })
+            ctx.beginPath(); ctx.arc(cx + 2, cy, 6, -0.8, 0.8); ctx.stroke()
+            ctx.beginPath(); ctx.arc(cx + 2, cy, 11, -0.8, 0.8); ctx.stroke()
         }
-    })
-    if (!desplegableAbierto) return
+        ctx.lineWidth = 1
+    } else {
+        // Tuerca: ocho dientes, el cuerpo y el agujero del centro
+        ctx.save(); ctx.translate(cx, cy)
+        for (let k = 0; k < 8; k++) { ctx.rotate(Math.PI / 4); ctx.fillRect(-2.5, -12, 5, 6) }
+        ctx.beginPath(); ctx.arc(0, 0, 8.5, 0, Math.PI * 2); ctx.fill()
+        ctx.fillStyle = "rgb(20, 16, 30)"; ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, Math.PI * 2); ctx.fill()
+        ctx.restore()
+    }
+    return { tipo: tipo, x: x, y: y, w: w, h: h }
+}
 
-    // La lista abierta, a la izquierda de su botón y a su misma altura
-    const d = DESPLEGABLES[desplegableAbierto]
-    const anchoLista = d.anchoLista
-    const xLista = d.x - 6 - anchoLista
-    const yLista = d.y
-    d.opciones().forEach((texto, i) => {
-        const y = yLista + i * ALTO_FILA_LISTA
-        const resaltada = i === opcionResaltada
-        // Fondo opaco siempre: la lista queda encima del título y de la cuadrícula del fondo
-        ctx.fillStyle = "rgb(30, 34, 54)"
-        ctx.fillRect(xLista, y, anchoLista, ALTO_FILA_LISTA)
-        if (resaltada) {
-            ctx.fillStyle = "rgba(60, 140, 255, 0.25)"
-            ctx.fillRect(xLista, y, anchoLista, ALTO_FILA_LISTA)
-            // La marcada lleva también borde (no solo cambia de color)
-            ctx.strokeStyle = "yellow"
-            ctx.lineWidth = 2
-            ctx.strokeRect(xLista + 2, y + 2, anchoLista - 4, ALTO_FILA_LISTA - 4)
-            ctx.lineWidth = 1
-        }
-        ctx.textAlign = "left"
-        ctx.font = "15px sans-serif"
-        ctx.fillStyle = resaltada ? "yellow" : "white"
-        d.dibujarFila(i, xLista, y, anchoLista - 26)
-        // La opción en uso lleva una marca a la derecha
-        if (i === d.actual()) {
-            ctx.fillStyle = "rgb(120, 220, 140)"
-            ctx.textAlign = "right"
-            ctx.fillText("✓", xLista + anchoLista - 10, y + 24)
+// Altavoz arriba a la izquierda y, arriba a la derecha, la tuerca con la ayuda a su izquierda
+let xPanelAjustes = 0
+function dibujarBarraMenu() {
+    if (haySonido()) zonasMenu.push(dibujarBotonIcono(14, 14, "altavoz", "sonido", focoMenu === "sonido"))
+    const tuerca = dibujarBotonIcono(1024 - 14 - ANCHO_ICONO, 14, "tuerca", "ajustes", focoMenu === "ajustes" || panelAjustes !== null)
+    const anchoAyuda = anchoTexto("15px sans-serif", TEXTO_AYUDA_MENU()) + 32
+    zonasMenu.push(tuerca, dibujarBoton(TEXTO_AYUDA_MENU(), tuerca.x - 10 - anchoAyuda / 2, 14, "ayuda", focoMenu === "ayuda"))
+    if (panelAjustes) dibujarPanelAjustes(1024 - 14 - ANCHO_PANEL_AJUSTES, 58)
+}
+
+// Filas del panel de ajustes (la del idioma, solo antes de empezar la partida)
+function filasAjustes() {
+    const filas = []
+    // El idioma también se puede cambiar a mitad de partida (desde Estadísticas, que solo se abre en el
+    // mapa): la tripulación toma sus nombres en el nuevo y los enemigos los toman al crearse
+    filas.push({ texto: L("Idioma", "Language"), valor: () => IDIOMAS.find(i => i.id === idioma).nombre,
+        cambiar: d => {
+            const n = IDIOMAS.length, i = IDIOMAS.findIndex(x => x.id === idioma)
+            idioma = IDIOMAS[(i + d + n) % n].id
+            if (estado !== "menu") equipoJugador.forEach(p => p.nombre = nombreDe(p.id))
+        } })
+    filas.push({ texto: L("Colores", "Colors"), valor: () => tr(MODOS_COLOR[modoColor].nombre), muestras: true,
+        cambiar: d => { modoColor = (modoColor + d + MODOS_COLOR.length) % MODOS_COLOR.length; delete capasFijas.mapa } })
+    if (haySonido()) {
+        filas.push({ texto: L("Efectos", "Effects"), barra: "efectos" })
+        filas.push({ texto: L("Música", "Music"), barra: "musica" })
+    }
+    filas.push({ texto: L("Temblor", "Screen shake"), valor: () => tr(NIVELES_TEMBLOR[nivelTemblor].nombre),
+        cambiar: d => { nivelTemblor = (nivelTemblor + d + NIVELES_TEMBLOR.length) % NIVELES_TEMBLOR.length } })
+    return filas
+}
+function dibujarPanelAjustes(x, y) {
+    zonasAjustes = []
+    if (!panelAjustes) return
+    xPanelAjustes = x
+    const filas = filasAjustes()
+    panelAjustes.fila = Math.max(0, Math.min(panelAjustes.fila, filas.length - 1))
+    const alto = 44 + filas.length * ALTO_FILA_AJUSTES + 8
+    ctx.fillStyle = "rgba(22, 15, 28, 0.97)"
+    ctx.fillRect(x, y, ANCHO_PANEL_AJUSTES, alto)
+    ctx.strokeStyle = "rgb(140, 98, 124)"; ctx.lineWidth = 2
+    ctx.strokeRect(x + 1, y + 1, ANCHO_PANEL_AJUSTES - 2, alto - 2)
+    ctx.lineWidth = 1
+    ctx.textAlign = "left"
+    ctx.font = "13px 'Press Start 2P'"; ctx.fillStyle = "rgb(250, 214, 110)"
+    ctx.fillText(L("Ajustes", "Settings"), x + 16, y + 28)
+    ctx.font = "12px sans-serif"; ctx.fillStyle = "rgb(150, 140, 165)"; ctx.textAlign = "right"
+    ctx.fillText(L("Esc cierra", "Esc closes"), x + ANCHO_PANEL_AJUSTES - 14, y + 27); ctx.textAlign = "left"
+    const xValor = x + 150, finValor = x + ANCHO_PANEL_AJUSTES - 14
+    filas.forEach((f, i) => {
+        const fy = y + 44 + i * ALTO_FILA_AJUSTES, marcada = panelAjustes.fila === i
+        if (marcada) { ctx.strokeStyle = "rgb(250, 200, 80)"; ctx.lineWidth = 2; ctx.strokeRect(x + 6, fy + 2, ANCHO_PANEL_AJUSTES - 12, ALTO_FILA_AJUSTES - 4); ctx.lineWidth = 1 }
+        ctx.font = "15px sans-serif"; ctx.fillStyle = marcada ? "rgb(250, 214, 110)" : "white"
+        ctx.fillText(f.texto, x + 16, fy + 26)
+        const zona = { fila: i, x: x, y: fy, w: ANCHO_PANEL_AJUSTES, h: ALTO_FILA_AJUSTES, xValor, finValor }
+        if (f.barra) {
+            // Barra de 10 tramos (apagada si está todo en silencio) y el porcentaje
+            const valor = ajustesSonido[f.barra]
+            for (let k = 0; k < 10; k++) {
+                ctx.fillStyle = k < Math.round(valor * 10) ? (ajustesSonido.silencio ? "rgb(110, 100, 120)" : "rgb(120, 200, 255)") : "rgb(50, 38, 60)"
+                ctx.fillRect(xValor + k * 20, fy + 12, 16, 16)
+            }
+            ctx.fillStyle = "rgb(200, 190, 215)"; ctx.textAlign = "right"
+            ctx.fillText(Math.round(valor * 100) + "%", finValor, fy + 26); ctx.textAlign = "left"
+            zona.barra = { clave: f.barra, x: xValor, w: 200 }
+        } else {
+            // ◀ valor ▶ (en los colores, con las casillas de muestra del modo junto al nombre)
+            ctx.fillStyle = "rgb(200, 190, 215)"
+            ctx.fillText("◀", xValor, fy + 26)
+            ctx.textAlign = "right"; ctx.fillText("▶", finValor, fy + 26)
+            ctx.textAlign = "center"; ctx.fillStyle = marcada ? "rgb(250, 214, 110)" : "white"
+            ctx.fillText(f.valor(), (xValor + 14 + finValor - 14) / 2, fy + 26)
             ctx.textAlign = "left"
+            if (f.muestras) [2, 3, 4].forEach((tipo, k) => casillaEscalada(tipo, x + 78 + k * 20, fy + 12, 0.5, modoColor))
         }
-        // Delante en la lista de zonas: así gana a lo que tenga debajo
-        zonasMenu.unshift({ tipo: "opcion", desplegable: desplegableAbierto, indice: i, x: xLista, y: y, w: anchoLista, h: ALTO_FILA_LISTA })
+        zonasAjustes.push(zona)
     })
-    ctx.strokeStyle = "yellow"
-    ctx.strokeRect(xLista, yLista, anchoLista, ALTO_FILA_LISTA * d.opciones().length)
 }
-
-function abrirDesplegable(clave) {
-    desplegableAbierto = clave
-    focoMenu = clave
-    opcionResaltada = DESPLEGABLES[clave].actual()
+function teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, cerrar) {
+    if (cerrar) { panelAjustes = null; return }
+    const filas = filasAjustes()
+    if (arriba) panelAjustes.fila = Math.max(0, panelAjustes.fila - 1)
+    if (abajo) panelAjustes.fila = Math.min(filas.length - 1, panelAjustes.fila + 1)
+    const f = filas[panelAjustes.fila]
+    if (f.barra) { if (izquierda || derecha) ajustarVolumen(f.barra, derecha ? 0.1 : -0.1) }
+    else if (izquierda || derecha || confirmar) f.cambiar(izquierda ? -1 : 1)
 }
-function elegirOpcionDesplegable(clave, i) {
-    DESPLEGABLES[clave].elegir(i)
-    desplegableAbierto = null
+// Clic o toque en el panel: devuelve true si ha caído dentro (y lo gestiona)
+function clicPanelAjustes(p) {
+    const z = zonaEnPunto(zonasAjustes, p.x, p.y)
+    if (!z) return p.x >= xPanelAjustes && p.x <= xPanelAjustes + ANCHO_PANEL_AJUSTES && p.y >= 58 && p.y <= 58 + 44
+    panelAjustes.fila = z.fila
+    const f = filasAjustes()[z.fila]
+    if (z.barra) {
+        const fraccion = (p.x - z.barra.x) / z.barra.w
+        if (fraccion >= -0.05 && fraccion <= 1.05) fijarVolumen(z.barra.clave, Math.ceil(Math.max(0, Math.min(1, fraccion)) * 10) / 10)
+    } else if (p.x >= z.xValor) f.cambiar(p.x < (z.xValor + z.finValor) / 2 ? -1 : 1)
+    return true
+}
+function alternarSonidoBoton() {
+    if (!haySonido()) return
+    alternarSilencio()
+    if (!ajustesSonido.silencio) sonar("aceptar")
 }
 
 // Botón azulado (reportar, ayuda...), centrado en x; devuelve su zona clicable con el tipo indicado
@@ -3481,7 +3531,7 @@ let ayudaAbierta = null   // clave de AYUDA que se está mostrando, o null
 
 function abrirAyuda() {
     ayudaAbierta = AYUDA[estado] ? estado : "exploracion"   // descanso, victoria...: la del mapa
-    desplegableAbierto = null
+    panelAjustes = null
     // Que Paku no siga andando con una tecla que estaba pulsada al abrirla
     for (const t in teclas) teclas[t] = false
 }
@@ -3619,7 +3669,7 @@ const MODOS_COLOR = [
       equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] },
       zonas: [[128, 0, 191], [0, 191, 0], [166, 191, 38], [0, 32, 191], [255, 42, 0]] }
 ]
-let modoColor = 0   // índice en MODOS_COLOR (no se guarda: cada vez que se abre el juego empieza en Convencional)
+let modoColor = 0   // índice en MODOS_COLOR (se guarda con el resto de ajustes; la primera vez, Convencional)
 // Color del suelo de una zona en el modo de color elegido ([r, g, b])
 function colorZona(zona) {
     return MODOS_COLOR[modoColor].zonas[ZONAS.indexOf(zona)]
@@ -4043,14 +4093,16 @@ function dibujarEnemigosCombate() {
         const y = formacion ? 20 + (enRejilla ? Math.floor(i / 2) : i) * paso : cursor
         const muerto = en.stats.HP <= 0
         const elegido = faseCombate === "objetivo" && i === objetivoSeleccionado
-        ctx.globalAlpha = muerto ? 0.25 : 1
-        dibujarSprite(en.tipo, x, y, tam, true, en.stats.HP / en.stats.HP_MAX)
+        en.rect = { x, y, tam }
+        const an = en.anim || { dx: 0, dy: 0, alfa: 1 }
+        ctx.globalAlpha = (muerto ? 0.25 : 1) * an.alfa
+        dibujarSprite(en.tipo, x + an.dx, y + an.dy, tam, true, en.stats.HP / en.stats.HP_MAX)
         // Kamikaze: los turnos que le quedan, en su pantalla (mismos colores que el texto de debajo)
         if (en.rol === "estallar" && !muerto && !en.estallo && typeof dibujarContadorKamikaze === "function") {
             const quedan = TURNOS_KAMIKAZE - (en.turnosCargando || 0)
             const color = en.dron && mejorasPartida.dronesPirateados ? "rgb(110, 220, 200)" : quedan <= 1 ? "rgb(255, 80, 60)" : "orange"
             // En el último turno, el número parpadea
-            if (quedan > 1 || Math.floor(performance.now() / 350) % 2 === 0) dibujarContadorKamikaze(x, y, tam, quedan, color)
+            if (quedan > 1 || Math.floor(performance.now() / 350) % 2 === 0) dibujarContadorKamikaze(x + an.dx, y + an.dy, tam, quedan, color)
         }
         ctx.globalAlpha = 1
         dibujarBarraHP(x, y + tam + 6, tam, en.stats)
@@ -4083,6 +4135,7 @@ function dibujarEnemigosCombate() {
     ctx.font = fuenteAnterior
 }
 
+let zonaSonidoCombate = null
 function dibujarCombate() {
     dibujarFondo("fondoCombate")
     ctx.font = "14px sans-serif"
@@ -4093,14 +4146,16 @@ function dibujarCombate() {
         const tam = 96
         const x = 30
         const y = 22 + i * 130
-        ctx.globalAlpha = p.stats.HP <= 0 ? 0.35 : 1
-        dibujarSprite(p.id, x, y, tam, false, p.stats.HP / p.stats.HP_MAX)
+        p.rect = { x, y, tam }
+        const an = p.anim || { dx: 0, dy: 0, alfa: 1 }   // movimiento de la animación en curso (Animaciones.js)
+        ctx.globalAlpha = (p.stats.HP <= 0 ? 0.35 : 1) * an.alfa
+        dibujarSprite(p.id, x + an.dx, y + an.dy, tam, false, p.stats.HP / p.stats.HP_MAX)
         ctx.globalAlpha = 1
         dibujarBarraHP(x + 8, y + tam + 4, tam - 16, p.stats)
         ctx.fillStyle = colorNombre(p)
         ctx.fillText(p.nombre, x + tam + 10, y + 44)
         ctx.fillText(p.stats.HP + "/" + p.stats.HP_MAX + " HP", x + tam + 10, y + 64)
-        if (equipoJugador[personajeActual] === p) dibujarMarcador(x - 4, y + tam / 2, "derecha")
+        if (equipoJugador[personajeActual] === p && faseCombate !== "animando") dibujarMarcador(x - 4, y + tam / 2, "derecha")
     })
 
     dibujarEnemigosCombate()
@@ -4127,7 +4182,14 @@ function dibujarCombate() {
     const disponibles = personaje !== undefined ? habilidadesDisponibles(personaje) : []
 
     const objetos = objetosDisponibles()
-    if (faseCombate === "habilidad") {
+    if (faseCombate === "animando") {
+        // Mientras se ven las acciones de la ronda no se elige nada: en vez del menú, cómo acelerar
+        ctx.fillStyle = "rgb(170, 160, 185)"
+        ctx.fillText(L("Ronda en curso...", "Round in progress..."), 700, 595)
+        ctx.font = "13px sans-serif"
+        ctx.fillText(L("Mantén Enter / espacio para acelerar", "Hold Enter / space to speed up"), 700, 622)
+        ctx.font = "14px sans-serif"
+    } else if (faseCombate === "habilidad") {
         // Submenú de habilidades
         disponibles.forEach((h, i) => {
             const alcanza = personaje.energia >= h.coste
@@ -4168,8 +4230,10 @@ function dibujarCombate() {
     ctx.font = "13px sans-serif"
     ctx.fillStyle = "rgb(170, 170, 190)"
     ctx.textAlign = "center"
-    ctx.fillText(L("H: ayuda del combate", "H: combat help"), 472, 24)
+    ctx.fillText(L("H: ayuda del combate  ·  V: sonido", "H: combat help  ·  V: sound"), 452, 24)
     ctx.textAlign = "left"
+    // Altavoz para silenciar sin salir del combate (clic, toque o V)
+    zonaSonidoCombate = haySonido() ? dibujarBotonIcono(612, 6, "altavoz", "sonido") : null
     ctx.font = "14px sans-serif"
     // Panel del registro, siempre pintado (aunque aún esté vacío): arriba, las dos líneas de ayuda de la
     // acción que se elige; debajo, separado por una línea, el registro de la ronda
@@ -4423,10 +4487,10 @@ function dibujarEstadisticas() {
     ctx.textAlign = "left"
     ctx.fillStyle = "white"
     ctx.font = "28px sans-serif"
-    ctx.fillText(L("Estadísticas", "Stats"), 400, 50)
+    ctx.fillText(L("Estadísticas", "Stats"), 290, 50)
     ctx.font = "14px sans-serif"
     ctx.fillStyle = "rgb(180, 180, 190)"
-    ctx.fillText(L("↑↓ o clic elige personaje · 1-4 usa un objeto · M / Esc para volver", "↑↓ or click to pick a character · 1-4 uses an item · M / Esc to go back"), 290, 75)
+    ctx.fillText(L("↑↓ o clic elige personaje · 1-4 usa un objeto · V sonido · O ajustes · M / Esc para volver", "↑↓ or click to pick a character · 1-4 uses an item · V sound · O settings · M / Esc to go back"), 290, 75)
 
     // Lista de la izquierda
     equipoJugador.forEach((p, i) => {
@@ -4454,12 +4518,16 @@ function dibujarEstadisticas() {
 
         zonasEstadisticas.push({ indice: i, x: 20, y: y, w: 260, h: 78 })
     })
-    // Arriba a la derecha: ayuda en la esquina y, a su izquierda, reportar
-    const zonaAyuda = dibujarBotonEsquina(L("Ayuda (H)", "Help (H)"), "ayuda")
-    ctx.font = "15px sans-serif"
+    // Como en el menú de inicio: altavoz arriba a la izquierda y, arriba a la derecha, la tuerca de
+    // ajustes, la ayuda a su izquierda y reportar a la izquierda de la ayuda
+    if (haySonido()) zonasEstadisticas.push(dibujarBotonIcono(14, 14, "altavoz", "sonido"))
+    const tuerca = dibujarBotonIcono(1024 - 14 - ANCHO_ICONO, 14, "tuerca", "ajustes", panelAjustes !== null)
+    const textoAyuda = L("Ayuda (H)", "Help (H)")
+    const anchoAyuda = anchoTexto("15px sans-serif", textoAyuda) + 32
+    const zonaAyuda = dibujarBoton(textoAyuda, tuerca.x - 10 - anchoAyuda / 2, 14, "ayuda")
     const textoReporte = L("Reportar un bug o una idea (R)", "Report a bug or an idea (R)")
-    const anchoReporte = ctx.measureText(textoReporte).width + 32
-    zonasEstadisticas.push(zonaAyuda, dibujarBoton(textoReporte, zonaAyuda.x - 10 - anchoReporte / 2, 14, "reportar"))
+    const anchoReporte = anchoTexto("15px sans-serif", textoReporte) + 32
+    zonasEstadisticas.push(tuerca, zonaAyuda, dibujarBoton(textoReporte, zonaAyuda.x - 10 - anchoReporte / 2, 14, "reportar"))
 
     // Panel de detalle de la derecha: el personaje resaltado en la lista
     const p = equipoJugador[personajeSeleccionado]
@@ -4535,6 +4603,7 @@ function dibujarEstadisticas() {
         340, 670)
 
     dibujarResumenPartida(20, 470, 260, 696)
+    if (panelAjustes) dibujarPanelAjustes(1024 - 14 - ANCHO_PANEL_AJUSTES, 58)
     dibujarVersion()
 }
 
