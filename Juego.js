@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.13.0"
+const VERSION = "0.14.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -210,19 +210,21 @@ const DAÑO_REFILON = 0.5
 // multiplicador = sobre el ATK base de poolEnemigos; crecimiento = % de ese ATK por nivel medio del
 // equipo; xp = multiplicador de la experiencia que dan los enemigos.
 const DIFICULTADES = [
-    { nombre: { es: "Fácil", en: "Easy" },
+    // bloqueada: se ve con un candado y no se puede elegir. Por ahora solo se juega (y se equilibra) Normal.
+    // Fácil tiene de momento los mismos números que Normal: hay que hacerla más fácil antes de abrirla
+    { nombre: { es: "Fácil", en: "Easy" }, bloqueada: true,
       descripcion: { es: ["Enemigos más flojos", "Subes de nivel más rápido", "Subir de nivel cura"], en: ["Weaker enemies", "You level up faster", "Leveling up heals"] },
-      // 2026-10-10: algo más duro (simulado: llega al sector 12 un 85%, antes el 99%)
       multiplicador: 1.25, crecimiento: 0.16, xp: 1.3, sorpresa: 2, curaAlSubir: 0.5 },
-    // bloqueada: se ve con un candado y no se puede elegir (por ahora solo se equilibra Fácil)
-    { nombre: { es: "Normal", en: "Normal" }, bloqueada: true,
-      descripcion: { es: ["El reto pensado", "para el juego"], en: ["The challenge the game", "was designed for"] },
-      multiplicador: 1.35, crecimiento: 0.18, xp: 1, sorpresa: 1 },
+    // 0.13.1: el Normal de ahora es lo que era Fácil (el Normal de antes era multiplicador 1.35,
+    // crecimiento 0.18, xp 1, sorpresa 1 y sin curar al subir)
+    { nombre: { es: "Normal", en: "Normal" },
+      descripcion: { es: ["El reto pensado", "para el juego", "Subir de nivel cura"], en: ["The challenge the game", "was designed for", "Leveling up heals"] },
+      multiplicador: 1.25, crecimiento: 0.16, xp: 1.3, sorpresa: 2, curaAlSubir: 0.5 },
     { nombre: { es: "Difícil", en: "Hard" }, bloqueada: true,
       descripcion: { es: ["Enemigos más duros", "Subes de nivel más despacio"], en: ["Tougher enemies", "You level up slower"] },
       multiplicador: 1.7,  crecimiento: 0.24, xp: 0.75, sorpresa: 0 }
 ]
-let dificultadElegida = 0   // índice en DIFICULTADES; por defecto, Fácil (Normal y Difícil están bloqueadas)
+let dificultadElegida = 1   // índice en DIFICULTADES; por defecto, Normal (Fácil y Difícil están bloqueadas)
 // La dificultad elegible siguiente (paso 1) o anterior (paso -1), saltándose las bloqueadas
 function dificultadVecina(paso) {
     const n = DIFICULTADES.length
@@ -314,23 +316,23 @@ const mamuri = { id: "Mamuri", nombre: "Mamuri", clase: "humano",  x: 0, y: 0, w
 // golpeMultiple: su LUCK x5 (puede pasar de 100%) da golpes encadenados en cada ataque
 const vbz    = { id: "VBZ",    nombre: "VBZ",    clase: "maquina", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
     // 0.13: con los de Mamuri (salvo LUCK): pega fuerte y encadena críticos, pero aguanta menos
-    crecimiento: { HP_MAX: 4, ATK: 2, DEF: 1, VEL: 0.3, LUCK: 1, PRE: 0.4, EVA: 0.2 },
+    crecimiento: { HP_MAX: 4, ATK: 1.4, DEF: 1, VEL: 0.3, LUCK: 1, PRE: 0.4, EVA: 0.2 },
     habilidades: [
         { id: "tiradaRapida",  nombre: { es: "Tirada rápida", en: "Quick Roll" }, coste: 0, objetivo: "enemigo", nivelMin: 1 },
         { id: "dobleONada",    nombre: { es: "Doble o nada", en: "Double or Nothing" }, coste: 2, objetivo: "enemigo", nivelMin: 1 },
         { id: "monedaSuerte",  nombre: { es: "Moneda de la suerte", en: "Lucky Coin" }, coste: 3, objetivo: "aliados", nivelMin: 5 },
         { id: "jackpot",       nombre: { es: "Jackpot", en: "Jackpot" }, coste: 4, objetivo: "enemigos", nivelMin: 12 }
     ],
-    stats: { HP:30, HP_MAX:30, ATK:10, DEF:6, VEL:4, LUCK:22, PRE:5, EVA:3 }}
+    stats: { HP:30, HP_MAX:30, ATK:8, DEF:6, VEL:4, LUCK:22, PRE:5, EVA:3 }}
 const imanps = { id: "Imanps", nombre: "Imanps", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
-    crecimiento: { HP_MAX: 3.5, ATK: 1.2, DEF: 0.7, VEL: 0.5, LUCK: 0.4, PRE: 0.3, EVA: 0.4 },
+    crecimiento: { HP_MAX: 4.5, ATK: 0.6, DEF: 0.9, VEL: 0.5, LUCK: 0.4, PRE: 0.3, EVA: 0.4 },
     habilidades: [
         { id: "primerosAuxilios", nombre: { es: "Primeros auxilios", en: "First Aid" }, coste: 0, objetivo: "aliado", nivelMin: 1 },
         { id: "reparacion", nombre: { es: "Reparación", en: "Repair" }, coste: 2, objetivo: "aliadoElegido",  nivelMin: 1 },
         { id: "oleada",     nombre: { es: "Oleada", en: "Healing Wave" }, coste: 3, objetivo: "aliados", nivelMin: 5 },
         { id: "reanimar",   nombre: { es: "Reanimar", en: "Revive" }, coste: 5, objetivo: "caido", nivelMin: 12 }
     ],
-    stats: { HP:25, HP_MAX:25, ATK:7,  DEF:4, VEL:5, LUCK:8, PRE:5, EVA:6 }}
+    stats: { HP:34, HP_MAX:34, ATK:4,  DEF:5, VEL:5, LUCK:8, PRE:5, EVA:6 }}
 // Stats de nivel 1 (base) y extras permanentes (HP de los descansos, mejoras del Taller de armas)
 // Posición del que va delante en el mapa: la mueve el jugador y es la que choca con paredes y casillas.
 // La ocupa el primero que siga en pie (Paku, y si ha caído Mamuri, VBZ o Imanps, en ese orden).
@@ -490,7 +492,7 @@ const mejorasPartida = {
 const SABOTAJE = 0.75    // cada sabotaje del Terminal deja la DEF o la vida en un 75% (un 25% menos)
 const HAMBRE = 0.85      // enemigos hambrientos: ATK y VEL al 85%
 const COMBATES_HAMBRE = 3
-const DAÑO_GRAVEDAD = [0.15, 0.20, 0.25]   // vida que cuesta la Sala de gravedad, por dificultad
+const DAÑO_GRAVEDAD = [0.15, 0.15, 0.25]   // vida que cuesta la Sala de gravedad, por dificultad (Normal, con los números del antiguo Fácil)
 const NIVELES_POR_RANGO = 5                // cada rango de habilidad (Biblioteca) equivale a 5 niveles
 const CURA_ROBOT = 0.05                    // lo que cura cada robot de servicio al acabar un combate (se acumula por robot)
 const CURA_DRON_ALIADO = 0.15              // lo que cura el dron reprogramado al final de cada ronda
@@ -1405,8 +1407,13 @@ const bordesPared = mapa.map((filaMapa, fila) => filaMapa.map((tile, col) => {
 
 // Pausa: el juego deja de avanzar y el tiempo de la partida no cuenta mientras dura
 let pausado = false, inicioPausa = 0
+// Menú de la pausa: 0 seguir, 1 rendirse. Rendirse pide confirmación (0 no, 1 sí; por defecto, no)
+let pausaOpcion = 0, pausaConfirmar = false, confirmarOpcion = 0
+let zonasPausa = []
+let rendidos = false   // la partida acabó porque os rendisteis (lo dice la pantalla de derrota)
 const sePuedePausar = () => !["menu", "tripulacion", "victoria", "derrota"].includes(estado) && !(estado === "combate" && faseCombate === "animando")
 function alternarPausa() {
+    pausaOpcion = 0; pausaConfirmar = false; confirmarOpcion = 0
     if (!pausado) {
         pausado = true
         inicioPausa = performance.now()
@@ -1418,14 +1425,73 @@ function alternarPausa() {
     }
     bloquearTeclas()
 }
+// Rendirse: la partida acaba aquí, con la pantalla de derrota
+function rendirse() {
+    alternarPausa()
+    rendidos = true
+    tiempoPartida = performance.now() - tiempoInicio
+    estado = "derrota"
+    bloquearTeclas()
+}
+// Teclas en la pausa: ↑↓←→ eligen, Enter/espacio confirma, P/Esc sigue (o cancela la confirmación)
+function pausaTecla(tecla, confirmar) {
+    const mover = ["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"].includes(tecla)
+    if (pausaConfirmar) {
+        if (tecla === "escape" || tecla === "p") pausaConfirmar = false
+        else if (mover) confirmarOpcion = 1 - confirmarOpcion
+        else if (confirmar) { if (confirmarOpcion === 1) rendirse(); else pausaConfirmar = false }
+        return
+    }
+    if (tecla === "escape" || tecla === "p") alternarPausa()
+    else if (mover) pausaOpcion = 1 - pausaOpcion
+    else if (confirmar) elegirEnPausa(pausaOpcion)
+}
+function elegirEnPausa(i) {
+    if (i === 0) alternarPausa()
+    else { pausaConfirmar = true; confirmarOpcion = 0 }
+}
+function botonPausa(x, y, w, h, texto, elegido, peligro) {
+    ctx.fillStyle = elegido ? (peligro ? "rgba(240, 90, 90, 0.16)" : "rgba(250, 200, 80, 0.12)") : "rgba(40, 28, 48, 0.92)"
+    ctx.fillRect(x, y, w, h)
+    ctx.strokeStyle = elegido ? (peligro ? "rgb(240, 110, 100)" : "rgb(250, 200, 80)") : "rgb(90, 62, 90)"
+    ctx.lineWidth = 2
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2)
+    ctx.lineWidth = 1
+    ctx.fillStyle = elegido ? (peligro ? "rgb(255, 150, 140)" : "rgb(250, 214, 110)") : "white"
+    ctx.font = "bold 17px sans-serif"
+    ctx.textAlign = "center"
+    ctx.fillText(texto, x + w / 2, y + h / 2 + 6)
+}
 function dibujarPausa() {
     ctx.fillStyle = "rgba(10, 6, 14, 0.72)"
     ctx.fillRect(0, 0, ANCHO_JUEGO, ALTO_JUEGO)
-    dibujarTituloPixel(L("Pausa", "Paused"), 512, 330, 34, "rgb(250, 214, 110)")
+    zonasPausa = []
+    const w = 200, h = 46, hueco = 24, x0 = 512 - w - hueco / 2, x1 = 512 + hueco / 2, y = 392
     ctx.textAlign = "center"
-    ctx.fillStyle = "rgb(210, 200, 225)"
-    ctx.font = "16px sans-serif"
-    ctx.fillText(L("P, Enter o Start para seguir · el tiempo de la partida no corre", "P, Enter or Start to resume · the run timer is stopped"), 512, 372)
+    if (!pausaConfirmar) {
+        dibujarTituloPixel(L("Pausa", "Paused"), 512, 310, 34, "rgb(250, 214, 110)")
+        ctx.textAlign = "center"
+        ctx.fillStyle = "rgb(210, 200, 225)"
+        ctx.font = "16px sans-serif"
+        ctx.fillText(L("El tiempo de la partida no corre", "The run timer is stopped"), 512, 352)
+        botonPausa(x0, y, w, h, L("Seguir", "Resume"), pausaOpcion === 0, false)
+        botonPausa(x1, y, w, h, L("Rendirse", "Give up"), pausaOpcion === 1, true)
+        ctx.fillStyle = "rgb(170, 160, 185)"
+        ctx.font = "14px sans-serif"
+        ctx.fillText(L("←→ elegir · Enter confirma · P, Esc o Start para seguir", "←→ choose · Enter confirms · P, Esc or Start to resume"), 512, 470)
+    } else {
+        dibujarTituloPixel(L("¿Rendirse?", "Give up?"), 512, 310, 30, "rgb(240, 90, 90)")
+        ctx.textAlign = "center"
+        ctx.fillStyle = "rgb(210, 200, 225)"
+        ctx.font = "16px sans-serif"
+        ctx.fillText(L("La partida termina aquí y no se puede deshacer.", "The run ends here and it can't be undone."), 512, 352)
+        botonPausa(x0, y, w, h, L("No, seguir", "No, keep going"), confirmarOpcion === 0, false)
+        botonPausa(x1, y, w, h, L("Sí, rendirse", "Yes, give up"), confirmarOpcion === 1, true)
+        ctx.fillStyle = "rgb(170, 160, 185)"
+        ctx.font = "14px sans-serif"
+        ctx.fillText(L("←→ elegir · Enter confirma · Esc vuelve", "←→ choose · Enter confirms · Esc goes back"), 512, 470)
+    }
+    zonasPausa.push({ indice: 0, x: x0, y, w, h }, { indice: 1, x: x1, y, w, h })
     ctx.textAlign = "left"
 }
 
@@ -1458,7 +1524,7 @@ document.addEventListener("keydown", function(e) {
 
     const tecla = e.key.toLowerCase()
     if (pausado) {
-        if (!e.repeat && (tecla === "p" || e.key === "Enter" || e.key === " " || tecla === "escape")) alternarPausa()
+        if (!e.repeat) pausaTecla(tecla, e.key === "Enter" || e.key === " ")
         return
     }
     if (tecla === "p" && !e.repeat && sePuedePausar()) { alternarPausa(); return }
@@ -1718,6 +1784,13 @@ canvas.addEventListener("click", function(e) {
     const p = coordsRaton(e)
     if (ayudaAbierta) {
         cerrarAyuda()
+        return
+    }
+    if (pausado) {
+        const z = zonaEnPunto(zonasPausa, p.x, p.y)
+        if (!z) return
+        if (pausaConfirmar) { if (z.indice === 1) rendirse(); else pausaConfirmar = false }
+        else { pausaOpcion = z.indice; elegirEnPausa(z.indice) }
         return
     }
     if (estado === "tripulacion") {
@@ -2065,12 +2138,13 @@ function statsParaNivel(personaje, nivel) {
 // para repartir a partes iguales (41 entre 4 → 10 y sobra 1) se lo llevan los primeros, de 1 en 1:
 // así no se pierde nada y el total coincide con el de la pantalla de victoria.
 // Al subir solo se cura el HP máximo ganado. Devuelve el resumen para la pantalla de victoria.
-function repartirXP(total) {
-    const vivos = equipoJugador.filter(p => p.stats.HP > 0)
+// solo: si se indica, toda la XP es para ese personaje (p. ej. la Turbina, que la arregla Imanps)
+function repartirXP(total, solo = null) {
+    const vivos = equipoJugador.filter(p => p.stats.HP > 0 && (!solo || p === solo))
     const cada = vivos.length > 0 ? Math.floor(total / vivos.length) : 0
     let sobrante = vivos.length > 0 ? total - cada * vivos.length : 0
     return equipoJugador.map(p => {
-        const r = { nombre: p.nombre, vivo: p.stats.HP > 0, xpGanada: 0, nivelAntes: p.nivel, mejoras: {}, nuevasHabilidades: [] }
+        const r = { nombre: p.nombre, vivo: vivos.includes(p), xpGanada: 0, nivelAntes: p.nivel, mejoras: {}, nuevasHabilidades: [] }
         if (r.vivo) {
             r.xpGanada = cada + (sobrante > 0 ? 1 : 0)
             if (sobrante > 0) sobrante--
@@ -2436,7 +2510,7 @@ function valoresHabilidad(id, nv) {
         case "todosAUna":   return { extra: 0.2 + 0.005 * (nv - 12), rondas: 2 }     // +1 orbe y +20% de daño (+0,5% por nivel) 2 rondas
         case "rafaga":      return { golpes: 3 + Math.floor(nv / 10), atk: 0.8 }     // 3 golpes (+1 cada 10 niveles)
         case "rompeguardias": return { daño: 0.6 }                                   // pega menos; si está (o va a estar) en guardia, la rompe y lo aturde
-        case "golpePesado": return { daño: 2 + 0.03 * (nv - 1) }                     // daño x2 (+3% por nivel)
+        case "golpePesado": return { daño: 2.4 + 0.03 * (nv - 1), aturde: 1 }        // daño x2,4 (+3% por nivel) y lo aturde un turno
         case "terremoto":   return { daño: 1 + 0.02 * (nv - 1) }                     // a todos (+2% por nivel)
         case "muralla":     return { rondas: 2, reduce: 0.5 }                        // 2 rondas: le atacan a él y recibe la mitad
         case "tiradaRapida": return { atk: 0.7, extra: 30 }                          // ataque flojo con +30% de crítico (encadena)
@@ -2463,7 +2537,7 @@ function descripcionHabilidad(p, h) {
         case "rafaga":      return L(v.golpes + " golpes de ATK x" + num(v.atk) + "; si cae el objetivo, siguen con otro",
                                      v.golpes + " hits of ATK x" + num(v.atk) + "; if the target falls, they move on to another")
         case "rompeguardias": return L("Daño x" + num(v.daño) + "; si está en guardia o se va a poner, se la rompe y lo aturde un turno", "Damage x" + num(v.daño) + "; if it's guarding or about to, breaks the guard and stuns it for a turn")
-        case "golpePesado": return L("Daño x" + num(v.daño) + ", pero la ronda siguiente actúa el último", "Damage x" + num(v.daño) + ", but acts last next round")
+        case "golpePesado": return L("Daño x" + num(v.daño) + " y lo aturde un turno, pero la ronda siguiente actúa el último", "Damage x" + num(v.daño) + " and stuns it for a turn, but acts last next round")
         case "terremoto":   return L("Golpea a todos los enemigos que no vuelan (daño x" + num(v.daño) + "); nunca sale de refilón", "Hits every enemy that isn't flying (damage x" + num(v.daño) + "); never glancing")
         case "muralla":     return L(v.rondas + " rondas: los enemigos solo le pueden atacar a él, y recibe la mitad de daño", v.rondas + " rounds: enemies can only attack him, and he takes half damage")
         case "tiradaRapida": return L("Ataque con ATK x" + num(v.atk) + " y +" + v.extra + "% de crítico (encadena igual)", "Attack with ATK x" + num(v.atk) + " and +" + v.extra + "% crit chance (still chains)")
@@ -2557,8 +2631,12 @@ function usarHabilidad(personaje, h, objetivo) {
             golpearEnemigo(personaje, objetivoActual, { multiplicadorATK: v.atk }, h.nombre)
         }
     } else if (h.id === "golpePesado") {
-        // En la siguiente ronda actúa el último
-        golpearEnemigo(personaje, objetivo, { multiplicadorDaño: v.daño }, h.nombre)
+        // Lo aturde un turno si no le ha dado de refilón; en la siguiente ronda actúa el último
+        const r = golpearEnemigo(personaje, objetivo, { multiplicadorDaño: v.daño }, h.nombre)
+        if (objetivo.stats.HP > 0 && !(r && r.refilon)) {
+            objetivo.aturdido = Math.max(objetivo.aturdido || 0, v.aturde)
+            logCombate.push(L(objetivo.nombre + " queda aturdido un turno", objetivo.nombre + " is stunned for a turn"))
+        }
         personaje.retrasado = true
     } else if (h.id === "terremoto") {
         // Los que vuelan no tocan el suelo: el Terremoto no les afecta
@@ -2713,6 +2791,13 @@ function ejecutarRonda() {
                 accionEnemigo(actor)
             }
         } else {
+            // Pirateado por un Hacker (Enemigos.js): este turno ataca a los suyos
+            if (actor.hackeado) {
+                actor.hackeado = false
+                actor.aturdido = 0
+                accionHackeado(actor)
+                continue
+            }
             if (actor.aturdido > 0) {
                 actor.aturdido--
                 logCombate.push(L(actor.nombre + " está aturdido y no actúa", actor.nombre + " is stunned and can't act"))
@@ -3048,10 +3133,11 @@ function dañarEquipo(fraccion) {
     })
 }
 // XP de un evento: como la de un enemigo con esa XP base (escala con el nivel y la dificultad)
-function ganarXPEvento(base) {
-    const total = Math.round(base * Math.pow(nivelMedio(), XP_EXPONENTE) * DIFICULTADES[dificultadElegida].xp)
-    const lineas = [L("El equipo gana " + total + " XP.", "The team gains " + total + " XP.")]
-    repartirXP(total)
+// solo: la XP entera para ese personaje (escala con su nivel, no con el medio)
+function ganarXPEvento(base, solo = null) {
+    const total = Math.round(base * Math.pow(solo ? solo.nivel : nivelMedio(), XP_EXPONENTE) * DIFICULTADES[dificultadElegida].xp)
+    const lineas = [solo ? L(solo.nombre + " gana " + total + " XP.", solo.nombre + " gains " + total + " XP.") : L("El equipo gana " + total + " XP.", "The team gains " + total + " XP.")]
+    repartirXP(total, solo)
         .filter(r => r.nivelDespues > r.nivelAntes)
         .forEach(r => lineas.push(L("¡" + r.nombre + " sube a nivel " + r.nivelDespues + "!", r.nombre + " reaches level " + r.nivelDespues + "!")))
     return lineas
@@ -3323,6 +3409,7 @@ function iniciarEvento() {
     const evento = i >= 0 ? eventosPendientes.splice(i, 1)[0].evento : elegirEventoAlAzar()
     const datos = evento.preparar ? evento.preparar() : {}
     eventoEnCurso = { evento: evento, datos: datos, opciones: evento.opciones(datos), seleccion: 0, mensaje: null, resultado: null }
+    eventoEnCurso.seleccion = Math.max(0, eventoEnCurso.opciones.findIndex(op => !op.bloqueada))
     estado = "evento"
     bloquearTeclas()
 }
@@ -3338,6 +3425,8 @@ function elegirEventoAlAzar() {
     return evento
 }
 function elegirOpcionEvento(i) {
+    // Opción bloqueada (falta quien la haga): se ve en gris con el motivo y no se puede elegir
+    if (eventoEnCurso.opciones[i].bloqueada) { eventoEnCurso.seleccion = i; return }
     const combatesAntes = casillasDeTipo(2).length
     const res = eventoEnCurso.opciones[i].efecto()
     const evitados = combatesAntes - casillasDeTipo(2).length
@@ -3455,12 +3544,12 @@ function dibujarEvento() {
                 ctx.fillStyle = "rgb(250, 200, 80)"
                 ctx.beginPath(); ctx.moveTo(bx + 12, by + 17); ctx.lineTo(bx + 20, by + 23); ctx.lineTo(bx + 12, by + 29); ctx.closePath(); ctx.fill()
             }
-            ctx.fillStyle = elegida ? "rgb(250, 214, 110)" : "white"
+            ctx.fillStyle = op.bloqueada ? "rgb(120, 112, 130)" : elegida ? "rgb(250, 214, 110)" : "white"
             ctx.font = "bold 17px sans-serif"
             ctx.fillText(op.texto, bx + 28, by + 23)
-            ctx.fillStyle = "rgb(170, 160, 185)"
+            ctx.fillStyle = op.bloqueada ? "rgb(230, 120, 110)" : "rgb(170, 160, 185)"
             ctx.font = "13px sans-serif"
-            ctx.fillText(op.detalle, bx + 28, by + 43)
+            ctx.fillText(op.bloqueada ? L("No disponible: ", "Not available: ") + op.bloqueada : op.detalle, bx + 28, by + 43)
             zonasEvento.push({ indice: i, x: bx, y: by, w: bw, h: bh })
         })
         ayuda = L("Elige con el ratón o con las flechas  ·  Clic o Enter para decidir  ·  H: ayuda", "Choose with the mouse or the arrow keys  ·  Click or Enter to decide  ·  H: help")
@@ -4007,8 +4096,8 @@ const AYUDA = {
               texto: () => L("Cada ronda eliges la acción de cada personaje, de arriba abajo (la flecha naranja señala a quién le toca). Cuando todos han elegido, actúan todos, aliados y enemigos, de mayor a menor " + etiquetaStat("VEL") + ". Elige con W/S o las flechas, Enter confirma y Esc vuelve atrás.",
                              "Each round you choose an action for each character, from top to bottom (the orange arrow shows whose turn it is). Once everyone has chosen, everybody acts, allies and enemies, from highest to lowest " + etiquetaStat("VEL") + ". Choose with W/S or the arrow keys, Enter confirms and Esc goes back.") },
             { titulo: { es: "Las acciones", en: "Actions" },
-              texto: () => L("Atacar: un golpe normal. Habilidad: cuesta orbes (los círculos azules), que se recuperan al final de cada ronda (" + nombreDe("Paku") + " 2, los demás 1). Defender: DEF doble y algo de esquiva hasta la ronda siguiente. Objeto: usa uno del inventario y gasta el turno.",
-                             "Attack: a normal hit. Ability: costs orbs (the blue circles), which recharge at the end of each round (" + nombreDe("Paku") + " 2, the others 1). Defend: double DEF and a bit of evasion until the next round. Item: uses one from your inventory and spends the turn.") },
+              texto: () => L("Atacar: un golpe normal. Habilidad: cuesta orbes (los círculos azules), que se recuperan de uno en uno al final de cada ronda; al marcar una, brillan los orbes que gastaría y, si no te llegan, los que faltan salen en rojo. Defender: DEF doble y algo de esquiva hasta la ronda siguiente. Objeto: usa uno del inventario y gasta el turno.",
+                             "Attack: a normal hit. Ability: costs orbs (the blue circles), which recharge one at a time at the end of each round; when you highlight one, the orbs it would spend glow and, if you don't have enough, the missing ones show in red. Defend: double DEF and a bit of evasion until the next round. Item: uses one from your inventory and spends the turn.") },
             { titulo: { es: "Los golpes", en: "Hits" },
               texto: () => L("Crítico: el doble de daño (un 5% de probabilidad por cada punto de LUCK). Refilón: la mitad de daño y nunca crítico; es más probable cuanta más EVA tenga quien lo recibe y menos " + etiquetaStat("PRE") + " quien ataca. " + nombreDe("VBZ") + " encadena golpes mientras saque críticos.",
                              "Critical: double damage (5% chance per point of LUCK). Glancing: half damage and never critical; it's more likely the more EVA the target has and the less " + etiquetaStat("PRE") + " the attacker has. " + nombreDe("VBZ") + " chains hits as long as they keep landing crits.") },
@@ -4456,23 +4545,45 @@ function colorNombre(p) {
 // Una fila de orbes azules: llenos = energía disponible, vacíos = hueco de energía.
 // soloHuecos: todos vacíos y con fondo opaco (Estadísticas: fuera de combate la energía no cuenta,
 // así que se enseñan solo los huecos que tiene, sin la que le sobró del último combate)
-function dibujarOrbes(p, x, y, soloHuecos = false) {
+// gasto: orbes que costaría la habilidad marcada. Si los tiene, los que se gastarían brillan; si no, los
+// que le faltan se ven en rojo (también más allá de su máximo, si la habilidad cuesta más)
+function dibujarOrbes(p, x, y, soloHuecos = false, gasto = 0) {
     const azul = "rgb(60, 140, 255)"
-    ctx.strokeStyle = azul
+    const pulso = 0.5 + 0.5 * Math.sin(performance.now() / 160)
+    const alcanza = p.energia >= gasto
     ctx.lineWidth = 2
-    for (let i = 0; i < energiaMaxima(p); i++) {
+    for (let i = 0; i < Math.max(energiaMaxima(p), gasto); i++) {
+        const cx = x + i * 22
+        const seGasta = gasto > 0 && alcanza && i >= p.energia - gasto && i < p.energia
+        const falta = gasto > 0 && !alcanza && i >= p.energia && i < gasto
+        if (seGasta) {
+            ctx.fillStyle = "rgba(255, 228, 120, " + (0.25 + 0.35 * pulso) + ")"
+            ctx.beginPath(); ctx.arc(cx, y, 12, 0, Math.PI * 2); ctx.fill()
+        }
         ctx.beginPath()
-        ctx.arc(x + i * 22, y, 8, 0, Math.PI * 2)
+        ctx.arc(cx, y, 8, 0, Math.PI * 2)
         if (soloHuecos) {
             ctx.fillStyle = "rgb(16, 22, 44)"
             ctx.fill()
         } else if (i < p.energia) {
-            ctx.fillStyle = azul
+            ctx.fillStyle = seGasta ? "rgb(190, 228, 255)" : azul
+            ctx.fill()
+        } else if (falta) {
+            ctx.fillStyle = "rgba(240, 90, 90, " + (0.2 + 0.25 * pulso) + ")"
             ctx.fill()
         }
+        ctx.strokeStyle = falta ? "rgb(240, 100, 100)" : seGasta ? "rgb(255, 236, 160)" : azul
         ctx.stroke()
     }
     ctx.lineWidth = 1
+}
+// Orbes que gastaría la habilidad marcada ahora mismo en el menú (0 si no hay ninguna marcada)
+function gastoMarcado(p) {
+    if (p !== equipoJugador[personajeActual]) return 0
+    const habs = habilidadesDisponibles(p)
+    if (faseCombate === "habilidad" && habs[habilidadSeleccionada]) return habs[habilidadSeleccionada].coste
+    if (faseCombate === "seleccion" && accionSeleccionada === 1 && habs.length === 1) return habs[0].coste
+    return 0
 }
 
 function trazarPoligono(puntos, x, y, tam, espejo) {
@@ -4719,6 +4830,16 @@ function textoAjustado(texto, x, y, ancho) {
     ctx.fillText(texto, x, y)
     ctx.font = anterior
 }
+// Texto de hasta dos líneas (la descripción de una habilidad): parte por palabras y, si aun así no cabe en
+// dos, baja la letra hasta 11 px. Devuelve cuántas líneas ha usado
+function textoDosLineas(texto, x, y, ancho, alto = 16) {
+    const anterior = ctx.font
+    let tam = parseInt(anterior, 10) || 14, lineas = partirEnLineas(texto, ancho)
+    while (lineas.length > 2 && tam > 11) { tam--; ctx.font = anterior.replace(/d+px/, tam + "px"); lineas = partirEnLineas(texto, ancho) }
+    lineas.slice(0, 2).forEach((l, i) => ctx.fillText(l, x, y + i * alto))
+    ctx.font = anterior
+    return Math.min(2, lineas.length)
+}
 function dibujarCombate() {
     dibujarFondo("fondoCombate")
     ctx.font = "14px sans-serif"
@@ -4769,7 +4890,7 @@ function dibujarCombate() {
         ctx.fillStyle = p.aliado ? "rgb(250, 214, 110)" : colorNombre(p)
         ctx.fillText(p.nombre + L(" Nv", " Lv") + p.nivel + " - " + p.stats.HP + "/" + p.stats.HP_MAX + "HP", 50, y)
         if (p.aliado) { const w = ctx.measureText(p.nombre + L(" Nv", " Lv") + p.nivel + " - " + p.stats.HP + "/" + p.stats.HP_MAX + "HP").width; ctx.fillStyle = "rgb(220, 200, 150)"; ctx.font = "13px sans-serif"; ctx.fillText(L("(actúa solo)", "(acts alone)"), Math.max(290, 50 + w + 10), y); ctx.font = "16px sans-serif" }
-        else dibujarOrbes(p, 290, y - 5)
+        else dibujarOrbes(p, 290, y - 5, false, gastoMarcado(p))
     })
 
     const personaje = equipoJugador[personajeActual]
@@ -4788,7 +4909,7 @@ function dibujarCombate() {
         disponibles.forEach((h, i) => {
             const alcanza = personaje.energia >= h.coste
             ctx.fillStyle = !alcanza ? "gray" : i === habilidadSeleccionada ? "yellow" : "white"
-            ctx.fillText((i === habilidadSeleccionada ? "> " : "  ") + tr(h.nombre) + " (" + h.coste + ")", 700, 580 + i * 30)
+            ctx.fillText((i === habilidadSeleccionada ? "> " : "  ") + tr(h.nombre), 700, 580 + i * 30)
         })
     } else if (faseCombate === "objeto") {
         // Submenú de objetos, con cuántos quedan
@@ -4800,7 +4921,7 @@ function dibujarCombate() {
     } else {
         const puedeHabilidad = disponibles.some(h => personaje.energia >= h.coste)
         const textoHabilidad = disponibles.length === 1
-            ? L("Habilidad: ", "Ability: ") + tr(disponibles[0].nombre) + " (" + disponibles[0].coste + ")"
+            ? L("Habilidad: ", "Ability: ") + tr(disponibles[0].nombre)
             : L("Habilidad...", "Ability...")
 
         // La acción marcada lleva "> " delante, como en los submenús (no solo cambia de color)
@@ -4854,14 +4975,19 @@ function dibujarCombate() {
         // Qué hace la habilidad marcada (en gris si no hay orbes para usarla)
         const h = disponibles[habilidadSeleccionada]
         ctx.fillStyle = "rgb(180, 180, 190)"
-        textoAjustado(L("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", "Choose an ability: W/S or arrows, Enter confirms, Esc goes back"), X_REGISTRO + 10, 332, 732 - X_REGISTRO - 20)
+        ctx.font = "12px sans-serif"
+        textoAjustado(L("Elige habilidad: W/S o flechas, Enter confirma, Esc vuelve", "Choose an ability: W/S or arrows, Enter confirms, Esc goes back"), X_REGISTRO + 10, 328, 732 - X_REGISTRO - 20)
+        ctx.font = "13px sans-serif"
         ctx.fillStyle = personaje.energia >= h.coste ? "orange" : "gray"
-        textoAjustado(tr(h.nombre) + ": " + descripcionHabilidad(personaje, h), X_REGISTRO + 10, 352, 732 - X_REGISTRO - 20)
+        textoDosLineas(tr(h.nombre) + ": " + descripcionHabilidad(personaje, h), X_REGISTRO + 10, 344, 732 - X_REGISTRO - 20, 15)
+        ctx.font = "14px sans-serif"
     } else if (faseCombate === "seleccion" && accionSeleccionada === 1 && disponibles.length === 1) {
         // Con una sola habilidad no hay submenú: se describe al marcar "Habilidad"
         const h = disponibles[0]
+        ctx.font = "13px sans-serif"
         ctx.fillStyle = personaje.energia >= h.coste ? "orange" : "gray"
-        textoAjustado(tr(h.nombre) + ": " + descripcionHabilidad(personaje, h), X_REGISTRO + 10, 352, 732 - X_REGISTRO - 20)
+        textoDosLineas(tr(h.nombre) + ": " + descripcionHabilidad(personaje, h), X_REGISTRO + 10, 336, 732 - X_REGISTRO - 20, 16)
+        ctx.font = "14px sans-serif"
     } else if (faseCombate === "seleccion" && accionSeleccionada === 2) {
         ctx.fillStyle = "rgb(120, 190, 220)"
         textoAjustado(L("Defender: DEF doble y +" + ESQUIVA_DEFENDER + "% de que te den de refilón esta ronda", "Defend: double DEF and +" + ESQUIVA_DEFENDER + "% chance of being hit glancingly this round"), X_REGISTRO + 10, 352, 732 - X_REGISTRO - 20)
@@ -5379,7 +5505,8 @@ function dibujarDerrota() {
     ctx.textAlign = "center"
     ctx.fillStyle = "rgb(220, 205, 215)"
     ctx.font = "16px sans-serif"
-    ctx.fillText(L("La tripulación ha caído en el sector " + sectorActual, "The crew fell in sector " + sectorActual) +
+    ctx.fillText((rendidos ? L("La tripulación se ha rendido en el sector " + sectorActual, "The crew gave up in sector " + sectorActual)
+                           : L("La tripulación ha caído en el sector " + sectorActual, "The crew fell in sector " + sectorActual)) +
                  "   ·   " + L("Tiempo: ", "Time: ") + formatearTiempo(tiempoPartida), 512, 96)
 
     // La tripulación, caída
@@ -5403,28 +5530,30 @@ function dibujarDerrota() {
         ctx.font = "15px sans-serif"
         ctx.fillText(L("Ninguno", "None"), 512, 270)
     }
-    // Todos los tipos en el espacio que hay (y 240-660): se prueba de 6 en 6 por fila hacia arriba hasta
-    // que caben, y si hace falta los recuadros encogen
+    // Todos los tipos en el espacio que hay (y 240-660). El recuadro se ajusta al sprite (a 96 px si caben
+    // todos, si no a 48), con la cantidad y el nombre pegados debajo, sin huecos
     const hueco = 10, altoDisponible = 420
-    let porFila = 6, ancho = 120
-    for (; porFila <= 14; porFila++) {
-        ancho = Math.min(120, Math.floor((1000 - (porFila - 1) * hueco) / porFila))
-        if (Math.ceil(tipos.length / porFila) * (ancho * 1.27 + hueco) <= altoDisponible) break
+    let tamSprite = 96, ancho = 120, alto = 0, porFila = 1
+    for (const tam of [96, 48]) {
+        tamSprite = tam
+        ancho = Math.max(tam + 16, 100)
+        alto = tam + 50
+        porFila = Math.max(1, Math.floor((1000 + hueco) / (ancho + hueco)))
+        if (Math.ceil(tipos.length / porFila) * (alto + hueco) <= altoDisponible) break
     }
-    const alto = Math.round(ancho * 1.27), tamSprite = Math.floor((ancho - 24) / 48) * 48 || ancho - 24
     tipos.forEach((tipo, i) => {
         const fila = Math.floor(i / porFila), enFila = Math.min(porFila, tipos.length - fila * porFila)
         const x = 512 - (enFila * ancho + (enFila - 1) * hueco) / 2 + (i % porFila) * (ancho + hueco)
         const y = 240 + fila * (alto + hueco)
         dibujarMarco(x, y, ancho, alto)
-        dibujarSprite(tipo, x + (ancho - tamSprite) / 2, y + 6, tamSprite, true)
+        dibujarSprite(tipo, x + (ancho - tamSprite) / 2, y + 4, tamSprite, true)
         ctx.textAlign = "center"
         ctx.fillStyle = "rgb(250, 214, 110)"
-        ctx.font = Math.max(9, Math.round(ancho / 9)) + "px 'Press Start 2P'"
-        ctx.fillText("×" + enemigosDerrotados[tipo], x + ancho / 2, y + alto - 26)
+        ctx.font = (tamSprite === 96 ? 12 : 10) + "px 'Press Start 2P'"
+        ctx.fillText("×" + enemigosDerrotados[tipo], x + ancho / 2, y + tamSprite + 22)
         ctx.fillStyle = "rgb(200, 195, 215)"
-        ctx.font = Math.max(10, Math.round(ancho / 10)) + "px sans-serif"
-        textoAjustado(nombreDe(tipo), x + ancho / 2, y + alto - 9, ancho - 6)
+        ctx.font = (tamSprite === 96 ? 12 : 11) + "px sans-serif"
+        textoAjustado(nombreDe(tipo), x + ancho / 2, y + alto - 8, ancho - 6)
     })
 
     ctx.textAlign = "center"

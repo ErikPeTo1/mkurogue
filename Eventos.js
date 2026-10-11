@@ -60,6 +60,8 @@ let sectorActualMod = {}
 let descansoDoble = false
 // El Cofre del tesoro que os lleváis cerrado (se abre al pasar de sector)
 let cofreGuardado = false
+// Quién abre el Cofre del tesoro: si es un Mímico, el primer mordisco es para él (Enemigos.js)
+let quienAbreCofre = null
 // Lo de este combate (sale de los preparativos al empezarlo)
 let efectosCombate = {}
 // Avisos que se ven un momento en el mapa (envío que llega, caldera que explota...)
@@ -1134,8 +1136,11 @@ EVENTOS.push(
                  en: "A turbine is shaking harder and harder. The floor trembles." },
         opciones: () => {
             const lista = []
-            if (vivo(imanps)) lista.push({ texto: L("Equilibrarla (Imanps)", "Balance it (Imanps)"), detalle: L("Experiencia", "Experience"),
-                efecto: () => ({ lineas: [L("Imanps ajusta los álabes uno a uno.", "Imanps adjusts the blades one by one."), ...ganarXPEvento(15)] }) })
+            // Solo la puede equilibrar Imanps, y la experiencia es toda para él; si no puede, se ve por qué
+            lista.push({ texto: L("Equilibrarla (Imanps)", "Balance it (Imanps)"), detalle: L("Experiencia solo para Imanps", "Experience for Imanps only"),
+                bloqueada: !equipoJugador.includes(imanps) ? L("hace falta Imanps en la tripulación", "needs Imanps in the crew")
+                         : imanps.stats.HP <= 0 ? L("Imanps ha caído", "Imanps has fallen") : null,
+                efecto: () => ({ lineas: [L("Imanps ajusta los álabes uno a uno.", "Imanps adjusts the blades one by one."), ...ganarXPEvento(15, imanps)] }) })
             lista.push({ texto: L("Sobrecargarla", "Overload it"), detalle: L("Próximos 3 combates: las máquinas enemigas empiezan aturdidas", "Next 3 combats: enemy machines start stunned"),
                 efecto: () => {
                     añadirTemporal({ nombre: { es: "máquinas aturdidas", en: "stunned machines" }, combates: 3, aturdirMaquinas: 1 })
@@ -1918,12 +1923,17 @@ EVENTOS.push(
         titulo: { es: "Cofre del tesoro", en: "Treasure chest" },
         texto: { es: "Un cofre pirata de verdad, de madera y con remaches de oro, en mitad del puente. Demasiado fácil.",
                  en: "A real pirate chest, wooden with gold rivets, right in the middle of the bridge. Too easy." },
+        // Se elige quién lo abre (de los que siguen en pie): si sale mal, es el que se lleva el primer bocado
         opciones: () => [
-            { texto: L("Abrirlo", "Open it"), detalle: L("80%: dos mejoras permanentes · 20%: algo va mal", "80%: two permanent upgrades · 20%: something goes wrong"),
-              efecto: () => tira(80) ? { lineas: [L("¡Tesoro!", "Treasure!"), mejoraAlAzarAplicada(), mejoraAlAzarAplicada()] }
-                                    : combateYa([L("Al tocar la cerradura, la tapa se mueve sola...", "When you touch the lock, the lid moves by itself...")], 1, { especiales: ["Mímico"] }) },
-            { texto: L("Llevároslo cerrado", "Take it closed"), detalle: L("Al pasar de sector se abre solo: una mejora permanente, sin sorpresas", "When you change sector it opens by itself: one permanent upgrade, no surprises"),
-              efecto: () => { cofreGuardado = true; return { lineas: [L("Pesa muchísimo. Y a veces parece que respira.", "It's incredibly heavy. And sometimes it seems to breathe.")] } } }
+            ...enPie().map(p => ({ texto: L("Que lo abra " + p.nombre, p.nombre + " opens it"),
+              detalle: L("80%: dos mejoras permanentes · 20%: algo va mal, y lo paga quien lo abre", "80%: two permanent upgrades · 20%: something goes wrong, and the opener pays for it"),
+              efecto: () => {
+                  if (tira(80)) return { lineas: [L("¡Tesoro!", "Treasure!"), mejoraAlAzarAplicada(), mejoraAlAzarAplicada()] }
+                  quienAbreCofre = p
+                  return combateYa([L(p.nombre + " toca la cerradura... y la tapa se mueve sola.", p.nombre + " touches the lock... and the lid moves by itself.")], 1, { especiales: ["Mímico"] })
+              } })),
+            { texto: L("Dejarlo ahí", "Leave it there"), detalle: L("No pasa nada", "Nothing happens"),
+              efecto: () => ({ lineas: [L("Seguís adelante. Os parece oír un bostezo de madera a vuestras espaldas.", "You move on. You think you hear a wooden yawn behind you.")] }) }
         ]
     },
     {

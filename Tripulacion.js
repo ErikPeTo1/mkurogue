@@ -266,6 +266,7 @@ function unirAliado(id, duracion) {
     return a
 }
 function accionAliado(a) {
+    if (typeof turnoDelMimico !== "undefined" && turnoDelMimico) return
     if (a.aturdido > 0) { a.aturdido--; logCombate.push(L(a.nombre + " está aturdido y no actúa", a.nombre + " is stunned and can't act")); return }
     const vivos = enemigosVivos()
     if (!vivos.length) return

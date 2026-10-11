@@ -56,6 +56,7 @@ envolverAccion("usarHabilidad", (p, h, objetivo) => ({ tipo: "habilidad", actor:
 envolverAccion("usarObjeto", (p, id, objetivo) => ({ tipo: "objeto", actor: p, objeto: id, objetivo }))
 envolverAccion("accionEnemigo", en => ({ tipo: "enemigo", actor: en }))
 envolverAccion("accionAliado", al => ({ tipo: "enemigo", actor: al }))
+envolverAccion("accionHackeado", p => ({ tipo: "enemigo", actor: p }))
 const calcularDañoSinGrabar = calcularDaño
 calcularDaño = function (atacante, defensor, opciones = {}) {
     const r = calcularDañoSinGrabar(atacante, defensor, opciones)

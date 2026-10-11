@@ -25,7 +25,7 @@ poolEnemigos.push(
     { nombre: "Dron escudo", xp: 12, peso: 6, desdeSector: 2, clase: "maquina", dron: true, rol: "escudar", ia: "aleatorio", defendiendo: false,
       stats: { HP: 20, HP_MAX: 20, ATK: 2, DEF: 2, VEL: 10, LUCK: 1, PRE: 4, EVA: 10 } },
     { nombre: "Mímico", xp: 50, peso: 0, soloEvento: true, clase: "bestia", rol: "mimico", ia: "agresivo", defendiendo: false,
-      stats: { HP: 100, HP_MAX: 100, ATK: 9, DEF: 6, VEL: 3, LUCK: 4, PRE: 8, EVA: 0 } },
+      stats: { HP: 22, HP_MAX: 22, ATK: 9, DEF: 0, VEL: 3, LUCK: 4, PRE: 8, EVA: 0 } },
     // El Cazarrecompensas cuando le plantáis cara (como aliado, ver Tripulacion.js)
     { nombre: "Cazarrecompensas", xp: 45, peso: 0, soloEvento: true, clase: "humano", ia: "agresivo", defendiendo: false,
       stats: { HP: 90, HP_MAX: 90, ATK: 8, DEF: 4, VEL: 8, LUCK: 4, PRE: 14, EVA: 6 } }
@@ -41,6 +41,16 @@ const UMBRAL_HUIDA_LADRON = 0.5    // el ladrón huye antes que la Moto
 const SILBATO = 0.05               // +5% de ATK (del de base) a los demás enemigos por cada pitido
 const ESCUDO_DRON = 0.25           // escudo que pone el Dron escudo: un 25% de la vida máxima
 const MORDISCO = 0.5               // cada mordisco de rata: la mitad de daño (muerde dos veces)
+const TOPE_ESCUDO_DRON = 0.5       // el Dron escudo no sube el escudo de nadie por encima de la mitad de su vida máxima
+// Mordisco del Mímico: un ataque normal muy fuerte. Su daño crece con el sector más deprisa que la vida del
+// equipo, así que el multiplicador baja con el sector (x4 en el 2, x3 en el 6, x2 en el 10) para que en
+// todos tumbe de un bocado a casi cualquiera (salvo si le da de refilón) sin pasarse
+const multMordiscoMimico = () => Math.max(1.5, 4.5 - 0.25 * sectorActual)
+const esTanque = p => p.id === "Mamuri" || p.muralla > 0   // el tanque nunca cae de un mordisco: aguanta con 1 HP
+// Hacker
+const PROB_PIRATEAR_VBZ = 0.35     // en vez de colgar a VBZ, a veces lo piratea: la próxima vez que actúe, os ataca
+const PROB_DRON_HACKER = 0.25      // de vez en cuando (antes de ir a por VBZ) llama a un dron
+const DRONES_HACKER = ["Dron vigía", "Dron reparador", "Dron kamikaze", "Dron escudo"]
 
 // --- Qué enemigos pueden salir ------------------------------------------------------------------------
 function enemigoDisponible(en) {
@@ -127,6 +137,7 @@ function ataqueEnemigo(enemigo, objetivo, opciones = {}, texto = null) {
 // --- Turnos ---------------------------------------------------------------------------------------------
 const accionEnemigoSinNuevos = accionEnemigo
 accionEnemigo = function (enemigo) {
+    if (turnoDelMimico && enemigo.rol !== "mimico") return
     if (enemigo.recienLlegado) { enemigo.recienLlegado = false; return }
     // Los drones pirateados juegan para vosotros (el Dron escudo os pone escudo a vosotros)
     if (esPirateado(enemigo)) {
@@ -243,46 +254,47 @@ function accionNueva(en) {
                 logCombate.push(L(en.nombre + " recupera el control de " + dronPerdido.nombre + ": vuelve a ir a por vosotros", en.nombre + " takes back control of " + dronPerdido.nombre + ": it's after you again"))
                 return
             }
-            const robot = objetivosEnemigos().find(p => p.clase === "maquina" && !(p.aturdido > 0))
-            if (robot && !en.colgoAntes) {
-                robot.aturdido = Math.max(robot.aturdido || 0, 1)
-                en.colgoAntes = true
-                logCombate.push(L(en.nombre + " cuelga a " + robot.nombre + ": no actuará la próxima ronda", en.nombre + " freezes " + robot.nombre + ": they won't act next round"))
+            // De vez en cuando, llama a un dron (suyo: no se puede piratear con el Hangar)
+            if (enemigosVivos().length < MAX_ENEMIGOS && Math.random() < PROB_DRON_HACKER) {
+                const dron = sumarEnemigo(DRONES_HACKER[Math.floor(Math.random() * DRONES_HACKER.length)])
+                dron.recuperado = true
+                logCombate.push(L(en.nombre + " teclea algo y llega un " + dron.nombre, en.nombre + " types something and a " + dron.nombre + " arrives"))
                 return
             }
-            en.colgoAntes = false
-            const conOrbes = objetivosEnemigos().filter(p => p.energia > 0)
-            if (conOrbes.length) {
-                const p = conOrbes.reduce((max, x) => x.energia > max.energia ? x : max)
-                const quita = Math.min(2, p.energia)
-                p.energia -= quita
-                logCombate.push(L(en.nombre + " le roba " + quita + " orbe(s) a " + p.nombre, en.nombre + " steals " + quita + " orb(s) from " + p.nombre))
+            // Si no, las máquinas de la tripulación (VBZ): las cuelga cada turno que puede; a veces, en vez de
+            // colgarla, la piratea un turno y os ataca
+            const robot = objetivosEnemigos().find(p => p.clase === "maquina" && !p.aliado && !(p.aturdido > 0) && !p.hackeado)
+            if (robot) {
+                robot.aturdido = Math.max(robot.aturdido || 0, 1)
+                if (Math.random() < PROB_PIRATEAR_VBZ) {
+                    robot.hackeado = true
+                    logCombate.push(L("¡" + en.nombre + " piratea a " + robot.nombre + "! Su próximo turno luchará contra vosotros", en.nombre + " hacks " + robot.nombre + "! Their next turn, they'll fight against you"))
+                } else {
+                    logCombate.push(L(en.nombre + " cuelga a " + robot.nombre + ": se queda sin actuar", en.nombre + " freezes " + robot.nombre + ": they lose their turn"))
+                }
                 return
             }
             ataqueEnemigo(en, objetivo)
             return
         }
         case "escudar": {
-            const heridos = enemigosVivos().filter(x => x !== en && x.stats.HP < x.stats.HP_MAX * 0.75 && !(x.escudo > x.stats.HP_MAX * 0.1))
-            if (heridos.length) {
-                const x = heridos.reduce((min, y) => y.stats.HP / y.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? y : min)
-                const antes = x.escudo || 0
-                x.escudo = Math.min(x.stats.HP_MAX, antes + Math.ceil(x.stats.HP_MAX * ESCUDO_DRON))
-                logCombate.push(L(en.nombre + " le pone escudo a " + x.nombre + " (+" + (x.escudo - antes) + ")", en.nombre + " shields " + x.nombre + " (+" + (x.escudo - antes) + ")"))
-                return
-            }
+            // A los suyos (no a los drones que le hayáis pirateado); si no hay nadie a quien escudar, ataca
+            const x = elegirEscudado(en, enemigosVivos().filter(y => !esPirateado(y)))
+            if (x) { ponerEscudo(en, x, false); return }
             ataqueEnemigo(en, objetivo)
             return
         }
         case "mimico": {
+            let debil = redirigirAMuralla(objetivo)
             if (en.fingiendo) {
                 en.fingiendo = false; en.sprite = null; en.nombre = en.nombreReal
                 logCombate.push(L("¡El cofre abre la tapa! Era un " + en.nombre + ".", "The chest opens its lid! It was a " + en.nombre + "."))
-                return
+                // El primer bocado es para quien lo abrió
+                if (quienAbreCofre && quienAbreCofre.stats.HP > 0 && objetivosEnemigos().includes(quienAbreCofre)) debil = quienAbreCofre
+                quienAbreCofre = null
             }
-            const debil = objetivosEnemigos().reduce((min, p) => p.stats.HP < min.stats.HP ? p : min)
-            const r = ataqueEnemigo(en, debil, { multiplicadorDaño: 1.4 }, en.nombre)
-            if (r.refilon) return
+            const r = mordiscoMimico(en, debil)
+            if (r.refilon || debil.stats.HP <= 0) return
             const ids = objetosEnInventario()
             if (ids.length) {
                 const id = ids[Math.floor(Math.random() * ids.length)]
@@ -298,15 +310,64 @@ function accionNueva(en) {
         }
     }
 }
-// Dron escudo pirateado: escudo para el aliado más herido
+// Dron escudo: a quién escuda. Al más tocado (vida más escudo, en proporción) de los que aún no tienen el
+// escudo al tope; nunca a sí mismo. Si no hay nadie, null (y entonces ataca)
+function elegirEscudado(dron, candidatos) {
+    const tope = x => Math.ceil(x.stats.HP_MAX * TOPE_ESCUDO_DRON)
+    const validos = candidatos.filter(x => x !== dron && x.stats.HP > 0 && (x.escudo || 0) < tope(x))
+    if (!validos.length) return null
+    const cuanto = x => (x.stats.HP + (x.escudo || 0)) / x.stats.HP_MAX
+    return validos.reduce((min, y) => cuanto(y) < cuanto(min) ? y : min)
+}
+function ponerEscudo(dron, x, pirateado) {
+    const antes = x.escudo || 0
+    x.escudo = Math.min(Math.ceil(x.stats.HP_MAX * TOPE_ESCUDO_DRON), antes + Math.ceil(x.stats.HP_MAX * ESCUDO_DRON))
+    logCombate.push(pirateado
+        ? L(dron.nombre + " (pirateado) le pone escudo a " + x.nombre + " (+" + (x.escudo - antes) + ")", dron.nombre + " (hacked) shields " + x.nombre + " (+" + (x.escudo - antes) + ")")
+        : L(dron.nombre + " le pone escudo a " + x.nombre + " (+" + (x.escudo - antes) + ")", dron.nombre + " shields " + x.nombre + " (+" + (x.escudo - antes) + ")"))
+}
+// Dron escudo pirateado: lo mismo, pero con vuestro equipo (y aliados)
 function escudarAliadoPirateado(dron) {
-    const heridos = objetivosEnemigos().filter(p => p.stats.HP < p.stats.HP_MAX * 0.75)
-    if (!heridos.length) return false
-    const p = heridos.reduce((min, y) => y.stats.HP / y.stats.HP_MAX < min.stats.HP / min.stats.HP_MAX ? y : min)
-    const antes = p.escudo || 0
-    p.escudo = Math.min(p.stats.HP_MAX, antes + Math.ceil(p.stats.HP_MAX * ESCUDO_DRON))
-    logCombate.push(L(dron.nombre + " (pirateado) le pone escudo a " + p.nombre + " (+" + (p.escudo - antes) + ")", dron.nombre + " (hacked) shields " + p.nombre + " (+" + (p.escudo - antes) + ")"))
+    const p = elegirEscudado(dron, objetivosEnemigos())
+    if (!p) return false
+    ponerEscudo(dron, p, true)
     return true
+}
+
+// Mordisco del Mímico: un ataque normal con un multiplicador enorme (ver multMordiscoMimico), con su DEF,
+// sus críticos y sus refilones. El tanque (Mamuri, o quien tenga la Muralla) nunca cae de un mordisco
+function mordiscoMimico(en, p) {
+    const r = calcularDaño(en, p, { multiplicadorDaño: multMordiscoMimico() })
+    if (esTanque(p) && p.stats.HP > 1) r.daño = Math.min(r.daño, p.stats.HP - 1 + (p.escudo || 0))
+    const daño = r.daño
+    dañarAliado(p, daño, sueloVidaEquipo())
+    logCombate.push(r.refilon ? L(en.nombre + " le da un mordisco de refilón a " + p.nombre + " (" + daño + " daño)", en.nombre + " grazes " + p.nombre + " with a bite (" + daño + " damage)")
+        : p.stats.HP > 0 ? L("¡" + en.nombre + " le da un mordisco brutal a " + p.nombre + "! (" + daño + " daño) Aguanta de milagro", en.nombre + " brutally bites " + p.nombre + "! (" + daño + " damage) Barely standing")
+        : L("¡" + en.nombre + " se traga de un bocado a " + p.nombre + "! (" + daño + " daño)", en.nombre + " swallows " + p.nombre + " in one bite! (" + daño + " damage)"))
+    return r
+}
+
+// VBZ pirateado: en su turno ataca a alguien de su propia tripulación (no a sí mismo)
+function accionHackeado(p) {
+    const otros = objetivosEnemigos().filter(x => x !== p)
+    if (!otros.length) { logCombate.push(L(p.nombre + " (pirateado) no encuentra a quién atacar", p.nombre + " (hacked) finds no one to attack")); return }
+    const blanco = otros[Math.floor(Math.random() * otros.length)]
+    ataqueEnemigo(p, blanco, {}, L(p.nombre + " (pirateado)", p.nombre + " (hacked)"))
+    comprobarDerrota()
+}
+
+// La sorpresa del cofre: al empezar el combate, el Mímico tiene un turno él solo (el resto no actúa)
+let turnoDelMimico = false
+const iniciarCombateSinMimico = iniciarCombate
+iniciarCombate = function () {
+    iniciarCombateSinMimico()
+    if (estado !== "combate" || !enemigosCombate.some(en => en.fingiendo)) return
+    turnoDelMimico = true
+    accionesGuardadas = []
+    faseCombate = "ejecucion"
+    ejecutarRonda()
+    turnoDelMimico = false
+    personajeActual = siguienteVivo(0)
 }
 
 // --- Daño a enemigos: escudo, contramaestre ---------------------------------------------------------------
