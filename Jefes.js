@@ -5,6 +5,8 @@
 // --- Sprites de los jefes: rejillas de 64 x 64 (las cabezas de la Hidra, 48; el tramo del cuello, 12) ---
 // Se pintan como los demás enemigos (volteados, a un múltiplo exacto de su rejilla y con sus marcas de daño)
 const cacheJefes = {}
+// El nombre en mitad de una frase: solo la inicial en minúscula (la letra de los repetidos, «Cabeza de fuego A», se queda)
+const minuscula = t => t.charAt(0).toLowerCase() + t.slice(1)
 function lienzoJefe(clave, volteado, daño = 0) {
     const s = typeof SPRITES_JEFE !== "undefined" && SPRITES_JEFE[clave]
     if (!s) return null
@@ -342,7 +344,7 @@ function alCaerJefe(en) {
         cabezasVivas().forEach(x => x.nombre = tr(CABEZAS[x.cabeza]))
         estadoJefe.fase++
         // el mensaje va después del golpe que la ha cortado (ver contraatacar)
-        estadoJefe.mensajes.push(L("¡La " + en.nombre.toLowerCase() + " vuelve a salir... y le sale otra cabeza: " + nueva.nombre.toLowerCase() + "!", "The " + en.nombre.toLowerCase() + " grows back... and another head sprouts: " + nueva.nombre.toLowerCase() + "!"))
+        estadoJefe.mensajes.push(L("¡La " + minuscula(en.nombre) + " vuelve a salir... y le sale otra cabeza: " + minuscula(nueva.nombre) + "!", "The " + minuscula(en.nombre) + " grows back... and another head sprouts: " + minuscula(nueva.nombre) + "!"))
         if (en.cabeza === "fuego") estadoJefe.mensajes.push(L("Su fuego se calienta: ahora quema más.", "Its fire burns hotter now."))
     }
     if (en.tipo === "Proyector" && estadoJefe.fase === 1) estadoJefe.proyectorCaido = estadoJefe.rondas
@@ -405,7 +407,7 @@ function turnoCabeza(en) {
     switch (en.cabeza) {
         case "fuego": {
             const p = uno()
-            ataqueEnemigo(en, p, { multiplicadorDaño: H.llamarada[estadoJefe.calor - 1] }, L("La llamarada de la " + en.nombre.toLowerCase(), "The " + en.nombre.toLowerCase() + "'s flame"))
+            ataqueEnemigo(en, p, { multiplicadorDaño: H.llamarada[estadoJefe.calor - 1] }, L("La llamarada de la " + minuscula(en.nombre), "The " + minuscula(en.nombre) + "'s flame"))
             if (p.stats.HP > 0) { p.quemadoJefe = 1; logCombate.push(L(p.nombre + " queda quemado.", p.nombre + " is burned.")) }
             return
         }
@@ -413,7 +415,7 @@ function turnoCabeza(en) {
             // Mordisco: atraviesa el escudo
             const p = unoDelante(), r = calcularDaño(en, p, { multiplicadorDaño: H.mordisco })
             p.stats.HP = Math.max(0, p.stats.HP - r.daño)
-            logCombate.push(L("¡La " + en.nombre.toLowerCase() + " muerde a " + p.nombre + " atravesando su escudo! (" + r.daño + " daño)", "The " + en.nombre.toLowerCase() + " bites " + p.nombre + " right through the shield! (" + r.daño + " damage)"))
+            logCombate.push(L("¡La " + minuscula(en.nombre) + " muerde a " + p.nombre + " atravesando su escudo! (" + r.daño + " daño)", "The " + minuscula(en.nombre) + " bites " + p.nombre + " right through the shield! (" + r.daño + " damage)"))
             return
         }
         case "vapor":
@@ -428,7 +430,7 @@ function turnoCabeza(en) {
                 const cura = Math.min(x.stats.HP_MAX - x.stats.HP, Math.round(x.stats.HP_MAX * H.soldadura))
                 x.stats.HP += cura
                 hace(en, "soldadura"); en.soldada = x
-                logCombate.push(L("La " + en.nombre.toLowerCase() + " suelda a la " + x.nombre.toLowerCase() + " (+" + cura + " HP)", "The " + en.nombre.toLowerCase() + " welds the " + x.nombre.toLowerCase() + " (+" + cura + " HP)"))
+                logCombate.push(L("La " + minuscula(en.nombre) + " suelda a la " + minuscula(x.nombre) + " (+" + cura + " HP)", "The " + minuscula(en.nombre) + " welds the " + minuscula(x.nombre) + " (+" + cura + " HP)"))
                 return
             }
             const p = uno()
@@ -452,7 +454,7 @@ function turnoCabeza(en) {
             const atras = vivosEquipo().filter(p => equipoJugador.indexOf(p) >= 2)
             const p = atras.length ? alAzarDe(atras) : uno()
             const i = equipoJugador.indexOf(p)
-            if (i >= 2) { const delanteDe = equipoJugador[i - 2]; intercambiar(p, delanteDe); logCombate.push(L("¡La " + en.nombre.toLowerCase() + " atrae a " + p.nombre + " a la fila de delante!", "The " + en.nombre.toLowerCase() + " pulls " + p.nombre + " to the front row!")) }
+            if (i >= 2) { const delanteDe = equipoJugador[i - 2]; intercambiar(p, delanteDe); logCombate.push(L("¡La " + minuscula(en.nombre) + " atrae a " + p.nombre + " a la fila de delante!", "The " + minuscula(en.nombre) + " pulls " + p.nombre + " to the front row!")) }
             ataqueEnemigo(en, p, { multiplicadorDaño: H.imantar })
             return
         }
