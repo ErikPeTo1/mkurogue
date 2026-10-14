@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.15.2"
+const VERSION = "0.15.3"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -1181,7 +1181,7 @@ let personajeActual = 0
 let accionesGuardadas = []
 
 // Estadísticas de la partida (se muestran al perder)
-let tiempoInicio = 0   // se fija en empezarPartida(), al salir del menú
+let tiempoInicio = null   // se fija en empezarPartida(), al salir del menú (o al cargar: puede ser negativo)
 let tiempoPartida = 0
 const enemigosDerrotados = {}  // { "Bisotuf": 3, ... }
 
@@ -4146,7 +4146,7 @@ function datosAutomaticosReporte(paraMostrar = false) {
     const es = !paraMostrar || idioma === "es"
     const dificultad = DIFICULTADES[dificultadElegida].nombre
     let partida = es ? "Desde el menú, sin partida empezada" : "From the menu, no run started"
-    if (tiempoInicio > 0) {
+    if (tiempoInicio !== null) {
         const nivel = Math.round(nivelMedio() * 10) / 10, tiempo = formatearTiempo(performance.now() - tiempoInicio)
         partida = es ? "Sector " + sectorActual + " · nivel medio " + nivel + " · " + tiempo + " de partida"
                      : "Sector " + sectorActual + " · average level " + nivel + " · " + tiempo + " played"
@@ -5722,7 +5722,7 @@ function dibujarEstadisticas() {
 
     dibujarObjetosEstadisticas(p, xInterior, 520)
 
-    const tiempoActual = tiempoInicio > 0 ? performance.now() - tiempoInicio : 0
+    const tiempoActual = tiempoInicio !== null ? performance.now() - tiempoInicio : 0
     const totalDerrotados = Object.values(enemigosDerrotados).reduce((suma, v) => suma + v, 0)
     ctx.fillStyle = "rgb(170, 170, 180)"
     ctx.font = "13px sans-serif"
