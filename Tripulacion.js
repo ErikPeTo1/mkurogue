@@ -253,7 +253,6 @@ const PLANTILLAS_ALIADO = {
     "Robot de seguridad": { clase: "maquina", stats: { HP_MAX: 1.6, ATK: 0.6, DEF: 1.6, VEL: 0.6, LUCK: 0.5, PRE: 1.0, EVA: 0.5 } }
 }
 let aliados = []
-const aliadosEnCombate = () => estado === "combate" || estado === "victoria" || estado === "derrota" ? aliados : []
 // duracion: { combates: n } o { sector: true }
 function unirAliado(id, duracion) {
     const pl = PLANTILLAS_ALIADO[id], vivos = equipoJugador

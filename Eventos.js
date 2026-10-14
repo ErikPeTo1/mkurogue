@@ -47,8 +47,18 @@ const ESCUDO_GENERADOR = 0.25
 //   clase: "maquina"/"humano" (si solo afecta a una), xp, orbes, enemigosExtra, cura (al ganar),
 //   dron (dron aliado), aturdirMaquinas, excluir: [tipos de enemigo que no salen] }
 const efectosTemporales = []
-// Lo que pasa al cabo de unos combates: { combates, alAcabar() → texto del aviso }
+// Lo que pasa al cabo de unos combates: { combates, tipo, alAcabar() → texto del aviso } (con el tipo, la partida
+// guardada vuelve a montar el alAcabar: Guardado.js)
 const cuentasAtras = []
+// Envío del intendente: llega con tres objetos
+function llegaEnvio() { return L("¡Ha llegado el envío! ", "The delivery has arrived! ") + objetosAlAzar(3).join(" · ") }
+// Caldera a punto de reventar: desaparecen los combates que queden en su zona
+function revientaCaldera(z) {
+    const suyas = combatesDeZona(z)
+    suyas.forEach(c => mapa[c.fila][c.col] = 0)
+    return L("¡La caldera revienta en " + tr(ZONAS[z].nombre) + "! ", "The boiler blows in the " + tr(ZONAS[z].nombre) + "! ") + textoCombatesMenos(suyas.length) +
+        (suyas.length ? " " + xpCombatesEvitados(suyas.length).join(" ") : "")
+}
 // Eventos que salen seguro en un sector concreto (la próxima casilla de evento): { sector, evento }
 const eventosPendientes = []
 // Encargo del Contrato pirata: { objetivo, llevas, sector }
@@ -191,8 +201,9 @@ function teletransportar() {
     const p = casillaPaku()
     const dist = distanciasDesde(p)
     const zona = zonaDe[p.fila][p.col]
-    const candidatas = casillasDeTipo(0).filter(c => zonaDe[c.fila][c.col] !== zona && dist[c.fila][c.col] !== Infinity && dist[c.fila][c.col] >= 10)
-    const destino = alAzar(candidatas.length ? candidatas : casillasDeTipo(0))
+    const fuera = c => !(typeof esSalaJefe === "function" && esSalaJefe(c.fila, c.col))
+    const candidatas = casillasDeTipo(0).filter(c => fuera(c) && zonaDe[c.fila][c.col] !== zona && dist[c.fila][c.col] !== Infinity && dist[c.fila][c.col] >= 10)
+    const destino = alAzar(candidatas.length ? candidatas : casillasDeTipo(0).filter(fuera))
     if (!destino) return
     lider.x = destino.col * tamTile + (tamTile - lider.width) / 2
     lider.y = destino.fila * tamTile + (tamTile - lider.height) / 2
@@ -443,6 +454,7 @@ function textosPermanentesEventos() {
     const inmune = Object.keys(INMUNIDADES).filter(k => mp.inmunidades[k])
     if (inmune.length) t.push(L("vacunados contra ", "vaccinated against ") + inmune.map(k => tr(INMUNIDADES[k])).join(", "))
     for (const m in mp.mascotas) t.push(tr(MASCOTAS[m].nombre) + " (" + nombreDe(mp.mascotas[m]) + "): " + tr(MASCOTAS[m].efecto))
+    if (typeof MASCOTAS_JEFE !== "undefined") for (const id of mp.mascotasJefe || []) { const m = Object.values(MASCOTAS_JEFE).find(x => x.id === id); if (m) t.push(tr(m.nombre) + ": " + tr(m.efecto)) }
     if (mp.brujula) t.push(L("Brújula de la Esperanza: descansos +50%", "Compass of Hope: rests +50%"))
     const conEscudo = equipoJugador.filter(p => p.escudo > 0)
     if (conEscudo.length) t.push(L("escudo: ", "shield: ") + conEscudo.map(p => p.nombre + " " + p.escudo).join(", "))
@@ -459,7 +471,7 @@ function dibujarAvisosMapa() {
     ctx.font = "15px sans-serif"
     const lineas = partirEnLineas(a.texto, 560)
     const alto = 26 + lineas.length * 20
-    const y = performance.now() < avisoSectorHasta ? 150 : 60
+    const y = 60
     ctx.fillStyle = "rgba(0, 0, 0, 0.78)"
     ctx.fillRect(222, y, 580, alto)
     ctx.strokeStyle = "rgb(120, 180, 255)"
@@ -527,8 +539,8 @@ EVENTOS.push(
     },
     {
         titulo: { es: "Ascensor averiado", en: "Broken elevator" },
-        texto: { es: "Un ascensor de carga lleva a la siguiente cubierta, saltándose todo este sector. Los cables no tienen buena pinta.",
-                 en: "A cargo elevator leads to the next deck, skipping this whole sector. The cables don't look great." },
+        texto: { es: "Un ascensor de carga baja directo al muelle de lanzaderas, saltándose todo este sector. Los cables no tienen buena pinta.",
+                 en: "A cargo elevator goes straight down to the shuttle dock, skipping this whole sector. The cables don't look great." },
         opciones: () => {
             const saltar = lineas => {
                 casillasDeTipo(2).forEach(c => mapa[c.fila][c.col] = 0)   // al volver al mapa, el sector se da por despejado
@@ -537,8 +549,8 @@ EVENTOS.push(
             const lista = [{ texto: L("Subir tal cual", "Ride it as is"), detalle: L("Pasáis al siguiente sector · 25%: se rompe un cable, todos −20% de vida", "You go to the next sector · 25%: a cable snaps, everyone −20% HP"),
                 efecto: () => tira(25) ? saltar([L("¡Un cable se rompe y el ascensor cae el último tramo!", "A cable snaps and the elevator drops the last stretch!"), ...dañarEquipo(0.2)])
                                        : saltar([L("El ascensor chirría, pero aguanta.", "The elevator creaks, but holds.")]) }]
-            if (vivo(imanps) && inventario.bateria > 0) lista.push({ texto: L("Que Imanps lo arregle (gastas una Batería)", "Have Imanps fix it (uses a Battery)"), detalle: L("Pasáis al siguiente sector sin riesgo", "You go to the next sector with no risk"),
-                efecto: () => { inventario.bateria--; return saltar([L("Imanps cambia la batería del motor y subís sin un rasguño.", "Imanps swaps the motor's battery and you ride up without a scratch.")]) } })
+            if (vivo(imanps) && inventario.bateria > 0) lista.push({ texto: L("Que Ianproaso lo arregle (gastas una Batería)", "Have Ianproaso fix it (uses a Battery)"), detalle: L("Pasáis al siguiente sector sin riesgo", "You go to the next sector with no risk"),
+                efecto: () => { inventario.bateria--; return saltar([L("Ianproaso cambia la batería del motor y subís sin un rasguño.", "Ianproaso swaps the motor's battery and you ride up without a scratch.")]) } })
             lista.push({ texto: L("Seguir a pie", "Keep walking"), detalle: L("No pasa nada", "Nothing happens"),
                 efecto: () => ({ lineas: [L("Mejor no jugársela.", "Better not to risk it.")] }) })
             return lista
@@ -578,8 +590,8 @@ EVENTOS.push(
                                           : { lineas: [L(p.nombre + " pierde la mano.", p.nombre + " loses the hand."), alPerder.efecto()] }
             })
             if (vivo(paku)) lista.push(jugar(paku, probPrueba(paku, "VEL"), { texto: L("perdéis uno", "you lose one"), efecto: perderObjetoAlAzar }))
-            if (vivo(vbz)) lista.push(jugar(vbz, Math.min(90, probPrueba(vbz, "LUCK") + 10), { texto: L("VBZ se enfada: −1 orbe el próximo combate", "VBZ sulks: −1 orb next combat"),
-                efecto: () => { preparativos.orbesPersonaje = { ...preparativos.orbesPersonaje, VBZ: (preparativos.orbesPersonaje.VBZ || 0) - 1 }; return L("VBZ se enfurruña: empezará el próximo combate con un orbe menos.", "VBZ sulks: they'll start the next combat with one fewer orb.") } }))
+            if (vivo(vbz)) lista.push(jugar(vbz, Math.min(90, probPrueba(vbz, "LUCK") + 10), { texto: L("VBazz se enfada: −1 orbe el próximo combate", "VBazz sulks: −1 orb next combat"),
+                efecto: () => { preparativos.orbesPersonaje = { ...preparativos.orbesPersonaje, VBZ: (preparativos.orbesPersonaje.VBZ || 0) - 1 }; return L("VBazz se enfurruña: empezará el próximo combate con un orbe menos.", "VBazz sulks: they'll start the next combat with one fewer orb.") } }))
             lista.push({ texto: L("Robarles el bote", "Steal the pot"), detalle: L("Un objeto, y combate contra los tres", "One item, and a fight against all three"),
                 efecto: () => combateYa([L("Agarráis el bote y salís corriendo... pero os alcanzan.", "You grab the pot and run... but they catch up."), darObjeto(objetoAlAzar())], 3, { claseEnemigos: "humano" }) })
             lista.push({ texto: L("No jugar", "Don't play"), detalle: L("No pasa nada", "Nothing happens"),
@@ -608,8 +620,8 @@ EVENTOS.push(
         opciones: () => {
             const lista = [{ texto: L("Adoptarlo", "Adopt it"), detalle: L("Os sigue: cura un 3% de vida al acabar cada combate, toda la partida", "It follows you: heals 3% HP after every combat, for the whole run"),
                 efecto: () => { mejorasPartida.curaExtra += 0.03; return { lineas: [L("El dron pita de alegría y se pone detrás de vosotros.", "The drone beeps happily and falls in behind you."), L("Resto de la partida: cura un 3% al acabar cada combate.", "Rest of the run: heals 3% after every combat.")] } } }]
-            if (vivo(vbz)) lista.push({ texto: L("Que VBZ lo hackee", "Have VBZ hack it"), detalle: L("Os lleva a un rincón tranquilo: aparece un descanso", "It leads you to a quiet corner: a rest tile appears"),
-                efecto: () => ({ lineas: [L("VBZ le saca el mapa de la cubierta.", "VBZ pulls the deck map out of it."), aparecen(3, 1)] }) })
+            if (vivo(vbz)) lista.push({ texto: L("Que VBazz lo hackee", "Have VBazz hack it"), detalle: L("Os lleva a un rincón tranquilo: aparece un descanso", "It leads you to a quiet corner: a rest tile appears"),
+                efecto: () => ({ lineas: [L("VBazz le saca el mapa de la cubierta.", "VBazz pulls the deck map out of it."), aparecen(3, 1)] }) })
             lista.push({ texto: L("Desmontarlo", "Take it apart"), detalle: L("Una Granada de pulso", "A Pulse Grenade"),
                 efecto: () => ({ lineas: [darObjeto("granada")] }) })
             return lista
@@ -627,8 +639,8 @@ EVENTOS.push(
                     efecto: () => tira(prob) ? { lineas: [L("Paku esquiva todos los láseres y apaga el panel.", "Paku dodges every laser and shuts the panel off."), ...ganarXPEvento(10)] }
                                               : { lineas: [L("Paku llega al panel... un poco chamuscado.", "Paku reaches the panel... a little singed."), dañarUno(paku, 0.25)] } })
             }
-            if (vivo(imanps)) lista.push({ texto: L("Que Imanps lo apague desde aquí", "Have Imanps shut it off from here"), detalle: L("Sin daño, pero tarda: aparece una casilla de combate", "No damage, but it takes time: a combat tile appears"),
-                efecto: () => ({ lineas: [L("Imanps puentea los láseres, pero tarda lo suyo.", "Imanps bypasses the lasers, but it takes a while."), aparecen(2, 1)] }) })
+            if (vivo(imanps)) lista.push({ texto: L("Que Ianproaso lo apague desde aquí", "Have Ianproaso shut it off from here"), detalle: L("Sin daño, pero tarda: aparece una casilla de combate", "No damage, but it takes time: a combat tile appears"),
+                efecto: () => ({ lineas: [L("Ianproaso puentea los láseres, pero tarda lo suyo.", "Ianproaso bypasses the lasers, but it takes a while."), aparecen(2, 1)] }) })
             if (casillasDeTipo(3).length > 0) lista.push({ texto: L("Dar un rodeo", "Take a detour"), detalle: L("Perdéis un descanso del sector", "You lose a rest tile in this sector"),
                 efecto: () => { quitarDescansoAlAzar(); return { lineas: [L("El rodeo os obliga a pasar por una zona que ya no es segura: desaparece un descanso.", "The detour takes you through an area that's no longer safe: a rest tile disappears.")] } } })
             if (lista.length === 0) lista.push({ texto: L("Cruzar como se pueda", "Cross however you can"), detalle: L("Todos −15% de vida", "Everyone −15% HP"),
@@ -696,12 +708,12 @@ EVENTOS.push(
                  en: "An air duct big enough to crawl through. It leads to another part of the ship." },
         opciones: () => {
             const vaVBZ = vivo(vbz)
-            const lista = [{ texto: L("Gatear por él", "Crawl through it"), detalle: vaVBZ ? L("Salís en otra zona · VBZ va plegado: pierde la 1ª ronda del próximo combate", "You come out in another zone · VBZ is folded up: loses round 1 of the next combat")
+            const lista = [{ texto: L("Gatear por él", "Crawl through it"), detalle: vaVBZ ? L("Salís en otra zona · VBazz va plegado: pierde la 1ª ronda del próximo combate", "You come out in another zone · VBazz is folded up: loses round 1 of the next combat")
                                                                             : L("Salís en otra zona de la nave", "You come out in another zone of the ship"),
                 efecto: () => {
                     teletransportar()
                     const lineas = [L("Después de mucho gatear, salís en " + nombreZonaActual() + ".", "After a lot of crawling, you come out in the " + nombreZonaActual() + ".")]
-                    if (vaVBZ) { preparativos.aturdirAliados = [...preparativos.aturdirAliados, "VBZ"]; lineas.push(L("VBZ ha tenido que plegarse para caber y aún se está desplegando.", "VBZ had to fold up to fit and is still unfolding.")) }
+                    if (vaVBZ) { preparativos.aturdirAliados = [...preparativos.aturdirAliados, "VBZ"]; lineas.push(L("VBazz ha tenido que plegarse para caber y aún se está desplegando.", "VBazz had to fold up to fit and is still unfolding.")) }
                     return { lineas }
                 } }]
             if (inventario.granada > 0) lista.push({ texto: L("Tirar una Granada dentro", "Throw a Grenade in"), detalle: L("Próximo combate: los enemigos empiezan con un 25% menos de vida", "Next combat: enemies start with 25% less HP"),
@@ -758,11 +770,11 @@ EVENTOS.push(
                  en: "A supply locker with an old-fashioned padlock." },
         opciones: () => {
             const lista = []
-            if (vivo(mamuri)) lista.push({ texto: L("Forzarlo (Mamuri)", "Force it (Mamuri)"), detalle: L("Dos objetos, pero hace ruido: el próximo combate trae un enemigo más", "Two items, but it's loud: the next combat brings one extra enemy"),
+            if (vivo(mamuri)) lista.push({ texto: L("Forzarlo (Mamli)", "Force it (Mamli)"), detalle: L("Dos objetos, pero hace ruido: el próximo combate trae un enemigo más", "Two items, but it's loud: the next combat brings one extra enemy"),
                 efecto: () => { preparativos.enemigosExtra += 1; return { lineas: [L("¡CRAC! El candado sale volando.", "CRACK! The padlock goes flying."), ...objetosAlAzar(2), L("Alguien lo ha oído: próximo combate, un enemigo más.", "Someone heard that: next combat, one extra enemy.")] } } })
             if (vivo(vbz)) {
                 const prob = probPrueba(vbz, "LUCK")
-                lista.push({ texto: L("Abrirlo con ganzúas (VBZ)", "Pick the lock (VBZ)"), detalle: L(prob + "%: dos objetos sin hacer ruido · si no, se atasca y no se abre", prob + "%: two items, quietly · otherwise, it jams and won't open"),
+                lista.push({ texto: L("Abrirlo con ganzúas (VBazz)", "Pick the lock (VBazz)"), detalle: L(prob + "%: dos objetos sin hacer ruido · si no, se atasca y no se abre", prob + "%: two items, quietly · otherwise, it jams and won't open"),
                     efecto: () => tira(prob) ? { lineas: [L("Clic.", "Click."), ...objetosAlAzar(2)] } : { lineas: [L("La ganzúa se parte dentro. Ya no hay manera.", "The pick snaps inside. No chance now.")] } })
             }
             lista.push({ texto: L("Dejarlo", "Leave it"), detalle: L("No pasa nada", "Nothing happens"),
@@ -834,8 +846,8 @@ EVENTOS.push(
                  en: "An outer hatch bursts open and starts sucking the air out of the corridor!" },
         opciones: () => {
             const lista = []
-            if (vivo(mamuri)) lista.push({ texto: L("Cerrarla a pulso (Mamuri)", "Force it shut (Mamuri)"), detalle: L("Mamuri pierde un 10% de vida", "Mamuri loses 10% HP"),
-                efecto: () => ({ lineas: [L("Mamuri empuja la compuerta hasta que encaja.", "Mamuri shoves the hatch until it clicks shut."), dañarUno(mamuri, 0.10)] }) })
+            if (vivo(mamuri)) lista.push({ texto: L("Cerrarla a pulso (Mamli)", "Force it shut (Mamli)"), detalle: L("Mamli pierde un 10% de vida", "Mamli loses 10% HP"),
+                efecto: () => ({ lineas: [L("Mamli empuja la compuerta hasta que encaja.", "Mamli shoves the hatch until it clicks shut."), dañarUno(mamuri, 0.10)] }) })
             lista.push({ texto: L("Salir corriendo", "Run for it"), detalle: L("Todos −5% de vida y el vacío se traga un objeto al azar", "Everyone −5% HP and the void swallows a random item"),
                 efecto: () => ({ lineas: [...dañarEquipo(0.05), perderObjetoAlAzar()] }) })
             if (inventario.bateria > 0) lista.push({ texto: L("Sellarla con una Batería", "Seal it with a Battery"), detalle: L("Gastáis una Batería y nadie sufre", "You use a Battery and nobody gets hurt"),
@@ -872,13 +884,13 @@ EVENTOS.push(
                 efecto: () => tira(p1) ? { lineas: [L("El guardia parpadea primero y se aparta, avergonzado.", "The guard blinks first and steps aside, embarrassed."), ...ganarXPEvento(12)] } : pelea(L("Te gana la mirada... y además pega.", "He wins the stare... and he hits, too.")) })
             if (vivo(vbz)) {
                 const p2 = probPrueba(vbz, "LUCK")
-                lista.push({ texto: L("Hacerle reír (VBZ)", "Make him laugh (VBZ)"), detalle: L(p2 + "%: se aparta y os da un objeto · si no, combate", p2 + "%: he steps aside and gives you an item · otherwise, combat"),
-                    efecto: () => tira(p2) ? { lineas: [L("VBZ cuenta un chiste de droides. El guardia llora de risa.", "VBZ tells a droid joke. The guard cries with laughter."), darObjeto(objetoAlAzar())] } : pelea(L("El chiste no le hace ninguna gracia.", "He doesn't find the joke funny at all.")) })
+                lista.push({ texto: L("Hacerle reír (VBazz)", "Make him laugh (VBazz)"), detalle: L(p2 + "%: se aparta y os da un objeto · si no, combate", p2 + "%: he steps aside and gives you an item · otherwise, combat"),
+                    efecto: () => tira(p2) ? { lineas: [L("VBazz cuenta un chiste de droides. El guardia llora de risa.", "VBazz tells a droid joke. The guard cries with laughter."), darObjeto(objetoAlAzar())] } : pelea(L("El chiste no le hace ninguna gracia.", "He doesn't find the joke funny at all.")) })
             }
             if (vivo(imanps)) {
                 const p3 = probPrueba(imanps, "EVA", 0.8)
-                lista.push({ texto: L("Pasar por debajo de sus piernas (Imanps)", "Slip between his legs (Imanps)"), detalle: L(p3 + "%: pasáis sin que se entere · si no, combate", p3 + "%: you get past unnoticed · otherwise, combat"),
-                    efecto: () => tira(p3) ? { lineas: [L("Imanps se cuela y abre la puerta de detrás. El guardia sigue mirando al vacío.", "Imanps slips through and opens the door behind him. The guard keeps staring at nothing.")] } : pelea(L("Os pilla a medio camino.", "He catches you halfway.")) })
+                lista.push({ texto: L("Pasar por debajo de sus piernas (Ianproaso)", "Slip between his legs (Ianproaso)"), detalle: L(p3 + "%: pasáis sin que se entere · si no, combate", p3 + "%: you get past unnoticed · otherwise, combat"),
+                    efecto: () => tira(p3) ? { lineas: [L("Ianproaso se cuela y abre la puerta de detrás. El guardia sigue mirando al vacío.", "Ianproaso slips through and opens the door behind him. The guard keeps staring at nothing.")] } : pelea(L("Os pilla a medio camino.", "He catches you halfway.")) })
             }
             lista.push({ texto: L("Dar media vuelta", "Turn around"), detalle: L("No pasa nada", "Nothing happens"),
                 efecto: () => ({ lineas: [L("El guardia sonríe, satisfecho.", "The guard smiles, satisfied.")] }) })
@@ -895,7 +907,7 @@ EVENTOS.push(
             { texto: L("Seguir sus pistas", "Follow its clues"), detalle: L("En el próximo sector encontraréis su escondite", "In the next sector you'll find the hideout"),
               efecto: () => {
                   eventosPendientes.push({ sector: sectorActual + 1, evento: EVENTO_ESCONDITE })
-                  return { lineas: [L("Las pistas llevan a la siguiente cubierta.", "The clues lead to the next deck."), L("Próximo sector: el escondite aparecerá en una casilla de evento.", "Next sector: the hideout will show up on an event tile.")] }
+                  return { lineas: [L("Las pistas llevan a la siguiente nave.", "The clues lead to the next ship."), L("Próximo sector: el escondite aparecerá en una casilla de evento.", "Next sector: the hideout will show up on an event tile.")] }
               } }
         ]
     },
@@ -906,8 +918,8 @@ EVENTOS.push(
         opciones: () => {
             const lista = [{ texto: L("Esperar a oscuras", "Wait in the dark"), detalle: L("Próximo combate: los enemigos ven mal, −50% " + etiquetaStat("PRE") + " (más golpes de refilón)", "Next combat: enemies can barely see, −50% " + etiquetaStat("PRE") + " (more glancing blows)"),
                 efecto: () => { preparativos.precisionEnemiga = Math.min(preparativos.precisionEnemiga, 0.5); return { lineas: [L("Cuando vuelven las luces, la patrulla de al lado aún está deslumbrada.", "When the lights come back, the nearby patrol is still dazzled.")] } } }]
-            if (vivo(vbz)) lista.push({ texto: L("Aprovechar el reinicio (VBZ)", "Use the reboot (VBZ)"), detalle: L("VBZ abre una sala cerrada: dos objetos", "VBZ opens a locked room: two items"),
-                efecto: () => ({ lineas: [L("Las cerraduras se abren un segundo. A VBZ le sobra.", "The locks open for a second. That's plenty for VBZ."), ...objetosAlAzar(2)] }) })
+            if (vivo(vbz)) lista.push({ texto: L("Aprovechar el reinicio (VBazz)", "Use the reboot (VBazz)"), detalle: L("VBazz abre una sala cerrada: dos objetos", "VBazz opens a locked room: two items"),
+                efecto: () => ({ lineas: [L("Las cerraduras se abren un segundo. A VBazz le sobra.", "The locks open for a second. That's plenty for VBazz."), ...objetosAlAzar(2)] }) })
             return lista
         }
     },
@@ -936,8 +948,8 @@ EVENTOS.push(
                     if (r < 0.80) return { lineas: [L("«Descarga». La pared os da un calambrazo.", "\"Shock\". The wall zaps you."), ...dañoToxico(0.15, null, "calambrazos")] }
                     return combateYa([L("«Patrulla». Y llega una patrulla.", "\"Patrol\". And a patrol shows up.")])
                 } }]
-            if (vivo(imanps) && !mejorasPartida.ruletaTrucada) lista.push({ texto: L("Girarla con trampa (Imanps)", "Spin it with a trick (Imanps)"), detalle: L("Premio gordo seguro, pero el truco solo funciona una vez por partida", "Jackpot guaranteed, but the trick only works once per run"),
-                efecto: () => { mejorasPartida.ruletaTrucada = true; return { lineas: [L("Imanps le pone un imán detrás. ¡Premio gordo!", "Imanps sticks a magnet behind it. Jackpot!"), mejoraAlAzarAplicada()] } } })
+            if (vivo(imanps) && !mejorasPartida.ruletaTrucada) lista.push({ texto: L("Girarla con trampa (Ianproaso)", "Spin it with a trick (Ianproaso)"), detalle: L("Premio gordo seguro, pero el truco solo funciona una vez por partida", "Jackpot guaranteed, but the trick only works once per run"),
+                efecto: () => { mejorasPartida.ruletaTrucada = true; return { lineas: [L("Ianproaso le pone un imán detrás. ¡Premio gordo!", "Ianproaso sticks a magnet behind it. Jackpot!"), mejoraAlAzarAplicada()] } } })
             lista.push({ texto: L("No jugar", "Don't play"), detalle: L("No pasa nada", "Nothing happens"),
                 efecto: () => ({ lineas: [L("La casa siempre gana.", "The house always wins.")] }) })
             return lista
@@ -963,10 +975,10 @@ EVENTOS.push(
                  en: "A time bomb stuck to a main pipe. Two minutes left." },
         opciones: () => {
             const lista = []
-            if (vivo(imanps)) lista.push({ texto: L("Desactivarla (Imanps)", "Defuse it (Imanps)"), detalle: L("70%: experiencia · 30%: explota, todos −25% de vida", "70%: experience · 30%: it blows, everyone −25% HP"),
-                efecto: () => tira(70) ? { lineas: [L("¿Cable rojo o azul? Imanps corta el verde. Funciona.", "Red wire or blue? Imanps cuts the green one. It works."), ...ganarXPEvento(20)] }
+            if (vivo(imanps)) lista.push({ texto: L("Desactivarla (Ianproaso)", "Defuse it (Ianproaso)"), detalle: L("70%: experiencia · 30%: explota, todos −25% de vida", "70%: experience · 30%: it blows, everyone −25% HP"),
+                efecto: () => tira(70) ? { lineas: [L("¿Cable rojo o azul? Ianproaso corta el verde. Funciona.", "Red wire or blue? Ianproaso cuts the green one. It works."), ...ganarXPEvento(20)] }
                                        : { lineas: [L("¡BUM!", "BOOM!"), ...dañarEquipo(0.25)] } })
-            lista.push({ texto: L("Correr", "Run"), detalle: L("La explosión destroza la siguiente cubierta: el próximo sector, un descanso menos", "The blast wrecks the next deck: one rest fewer next sector"),
+            lista.push({ texto: L("Correr", "Run"), detalle: L("La explosión alcanza a la nave de al lado: el próximo sector, un descanso menos", "The blast reaches the next ship: one rest fewer next sector"),
                 efecto: () => { proximoSector.descansosMenos = (proximoSector.descansosMenos || 0) + 1; return { lineas: [L("Corréis. Detrás de vosotros, un estruendo.", "You run. Behind you, a roar."), L("Próximo sector: un descanso menos.", "Next sector: one rest fewer.")] } } })
             return lista
         }
@@ -981,7 +993,7 @@ EVENTOS.push(
                 return { texto: L("Sable para " + p.nombre + ": ATK +" + sube, "Saber for " + p.nombre + ": ATK +" + sube), detalle: L("Permanente · la maldición: " + etiquetaStat("VEL") + " −" + baja, "Permanent · the curse: " + etiquetaStat("VEL") + " −" + baja),
                          efecto: () => ({ lineas: [subirStat(p, "ATK", sube), ...(baja > 0 ? [subirStat(p, "VEL", -baja)] : [])] }) }
             }),
-            ...(vivo(vbz) ? [{ texto: L("Hacer una reverencia (VBZ)", "Bow to it (VBZ)"), detalle: L("VBZ: LUCK +" + cantidadTaller(vbz, "LUCK") + " permanente", "VBZ: LUCK +" + cantidadTaller(vbz, "LUCK") + " permanently"),
+            ...(vivo(vbz) ? [{ texto: L("Hacer una reverencia (VBazz)", "Bow to it (VBazz)"), detalle: L("VBazz: LUCK +" + cantidadTaller(vbz, "LUCK") + " permanente", "VBazz: LUCK +" + cantidadTaller(vbz, "LUCK") + " permanently"),
                 efecto: () => ({ lineas: [L("El sable brilla un momento.", "The saber glows for a moment."), subirStat(vbz, "LUCK", cantidadTaller(vbz, "LUCK"))] }) }] : [])
         ]
     },
@@ -993,8 +1005,8 @@ EVENTOS.push(
             const lento = elPeorEn("VEL")
             const lista = [{ texto: L("Cruzar rápido", "Cross quickly"), detalle: L("El más lento (" + lento.nombre + ") pierde un 15% de vida", "The slowest (" + lento.nombre + ") loses 15% HP"),
                 efecto: () => ({ lineas: [L(lento.nombre + " se queda el último y se lleva las chispas.", lento.nombre + " lags behind and gets the sparks."), ...dañoToxico(0.15, lento, "calambrazos")] }) }]
-            if (vivo(imanps)) lista.push({ texto: L("Cortar la corriente (Imanps)", "Cut the power (Imanps)"), detalle: L("Próximo combate: las máquinas enemigas empiezan aturdidas", "Next combat: enemy machines start stunned"),
-                efecto: () => { preparativos.aturdirMaquinas = Math.max(preparativos.aturdirMaquinas, 1); return { lineas: [L("Imanps corta el circuito de toda la cubierta.", "Imanps cuts the circuit for the whole deck."), L("Próximo combate: máquinas enemigas aturdidas una ronda.", "Next combat: enemy machines stunned for a round.")] } } })
+            if (vivo(imanps)) lista.push({ texto: L("Cortar la corriente (Ianproaso)", "Cut the power (Ianproaso)"), detalle: L("Próximo combate: las máquinas enemigas empiezan aturdidas", "Next combat: enemy machines start stunned"),
+                efecto: () => { preparativos.aturdirMaquinas = Math.max(preparativos.aturdirMaquinas, 1); return { lineas: [L("Ianproaso corta el circuito de toda la cubierta.", "Ianproaso cuts the circuit for the whole deck."), L("Próximo combate: máquinas enemigas aturdidas una ronda.", "Next combat: enemy machines stunned for a round.")] } } })
             return lista
         }
     },
@@ -1030,9 +1042,9 @@ EVENTOS.push(
                  en: "A container bearing a rival corporation's seal. It's incredibly heavy." },
         opciones: () => {
             const lista = []
-            if (vivo(mamuri)) lista.push({ texto: L("Abrirlo a golpes (Mamuri)", "Bash it open (Mamuri)"), detalle: L("Tres objetos, pero hace muchísimo ruido: patrulla", "Three items, but it's really loud: patrol"),
+            if (vivo(mamuri)) lista.push({ texto: L("Abrirlo a golpes (Mamli)", "Bash it open (Mamli)"), detalle: L("Tres objetos, pero hace muchísimo ruido: patrulla", "Three items, but it's really loud: patrol"),
                 efecto: () => combateYa([L("¡BLAM, BLAM, BLAM!", "BLAM, BLAM, BLAM!"), ...objetosAlAzar(3), L("Toda la bodega lo ha oído.", "The whole hold heard that.")]) })
-            lista.push({ texto: vivo(imanps) ? L("Abrirlo con calma (Imanps)", "Open it carefully (Imanps)") : L("Abrirlo con calma", "Open it carefully"), detalle: L("Un objeto, sin riesgo", "One item, no risk"),
+            lista.push({ texto: vivo(imanps) ? L("Abrirlo con calma (Ianproaso)", "Open it carefully (Ianproaso)") : L("Abrirlo con calma", "Open it carefully"), detalle: L("Un objeto, sin riesgo", "One item, no risk"),
                 efecto: () => ({ lineas: [darObjeto(objetoAlAzar())] }) })
             return lista
         }
@@ -1044,8 +1056,8 @@ EVENTOS.push(
                  en: "A tower of crates wobbles over the corridor. A patrol can be heard on the other side." },
         opciones: () => {
             const lista = []
-            if (vivo(mamuri)) { const n = cantidadTaller(mamuri, "DEF"); lista.push({ texto: L("Sujetarla (Mamuri)", "Hold it up (Mamuri)"), detalle: L("Mamuri: DEF +" + n + " permanente, del esfuerzo", "Mamuri: DEF +" + n + " permanently, from the effort"),
-                efecto: () => ({ lineas: [L("Mamuri aguanta la torre hasta que la volvéis a atar.", "Mamuri holds the tower until you tie it back down."), subirStat(mamuri, "DEF", n)] }) }) }
+            if (vivo(mamuri)) { const n = cantidadTaller(mamuri, "DEF"); lista.push({ texto: L("Sujetarla (Mamli)", "Hold it up (Mamli)"), detalle: L("Mamli: DEF +" + n + " permanente, del esfuerzo", "Mamli: DEF +" + n + " permanently, from the effort"),
+                efecto: () => ({ lineas: [L("Mamli aguanta la torre hasta que la volvéis a atar.", "Mamli holds the tower until you tie it back down."), subirStat(mamuri, "DEF", n)] }) }) }
             lista.push({ texto: L("Tirarla sobre la patrulla", "Topple it onto the patrol"), detalle: L("Próximo combate: enemigos −20% de vida", "Next combat: enemies −20% HP"),
                 efecto: () => { preparativos.heridos = Math.min(preparativos.heridos, 0.8); return { lineas: [L("¡CATAPLÁN! Gritos al otro lado.", "CRASH! Screams on the other side."), L("Próximo combate: enemigos −20% de vida.", "Next combat: enemies −20% HP.")] } } })
             return lista
@@ -1061,8 +1073,7 @@ EVENTOS.push(
               efecto: () => ({ lineas: [aparecen(4, 2)] }) },
             { texto: L("Falsificarlo", "Forge it"), detalle: L("Os pedís un envío: llega al cabo de 2 combates, con tres objetos", "You order yourselves a delivery: it arrives after 2 combats, with three items"),
               efecto: () => {
-                  cuentasAtras.push({ nombre: { es: "envío del intendente", en: "quartermaster's delivery" }, combates: 2,
-                      alAcabar: () => L("¡Ha llegado el envío! ", "The delivery has arrived! ") + objetosAlAzar(3).join(" · ") })
+                  cuentasAtras.push({ nombre: { es: "envío del intendente", en: "quartermaster's delivery" }, combates: 2, tipo: "envio", alAcabar: llegaEnvio })
                   return { lineas: [L("Añadís una línea: «3 cajas para la tripulación nueva».", "You add a line: \"3 crates for the new crew\"."), L("Llegará al cabo de 2 combates.", "It'll arrive after 2 combats.")] }
               } }
         ]
@@ -1137,10 +1148,10 @@ EVENTOS.push(
         opciones: () => {
             const lista = []
             // Solo la puede equilibrar Imanps, y la experiencia es toda para él; si no puede, se ve por qué
-            lista.push({ texto: L("Equilibrarla (Imanps)", "Balance it (Imanps)"), detalle: L("Experiencia solo para Imanps", "Experience for Imanps only"),
-                bloqueada: !equipoJugador.includes(imanps) ? L("hace falta Imanps en la tripulación", "needs Imanps in the crew")
-                         : imanps.stats.HP <= 0 ? L("Imanps ha caído", "Imanps has fallen") : null,
-                efecto: () => ({ lineas: [L("Imanps ajusta los álabes uno a uno.", "Imanps adjusts the blades one by one."), ...ganarXPEvento(15, imanps)] }) })
+            lista.push({ texto: L("Equilibrarla (Ianproaso)", "Balance it (Ianproaso)"), detalle: L("Experiencia solo para Ianproaso", "Experience for Ianproaso only"),
+                bloqueada: !equipoJugador.includes(imanps) ? L("hace falta Ianproaso en la tripulación", "needs Ianproaso in the crew")
+                         : imanps.stats.HP <= 0 ? L("Ianproaso ha caído", "Ianproaso has fallen") : null,
+                efecto: () => ({ lineas: [L("Ianproaso ajusta los álabes uno a uno.", "Ianproaso adjusts the blades one by one."), ...ganarXPEvento(15, imanps)] }) })
             lista.push({ texto: L("Sobrecargarla", "Overload it"), detalle: L("Próximos 3 combates: las máquinas enemigas empiezan aturdidas", "Next 3 combats: enemy machines start stunned"),
                 efecto: () => {
                     añadirTemporal({ nombre: { es: "máquinas aturdidas", en: "stunned machines" }, combates: 3, aturdirMaquinas: 1 })
@@ -1172,18 +1183,12 @@ EVENTOS.push(
                  en: "A huge boiler's pressure gauge is in the red. This zone is full of guards." },
         opciones: () => {
             const lista = []
-            if (vivo(mamuri)) lista.push({ texto: L("Purgar la presión (Mamuri)", "Vent the pressure (Mamuri)"), detalle: L("Mamuri −10% de vida · aparece un descanso", "Mamuri −10% HP · a rest tile appears"),
-                efecto: () => ({ lineas: [L("Mamuri gira la válvula entre chorros de vapor.", "Mamuri turns the valve through jets of steam."), dañarUno(mamuri, 0.10), aparecen(3, 1)] }) })
+            if (vivo(mamuri)) lista.push({ texto: L("Purgar la presión (Mamli)", "Vent the pressure (Mamli)"), detalle: L("Mamli −10% de vida · aparece un descanso", "Mamli −10% HP · a rest tile appears"),
+                efecto: () => ({ lineas: [L("Mamli gira la válvula entre chorros de vapor.", "Mamli turns the valve through jets of steam."), dañarUno(mamuri, 0.10), aparecen(3, 1)] }) })
             lista.push({ texto: L("Dejar que reviente", "Let it blow"), detalle: L("Tras 3 combates explota: desaparecen los combates que queden en esta zona", "After 3 combats it blows: the combats left in this zone disappear"),
                 efecto: () => {
                     const p = casillaPaku(), z = zonaDe[p.fila][p.col]
-                    cuentasAtras.push({ nombre: { es: "caldera a punto de reventar", en: "boiler about to blow" }, combates: 3,
-                        alAcabar: () => {
-                            const suyas = combatesDeZona(z)
-                            suyas.forEach(c => mapa[c.fila][c.col] = 0)
-                            return L("¡La caldera revienta en " + tr(ZONAS[z].nombre) + "! ", "The boiler blows in the " + tr(ZONAS[z].nombre) + "! ") + textoCombatesMenos(suyas.length) +
-                                (suyas.length ? " " + xpCombatesEvitados(suyas.length).join(" ") : "")
-                        } })
+                    cuentasAtras.push({ nombre: { es: "caldera a punto de reventar", en: "boiler about to blow" }, combates: 3, tipo: "caldera", zona: z, alAcabar: () => revientaCaldera(z) })
                     return { lineas: [L("Atascáis la válvula y os alejáis.", "You jam the valve and get away."), L("Tras 3 combates, explotará.", "After 3 combats, it'll blow.")] }
                 } })
             return lista
@@ -1197,7 +1202,7 @@ EVENTOS.push(
         opciones: () => {
             const lista = [{ texto: L("Sabotearla", "Sabotage it"), detalle: L("Drones enemigos −20% de vida toda la partida", "Enemy drones −20% HP for the whole run"),
                 efecto: () => { mejorasPartida.vidaDrones *= 0.8; return { lineas: [L("A partir de ahora salen con piezas de menos.", "From now on they come out missing parts."), L("Resto de la partida: drones −20% de vida.", "Rest of the run: drones −20% HP.")] } } }]
-            if (vivo(vbz)) lista.push({ texto: L("Reprogramar uno (VBZ)", "Reprogram one (VBZ)"), detalle: L("Próximo combate: un dron reparador os cura cada ronda", "Next combat: a repair drone heals you every round"),
+            if (vivo(vbz)) lista.push({ texto: L("Reprogramar uno (VBazz)", "Reprogram one (VBazz)"), detalle: L("Próximo combate: un dron reparador os cura cada ronda", "Next combat: a repair drone heals you every round"),
                 efecto: () => { preparativos.dronAliado = true; return { lineas: [L("Sale de la cadena un dron con vuestros colores.", "A drone in your colors rolls off the line."), L("Próximo combate: os acompaña y os cura.", "Next combat: it joins you and heals you.")] } } })
             return lista
         }
@@ -1222,7 +1227,7 @@ EVENTOS.push(
         opciones: () => {
             const quien = alAzar(enPie()), n = cantidadTaller(quien, "ATK")
             const lista = []
-            lista.push({ texto: vivo(mamuri) ? L("Liberarlo (Mamuri)", "Free him (Mamuri)") : L("Liberarlo", "Free him"), detalle: L("Os mejora un arma: " + quien.nombre + ", ATK +" + n + " permanente", "He upgrades a weapon: " + quien.nombre + ", ATK +" + n + " permanently"),
+            lista.push({ texto: vivo(mamuri) ? L("Liberarlo (Mamli)", "Free him (Mamli)") : L("Liberarlo", "Free him"), detalle: L("Os mejora un arma: " + quien.nombre + ", ATK +" + n + " permanente", "He upgrades a weapon: " + quien.nombre + ", ATK +" + n + " permanently"),
                 efecto: () => ({ lineas: [L("Agradecido, afila el arma de " + quien.nombre + ".", "Grateful, he sharpens " + quien.nombre + "'s weapon."), subirStat(quien, "ATK", n)] }) })
             lista.push({ texto: L("Preguntarle por su taller", "Ask him about his workshop"), detalle: L("Os dice dónde está: aparece una casilla de evento", "He tells you where it is: an event tile appears"),
                 efecto: () => ({ lineas: [L("Os lo dibuja en la mano. Y os pide que no se lo digáis a nadie.", "He draws it on your hand. And asks you not to tell anyone."), aparecen(4, 1)] }) })
@@ -1236,7 +1241,7 @@ EVENTOS.push(
                  en: "The secondary reactor's core is about to melt down." },
         opciones: () => {
             const lista = []
-            if (vivo(imanps)) lista.push({ texto: L("Estabilizarlo (Imanps)", "Stabilize it (Imanps)"), detalle: L("60%: +1 orbe máximo a alguien al azar · 40%: radiación, todos −10%", "60%: +1 max orb to someone random · 40%: radiation, everyone −10%"),
+            if (vivo(imanps)) lista.push({ texto: L("Estabilizarlo (Ianproaso)", "Stabilize it (Ianproaso)"), detalle: L("60%: +1 orbe máximo a alguien al azar · 40%: radiación, todos −10%", "60%: +1 max orb to someone random · 40%: radiation, everyone −10%"),
                 efecto: () => {
                     if (!tira(60)) return { lineas: [L("Una fuga de radiación os alcanza.", "A radiation leak gets you."), ...dañoToxico(0.10, null, "radiacion")] }
                     const p = alAzar(enPie())
@@ -1256,14 +1261,14 @@ EVENTOS.push(
         zona: "maquinas",
         titulo: { es: "Taller de droides", en: "Droid workshop" },
         disponible: () => vivo(vbz),
-        texto: { es: "Un taller con piezas compatibles con VBZ. VBZ no para de mirarlas.",
-                 en: "A workshop with parts that fit VBZ. VBZ can't stop staring at them." },
+        texto: { es: "Un taller con piezas compatibles con VBazz. VBazz no para de mirarlas.",
+                 en: "A workshop with parts that fit VBazz. VBazz can't stop staring at them." },
         opciones: () => {
             const n = cantidadTaller(vbz, "LUCK"), vida = Math.ceil(vbz.stats.HP_MAX * 0.2)
             return [
-                { texto: L("Mejorar sus circuitos", "Upgrade their circuits"), detalle: L("VBZ: LUCK +" + n + " permanente", "VBZ: LUCK +" + n + " permanently"),
+                { texto: L("Mejorar sus circuitos", "Upgrade their circuits"), detalle: L("VBazz: LUCK +" + n + " permanente", "VBazz: LUCK +" + n + " permanently"),
                   efecto: () => ({ lineas: [subirStat(vbz, "LUCK", n)] }) },
-                { texto: L("Ponerle una carcasa nueva", "Give them a new casing"), detalle: L("VBZ: +" + vida + " de vida máxima (un 20%)", "VBZ: +" + vida + " max HP (20%)"),
+                { texto: L("Ponerle una carcasa nueva", "Give them a new casing"), detalle: L("VBazz: +" + vida + " de vida máxima (un 20%)", "VBazz: +" + vida + " max HP (20%)"),
                   efecto: () => ({ lineas: [subirStat(vbz, "HP_MAX", vida)] }) }
             ]
         }
@@ -1275,7 +1280,7 @@ EVENTOS.push(
                  en: "A pipe is spewing scalding steam right across the path. A patrol can be heard further on." },
         opciones: () => {
             const lista = []
-            if (vivo(imanps)) lista.push({ texto: L("Cerrar la válvula (Imanps)", "Close the valve (Imanps)"), detalle: L("Sin daño, pero tarda: aparece una casilla de combate", "No damage, but it takes time: a combat tile appears"),
+            if (vivo(imanps)) lista.push({ texto: L("Cerrar la válvula (Ianproaso)", "Close the valve (Ianproaso)"), detalle: L("Sin daño, pero tarda: aparece una casilla de combate", "No damage, but it takes time: a combat tile appears"),
                 efecto: () => ({ lineas: [L("La válvula está durísima. Mientras tanto, llega alguien.", "The valve is really stiff. Meanwhile, someone shows up."), aparecen(2, 1)] }) })
             lista.push({ texto: L("Cruzar", "Cross"), detalle: L("Todos −10% de vida", "Everyone −10% HP"),
                 efecto: () => ({ lineas: dañarEquipo(0.10) }) })
@@ -1318,7 +1323,7 @@ EVENTOS.push(
         opciones: () => [
             { texto: L("Armas para todos", "Weapons for everyone"), detalle: L("Todo el equipo: ATK +" + factorTaller() + " permanente", "Whole team: ATK +" + factorTaller() + " permanently"),
               efecto: () => ({ lineas: [todosSuben("ATK", factorTaller())] }) },
-            { texto: L("Munición especial", "Special ammo"), detalle: L("Próximo combate: todos vuestros golpes son críticos (VBZ no encadena)", "Next combat: all your hits are critical (VBZ doesn't chain)"),
+            { texto: L("Munición especial", "Special ammo"), detalle: L("Próximo combate: todos vuestros golpes son críticos (VBazz no encadena)", "Next combat: all your hits are critical (VBazz doesn't chain)"),
               efecto: () => { preparativos.criticos = true; return { lineas: [L("Cargáis munición perforante.", "You load armor-piercing rounds."), L("Próximo combate: todo críticos.", "Next combat: all crits.")] } } }
         ]
     },
@@ -1347,7 +1352,7 @@ EVENTOS.push(
             const lista = []
             if (vivo(mamuri)) {
                 const baja = bajadaPosible(mamuri, "VEL", 2 * f)
-                lista.push({ texto: L("Ponérsela a Mamuri", "Put it on Mamuri"), detalle: L("Mamuri: DEF +" + 5 * f + ", " + etiquetaStat("VEL") + " −" + baja + " permanente", "Mamuri: DEF +" + 5 * f + ", " + etiquetaStat("VEL") + " −" + baja + " permanently"),
+                lista.push({ texto: L("Ponérsela a Mamli", "Put it on Mamli"), detalle: L("Mamli: DEF +" + 5 * f + ", " + etiquetaStat("VEL") + " −" + baja + " permanente", "Mamli: DEF +" + 5 * f + ", " + etiquetaStat("VEL") + " −" + baja + " permanently"),
                     efecto: () => ({ lineas: [subirStat(mamuri, "DEF", 5 * f), ...(baja > 0 ? [subirStat(mamuri, "VEL", -baja)] : [])] }) })
             }
             lista.push({ texto: L("Desmontarla y repartir las placas", "Strip it and share the plates"), detalle: L("Todo el equipo: DEF +" + f + " permanente", "Whole team: DEF +" + f + " permanently"),
@@ -1408,7 +1413,7 @@ EVENTOS.push(
             const lista = []
             if (vivo(vbz)) {
                 const prob = probPrueba(vbz, "LUCK")
-                lista.push({ texto: L("Coger las llaves sin despertarlo (VBZ)", "Take the keys without waking him (VBZ)"), detalle: L(prob + "%: abrís las taquillas, dos mejoras permanentes · si no, combate", prob + "%: you open the lockers, two permanent upgrades · otherwise, combat"),
+                lista.push({ texto: L("Coger las llaves sin despertarlo (VBazz)", "Take the keys without waking him (VBazz)"), detalle: L(prob + "%: abrís las taquillas, dos mejoras permanentes · si no, combate", prob + "%: you open the lockers, two permanent upgrades · otherwise, combat"),
                     efecto: () => tira(prob) ? { lineas: [L("Ni se inmuta.", "He doesn't even stir."), mejoraAlAzarAplicada(), mejoraAlAzarAplicada()] }
                                               : combateYa([L("¡Se despierta y pide refuerzos!", "He wakes up and calls for backup!")]) })
             }
@@ -1450,7 +1455,7 @@ EVENTOS.push(
             const lista = [{ texto: L("Coger al azar", "Grab some at random"), detalle: L("60%: dos objetos de curación · 40%: veneno, todos −10%", "60%: two healing items · 40%: poison, everyone −10%"),
                 efecto: () => tira(60) ? { lineas: [darObjeto(alAzar(["botiquin", "reanimador"])), darObjeto(alAzar(["botiquin", "reanimador"]))] }
                                        : { lineas: [L("Eso no era jarabe.", "That wasn't syrup."), ...dañoToxico(0.10, null, "toxinas")] } }]
-            if (vivo(imanps)) lista.push({ texto: L("Leer los prospectos (Imanps)", "Read the leaflets (Imanps)"), detalle: L("Un Botiquín seguro", "One safe Medkit"),
+            if (vivo(imanps)) lista.push({ texto: L("Leer los prospectos (Ianproaso)", "Read the leaflets (Ianproaso)"), detalle: L("Un Botiquín seguro", "One safe Medkit"),
                 efecto: () => ({ lineas: [darObjeto("botiquin")] }) })
             return lista
         }
@@ -1477,8 +1482,8 @@ EVENTOS.push(
     {
         zona: "enfermeria",
         titulo: { es: "Banco de sangre", en: "Blood bank" },
-        texto: { es: "Bolsas de sangre sintética en una nevera. Sirven para cualquiera, hasta para VBZ (no preguntéis).",
-                 en: "Bags of synthetic blood in a fridge. They work for anyone, even VBZ (don't ask)." },
+        texto: { es: "Bolsas de sangre sintética en una nevera. Sirven para cualquiera, hasta para VBazz (no preguntéis).",
+                 en: "Bags of synthetic blood in a fridge. They work for anyone, even VBazz (don't ask)." },
         opciones: () => [
             ...caidos().map(p => ({ texto: L("Transfusión a " + p.nombre, "Transfusion for " + p.nombre), detalle: L("Vuelve con toda la vida", "Comes back at full HP"),
                 efecto: () => { p.stats.HP = p.stats.HP_MAX; p.energia = 0; return { lineas: [L("¡" + p.nombre + " abre los ojos como nuevo!", p.nombre + " opens their eyes, good as new!")] } } })),
@@ -1521,12 +1526,12 @@ EVENTOS.push(
         zona: "enfermeria",
         titulo: { es: "Prótesis de repuesto", en: "Spare prosthetics" },
         disponible: () => vivo(imanps),
-        texto: { es: "Brazos y piernas cibernéticos en una vitrina. Uno encaja perfecto con el brazo mecánico de Imanps.",
-                 en: "Cybernetic arms and legs in a display case. One fits Imanps's mechanical arm perfectly." },
+        texto: { es: "Brazos y piernas cibernéticos en una vitrina. Uno encaja perfecto con el brazo mecánico de Ianproaso.",
+                 en: "Cybernetic arms and legs in a display case. One fits Ianproaso's mechanical arm perfectly." },
         opciones: () => {
             const n = cantidadTaller(imanps, "ATK"), h = imanps.habilidades.find(x => x.id === "reparacion")
             return [
-                { texto: L("Ponérsela a Imanps", "Fit it on Imanps"), detalle: L("Imanps: ATK +" + n + " y " + tr(h.nombre) + " sube un rango", "Imanps: ATK +" + n + " and " + tr(h.nombre) + " goes up a rank"),
+                { texto: L("Ponérsela a Ianproaso", "Fit it on Ianproaso"), detalle: L("Ianproaso: ATK +" + n + " y " + tr(h.nombre) + " sube un rango", "Ianproaso: ATK +" + n + " and " + tr(h.nombre) + " goes up a rank"),
                   efecto: () => { h.rango = (h.rango || 0) + 1; return { lineas: [subirStat(imanps, "ATK", n), L(tr(h.nombre) + " sube a rango " + h.rango + ".", tr(h.nombre) + " goes up to rank " + h.rango + ".")] } } },
                 { texto: L("Vendérsela a un contrabandista", "Sell it to a smuggler"), detalle: L("Dos objetos", "Two items"),
                   efecto: () => ({ lineas: objetosAlAzar(2) }) }
@@ -1654,10 +1659,10 @@ EVENTOS.push(
             const lista = []
             if (vivo(vbz)) {
                 const prob = probPrueba(vbz, "LUCK")
-                lista.push({ texto: L("Adivinar la contraseña (VBZ)", "Guess the password (VBZ)"), detalle: L(prob + "%: dos mejoras permanentes · si no, alarma: combate", prob + "%: two permanent upgrades · otherwise, alarm: combat"),
+                lista.push({ texto: L("Adivinar la contraseña (VBazz)", "Guess the password (VBazz)"), detalle: L(prob + "%: dos mejoras permanentes · si no, alarma: combate", prob + "%: two permanent upgrades · otherwise, alarm: combat"),
                     efecto: () => tira(prob) ? { lineas: [L("Era «1234».", "It was \"1234\"."), mejoraAlAzarAplicada(), mejoraAlAzarAplicada()] } : alarma() })
             }
-            lista.push({ texto: vivo(mamuri) ? L("Romperla (Mamuri)", "Smash it (Mamuri)") : L("Romperla", "Smash it"), detalle: L("Una mejora permanente, sin riesgo", "One permanent upgrade, no risk"),
+            lista.push({ texto: vivo(mamuri) ? L("Romperla (Mamli)", "Smash it (Mamli)") : L("Romperla", "Smash it"), detalle: L("Una mejora permanente, sin riesgo", "One permanent upgrade, no risk"),
                 efecto: () => ({ lineas: [L("No queda mucho entero, pero algo sirve.", "Not much survives, but something's useful."), mejoraAlAzarAplicada()] }) })
             return lista
         }
@@ -1678,8 +1683,8 @@ EVENTOS.push(
                   if (r === 4) return { lineas: [L("Se abren compuertas por toda la nave.", "Hatches open all over the ship."), aparecen(4, 3)] }
                   return { lineas: [L("Suena una bocina de fiesta. Ya está.", "A party horn sounds. That's it.")] }
               } },
-            { texto: L("No tocarlo", "Don't touch it"), detalle: vivo(vbz) ? L("VBZ: LUCK +" + factorTaller() + " permanente, de pura frustración", "VBZ: LUCK +" + factorTaller() + " permanently, out of sheer frustration") : L("No pasa nada", "Nothing happens"),
-              efecto: () => ({ lineas: vivo(vbz) ? [L("VBZ se queda mirando el botón un buen rato.", "VBZ stares at the button for a long while."), subirStat(vbz, "LUCK", factorTaller())] : [L("Bien hecho.", "Well done.")] }) }
+            { texto: L("No tocarlo", "Don't touch it"), detalle: vivo(vbz) ? L("VBazz: LUCK +" + factorTaller() + " permanente, de pura frustración", "VBazz: LUCK +" + factorTaller() + " permanently, out of sheer frustration") : L("No pasa nada", "Nothing happens"),
+              efecto: () => ({ lineas: vivo(vbz) ? [L("VBazz se queda mirando el botón un buen rato.", "VBazz stares at the button for a long while."), subirStat(vbz, "LUCK", factorTaller())] : [L("Bien hecho.", "Well done.")] }) }
         ]
     },
     {
@@ -1723,8 +1728,8 @@ EVENTOS.push(
                  en: "The autopilot is steering the ship straight toward a star." },
         opciones: () => {
             const lista = []
-            if (vivo(imanps)) lista.push({ texto: L("Corregir el rumbo (Imanps)", "Correct the course (Imanps)"), detalle: L("Experiencia", "Experience"),
-                efecto: () => ({ lineas: [L("Imanps desvía la nave en el último momento.", "Imanps steers the ship away at the last moment."), ...ganarXPEvento(15)] }) })
+            if (vivo(imanps)) lista.push({ texto: L("Corregir el rumbo (Ianproaso)", "Correct the course (Ianproaso)"), detalle: L("Experiencia", "Experience"),
+                efecto: () => ({ lineas: [L("Ianproaso desvía la nave en el último momento.", "Ianproaso steers the ship away at the last moment."), ...ganarXPEvento(15)] }) })
             lista.push({ texto: L("Dejarlo", "Leave it"), detalle: L("Próximo sector: calor extremo, todos (ellos también) −2% de vida cada ronda · +20% XP", "Next sector: extreme heat, everyone (them too) −2% HP every round · +20% XP"),
                 efecto: () => { proximoSector.calor = true; proximoSector.xp = 1.2; return { lineas: [L("Va a hacer calor.", "It's going to get hot."), L("Próximo sector: calor extremo y +20% de XP.", "Next sector: extreme heat and +20% XP.")] } } })
             return lista
@@ -1792,7 +1797,7 @@ EVENTOS.push(
         opciones: () => {
             const pct = vivo(imanps) ? ESCUDO_GENERADOR : 0.15
             return [
-                { texto: vivo(imanps) ? L("Montarlo (Imanps)", "Assemble it (Imanps)") : L("Montarlo como se pueda", "Assemble it as best you can"),
+                { texto: vivo(imanps) ? L("Montarlo (Ianproaso)", "Assemble it (Ianproaso)") : L("Montarlo como se pueda", "Assemble it as best you can"),
                   detalle: L("Escudo para todos: un " + Math.round(pct * 100) + "% de su vida máxima, se gasta antes que la vida", "Shield for everyone: " + Math.round(pct * 100) + "% of their max HP, used up before HP"),
                   efecto: () => ({ lineas: [L("El generador zumba y os envuelve una luz azul.", "The generator hums and a blue glow wraps around you."), ...enPie().map(p => darEscudo(p, Math.ceil(p.stats.HP_MAX * pct))),
                                             L("El escudo no se recupera curando, pero se puede conseguir más.", "Healing doesn't restore the shield, but you can get more.")] }) },
@@ -1879,8 +1884,8 @@ EVENTOS.push(
                  en: "A row of security robots in standby mode, plugged into the wall." },
         opciones: () => {
             const lista = []
-            if (vivo(vbz) && !aliados.some(a => a.id === "Robot de seguridad")) lista.push({ texto: L("Despertar uno y reprogramarlo (VBZ)", "Wake one up and reprogram it (VBZ)"), detalle: L("Os acompaña el próximo combate: protege al más herido", "Joins you for the next combat: protects the most wounded"),
-                efecto: () => { unirAliado("Robot de seguridad", { combates: 1 }); return { lineas: [L("VBZ le cambia la lista de amigos. El robot os saluda.", "VBZ changes its friend list. The robot salutes you.")] } } })
+            if (vivo(vbz) && !aliados.some(a => a.id === "Robot de seguridad")) lista.push({ texto: L("Despertar uno y reprogramarlo (VBazz)", "Wake one up and reprogram it (VBazz)"), detalle: L("Os acompaña el próximo combate: protege al más herido", "Joins you for the next combat: protects the most wounded"),
+                efecto: () => { unirAliado("Robot de seguridad", { combates: 1 }); return { lineas: [L("VBazz le cambia la lista de amigos. El robot os saluda.", "VBazz changes its friend list. The robot salutes you.")] } } })
             lista.push({ texto: L("Destrozarlos mientras duermen", "Wreck them while they sleep"), detalle: L("Desaparecen 2 combates de esta zona, pero hacéis ruido: resto del sector, +1 enemigo", "2 combats in this zone disappear, but it's loud: rest of the sector, +1 enemy"),
                 efecto: () => {
                     const p = casillaPaku(), suyas = mezclar(combatesDeZona(zonaDe[p.fila][p.col])).slice(0, 2)

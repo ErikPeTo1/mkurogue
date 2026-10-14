@@ -54,7 +54,7 @@ function envolverAccion(nombre, describir) {
 envolverAccion("ataqueBasico", (p, objetivo) => ({ tipo: "ataque", actor: p, objetivo }))
 envolverAccion("usarHabilidad", (p, h, objetivo) => ({ tipo: "habilidad", actor: p, habilidad: h, objetivo }))
 envolverAccion("usarObjeto", (p, id, objetivo) => ({ tipo: "objeto", actor: p, objeto: id, objetivo }))
-envolverAccion("accionEnemigo", en => ({ tipo: "enemigo", actor: en }))
+envolverAccion("accionEnemigo", en => ({ tipo: "enemigo", actor: en, jefe: en.accionesJefe && en.accionesJefe.length ? en.accionesJefe.slice() : null }))
 envolverAccion("accionAliado", al => ({ tipo: "enemigo", actor: al }))
 envolverAccion("accionHackeado", p => ({ tipo: "enemigo", actor: p }))
 const calcularDañoSinGrabar = calcularDaño
@@ -108,7 +108,7 @@ function terminarReproduccion() {
     faseCombate = r.faseFinal
     estado = r.estadoFinal
     // Quién elige ahora se calculó con la vida de antes de la ronda: se vuelve a mirar con la de verdad
-    if (estado === "combate") personajeActual = siguienteVivo(0)
+    if (estado === "combate") { personajeActual = siguienteVivo(0); if (faseCombate === "seleccion") prepararSeleccion() }
     else bloquearTeclas()
 }
 
@@ -562,11 +562,6 @@ function silueta(c, color) {
     s.globalCompositeOperation = "source-in"; s.fillStyle = color; s.fillRect(0, 0, 48, 48)
     return lienzoSilueta
 }
-// Imagen residual (Embestida): el sprite en una posición dada
-function dibujarSiluetaAnim(c, x, y) {
-    const l = lienzoSprite(c.id || c.tipo, esEnemigo(c), 48, 0)
-    if (l) { ctx.imageSmoothingEnabled = false; ctx.drawImage(l, Math.round(x), Math.round(y), rectDe(c).tam, rectDe(c).tam) }
-}
 // Destellos y halos encima de los sprites que ya ha pintado dibujarCombate
 function dibujarCapasPersonajes() {
     ctx.imageSmoothingEnabled = false
@@ -630,7 +625,6 @@ if (typeof document !== "undefined" && document.addEventListener) {
 // claro de lo que se recupera y la barra lo va llenando. Cada barra recuerda su estado por su "stats";
 // si lleva un rato sin dibujarse (otra pantalla), se pone al día sin animar.
 const estadoBarras = new WeakMap()
-const dibujarBarraHPFija = dibujarBarraHP
 dibujarBarraHP = function (x, y, ancho, stats) {
     const ahora = performance.now()
     const real = Math.max(0, Math.min(1, stats.HP / stats.HP_MAX))

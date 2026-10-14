@@ -40,13 +40,20 @@ function guardarAjustesSiCambian() {
 }
 
 function encenderAudio() {
-    if (audioCtx) { if (audioCtx.state === "suspended") audioCtx.resume(); return }
+    // En pausa no se despierta (pulsar teclas en la pausa no debe volver a poner la música)
+    if (audioCtx) { if (audioCtx.state === "suspended" && !(typeof pausado !== "undefined" && pausado)) audioCtx.resume(); return }
     const Contexto = window.AudioContext || window.webkitAudioContext
     if (!Contexto) return
     audioCtx = new Contexto()
     busEfectos = audioCtx.createGain(); busEfectos.connect(audioCtx.destination)
     busMusica = audioCtx.createGain(); busMusica.connect(audioCtx.destination)
     aplicarVolumenes()
+}
+// Pausa: todo el audio se congela (la música incluida) y al volver sigue justo donde estaba
+function pausarAudio(enPausa) {
+    if (!audioCtx) return
+    if (enPausa) audioCtx.suspend()
+    else audioCtx.resume()
 }
 function aplicarVolumenes() {
     if (!audioCtx) return
@@ -262,7 +269,7 @@ function vigilarSonido() {
     }
     if (audioCtx) {
         const e = typeof estado !== "undefined" ? estado : "menu"
-        const musica = e === "menu" || e === "tripulacion" ? "menu"
+        const musica = e === "menu" || e === "tripulacion" || e === "records" ? "menu"
             : e === "combate" ? ultimaMusicaCombate
             : e === "victoria" || e === "derrota" ? null
             : "exploracion"

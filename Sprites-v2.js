@@ -269,3 +269,41 @@ const SPRITES_V2_16 = {
         "...KKKK.KKKK...."
     ]
 }
+
+// Rata mutante a 32 x 32, dibujada a mano a partir de la de 48: con muchas en pantalla (la Rata reina
+// llamando crías) se dibujan a menos de 48 px, y sin esta versión saldrían como cuadrados
+SPRITES_V2["Rata mutante"] = [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "......................KKK",
+    ".....................KLeK",
+    "....................KLeeK",
+    "..........KKKKKKK...KAeeLK",
+    "........KKLLLAAaKKKKKAqqLK",
+    ".......KLLLAqNNNMKLLLLLAqKK",
+    "......KLLLAqNcCCbKLLLLAAaaKK",
+    ".....KLLLLAqNCbBKLLLALLAqKEK",
+    ".....KLLLLAaMKKKNLLLAAAaqKWKK",
+    ".KKKKLLLLLLLLLLLLALAAaaaqKKLLaK",
+    "KSTsKLLLLLLALLALAAAAaaaaaaLaaqTK",
+    "KTKKKLLLLALALAAAAAAAaaaaaaaaqqSK",
+    "KSK.KLLLALAAAAAAAAAaaaaaaaqqWKKK",
+    ".KTKKLAAAAAAAAAAAaAaaaaaqqqWK",
+    "..KTKAAAAAAAAAaAaaaaaaqqqqKK",
+    "...KTKAAAAAaAaaaaaaqaqqqqK",
+    "....KKKaaAaaaaqaqqqqqqqqK",
+    ".......KKaqqKKKKKKKKaqqKK",
+    "........KLaqK......KLaqK",
+    ".......KLqqK......KLqqK",
+    ".......KTSTK......KTSTK"
+]
+SPRITES_PIXEL_32["Rata mutante"] = SPRITES_V2["Rata mutante"]

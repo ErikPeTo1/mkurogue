@@ -35,7 +35,7 @@ Object.assign(ESCALA_ENEMIGO, { "Rata reina": 1.35, "Mímico": 1.2 })
 ZONAS.find(z => z.id === "bodega").clases = { bestia: 3 }
 
 const ROLES_NUEVOS = ["morder", "reina", "robar", "ingeniero", "torreta", "granada", "silbato", "pirateo", "escudar", "mimico"]
-const MAX_RATAS_REINA = 4          // la Rata reina no invoca si ya hay tantos enemigos en pie
+const MAX_RATAS_REINA = 7          // la Rata reina no invoca si ya hay tantos enemigos en pie (ella y 6 crías)
 const CRIAS_POR_CHILLIDO = 1       // ratas que llegan cada vez que chilla (cada dos turnos)
 const UMBRAL_HUIDA_LADRON = 0.5    // el ladrón huye antes que la Moto
 const SILBATO = 0.05               // +5% de ATK (del de base) a los demás enemigos por cada pitido
@@ -368,6 +368,7 @@ iniciarCombate = function () {
     ejecutarRonda()
     turnoDelMimico = false
     personajeActual = siguienteVivo(0)
+    prepararSeleccion()
 }
 
 // --- Daño a enemigos: escudo, contramaestre ---------------------------------------------------------------

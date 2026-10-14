@@ -473,8 +473,10 @@ dibujarSprite = function (clave, x, y, tam, izquierda = false, vida) {
     const original = clave.endsWith("*") ? clave.slice(0, -1) : clave
     let grande = tam >= 32 && !!SPRITES_PIXEL_32[original]
     if (tam >= 48 && hay48(original) && (SOLO_48.has(original) || Math.floor(tam / 48) * 48 >= Math.floor(tam / 32) * 32)) grande = 48
-    const n = grande === 48 ? 48 : grande ? 32 : 16
-    const lienzo = lienzoSprite(clave, izquierda, grande, nivelDaño(vida))
+    let n = grande === 48 ? 48 : grande ? 32 : 16
+    let lienzo = lienzoSprite(clave, izquierda, grande, nivelDaño(vida))
+    // Sin sprite pequeño (enemigos que solo tienen el de 48): el de 48, encogido, antes que el cuadrado
+    if (!lienzo && grande !== 48 && hay48(original)) { lienzo = lienzoSprite(clave, izquierda, 48, nivelDaño(vida)); n = 48 }
     if (!lienzo) return dibujarSpriteOriginal(clave, x, y, tam, izquierda)
     const suavizado = ctx.imageSmoothingEnabled
     ctx.imageSmoothingEnabled = false

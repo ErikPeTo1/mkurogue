@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.14.0"
+const VERSION = "0.15.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -213,12 +213,12 @@ const DIFICULTADES = [
     // bloqueada: se ve con un candado y no se puede elegir. Por ahora solo se juega (y se equilibra) Normal.
     // Fácil tiene de momento los mismos números que Normal: hay que hacerla más fácil antes de abrirla
     { nombre: { es: "Fácil", en: "Easy" }, bloqueada: true,
-      descripcion: { es: ["Enemigos más flojos", "Subes de nivel más rápido", "Subir de nivel cura"], en: ["Weaker enemies", "You level up faster", "Leveling up heals"] },
+      descripcion: { es: ["Enemigos más flojos", "Subes de nivel más rápido"], en: ["Weaker enemies", "You level up faster"] },
       multiplicador: 1.25, crecimiento: 0.16, xp: 1.3, sorpresa: 2, curaAlSubir: 0.5 },
     // 0.13.1: el Normal de ahora es lo que era Fácil (el Normal de antes era multiplicador 1.35,
     // crecimiento 0.18, xp 1, sorpresa 1 y sin curar al subir)
     { nombre: { es: "Normal", en: "Normal" },
-      descripcion: { es: ["El reto pensado", "para el juego", "Subir de nivel cura"], en: ["The challenge the game", "was designed for", "Leveling up heals"] },
+      descripcion: { es: ["El reto pensado", "para el juego"], en: ["The challenge the game", "was designed for"] },
       multiplicador: 1.25, crecimiento: 0.16, xp: 1.3, sorpresa: 2, curaAlSubir: 0.5 },
     { nombre: { es: "Difícil", en: "Hard" }, bloqueada: true,
       descripcion: { es: ["Enemigos más duros", "Subes de nivel más despacio"], en: ["Tougher enemies", "You level up slower"] },
@@ -244,7 +244,7 @@ const PASO_HISTORIAL = 1000 / 60   // ~16.67 ms
 // Pasos del rastro que se guardan: el primero vivo de la fila (Paku, Mamuri, VBZ, Imanps) va delante
 // y los demás en el 50, 100 y 150; el robot de servicio (si lo tenéis), detrás del último y como mucho
 // en el 190
-const LARGO_HISTORIAL = 191
+const LARGO_HISTORIAL = 441   // la tripulación (cada 50) y detrás, los acompañantes (ver Nave.js)
 let acumuladorHistorial = 0
 // Tope del delta entre fotogramas (ms): si la pestaña estuvo en segundo plano, evita un salto enorme
 const DELTA_MAXIMO = 100
@@ -259,6 +259,10 @@ let accionSeleccionada = 0  // 0=Atacar, 1=Habilidad, 2=Defender, 3=Objeto
 let faseCombate = "seleccion"  // "seleccion" | "objetivo" | "ejecucion"
 let enemigosCombate = []
 let objetivoSeleccionado = 0
+// Memoria del selector, solo durante el combate: el último enemigo al que se ha apuntado (vuelve a salir
+// elegido) y, en cada tripulante, su última acción (p.ultimaAccion = { accion, habilidad }). Así, manteniendo Aceptar
+// se repite lo mismo contra el mismo enemigo mientras siga en pie.
+let ultimoObjetivo = null
 let habilidadSeleccionada = 0   // posición en el submenú de habilidades
 let habilidadElegida = null     // habilidad ya elegida, a la espera de objetivo
 let resumenVictoria = []        // por personaje: XP ganada, subidas de nivel, mejoras...
@@ -303,7 +307,7 @@ const paku   = { id: "Paku",   nombre: "Paku",   clase: "humano",  x: 2*tamTile+
         { id: "todosAUna", nombre: { es: "¡Todos a una!", en: "All Together!" }, coste: 4, objetivo: "aliados", nivelMin: 12, instantanea: true }
     ],
     stats: { HP:20, HP_MAX:20, ATK:5, DEF:3, VEL:8, LUCK:3, PRE:6, EVA:5 }}
-const mamuri = { id: "Mamuri", nombre: "Mamuri", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
+const mamuri = { id: "Mamuri", nombre: "Mamli", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
     // 0.13: con los stats de VBZ (salvo LUCK): aguanta, pero pega poco; antes era al revés que sus habilidades
     crecimiento: { HP_MAX: 6, ATK: 0.7, DEF: 1.2, VEL: 0.2, LUCK: 0.3, PRE: 0.4, EVA: 0.2 },
     habilidades: [
@@ -314,7 +318,7 @@ const mamuri = { id: "Mamuri", nombre: "Mamuri", clase: "humano",  x: 0, y: 0, w
     ],
     stats: { HP:40, HP_MAX:40, ATK:3, DEF:6, VEL:2, LUCK:10, PRE:7, EVA:2 }}
 // golpeMultiple: su LUCK x5 (puede pasar de 100%) da golpes encadenados en cada ataque
-const vbz    = { id: "VBZ",    nombre: "VBZ",    clase: "maquina", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
+const vbz    = { id: "VBZ",    nombre: "VBazz",    clase: "maquina", x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1, golpeMultiple: true,
     // 0.13: con los de Mamuri (salvo LUCK): pega fuerte y encadena críticos, pero aguanta menos
     crecimiento: { HP_MAX: 4, ATK: 1.4, DEF: 1, VEL: 0.3, LUCK: 1, PRE: 0.4, EVA: 0.2 },
     habilidades: [
@@ -324,7 +328,7 @@ const vbz    = { id: "VBZ",    nombre: "VBZ",    clase: "maquina", x: 0, y: 0, w
         { id: "jackpot",       nombre: { es: "Jackpot", en: "Jackpot" }, coste: 4, objetivo: "enemigos", nivelMin: 12 }
     ],
     stats: { HP:30, HP_MAX:30, ATK:8, DEF:6, VEL:4, LUCK:22, PRE:5, EVA:3 }}
-const imanps = { id: "Imanps", nombre: "Imanps", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
+const imanps = { id: "Imanps", nombre: "Ianproaso", clase: "humano",  x: 0, y: 0, width: 18, height: 18, defendiendo: false, nivel: 1, xp: 0, energia: 0, recarga: 1,
     crecimiento: { HP_MAX: 4.5, ATK: 0.6, DEF: 0.9, VEL: 0.5, LUCK: 0.4, PRE: 0.3, EVA: 0.4 },
     habilidades: [
         { id: "primerosAuxilios", nombre: { es: "Primeros auxilios", en: "First Aid" }, coste: 0, objetivo: "aliado", nivelMin: 1 },
@@ -377,9 +381,9 @@ const poolEnemigos = [
 // poolEnemigos y el "id" de la tripulación), que no se toca porque lo usa todo el código.
 const NOMBRES = {
     "Paku":   { es: "Paku",   en: "Paku" },
-    "Mamuri": { es: "Mamuri", en: "Mamuri" },
-    "VBZ":    { es: "VBZ",    en: "VBZ" },
-    "Imanps": { es: "Imanps", en: "Imanps" },
+    "Mamuri": { es: "Mamli", en: "Mamli" },
+    "VBZ":    { es: "VBazz",  en: "VBazz" },
+    "Imanps": { es: "Ianproaso", en: "Ianproaso" },
     "Corsario Espacial":  { es: "Corsario Espacial",  en: "Space Corsair" },
     "Moto Pirata":        { es: "Moto Pirata",        en: "Pirate Biker" },
     "Cañón de cristal":   { es: "Cañón de cristal",   en: "Glass Cannon" },
@@ -555,8 +559,8 @@ const EVENTOS = [
     {
         titulo: { es: "Terminal de seguridad", en: "Security terminal" },
         disponible: () => vivo(vbz),
-        texto: { es: "Un terminal sigue encendido. VBZ cree que puede colarse en el sistema central de la nave y sabotear algo para siempre.",
-                 en: "A terminal is still on. VBZ thinks they can sneak into the ship's main system and sabotage something for good." },
+        texto: { es: "Un terminal sigue encendido. VBazz cree que puede colarse en el sistema central de la nave y sabotear algo para siempre.",
+                 en: "A terminal is still on. VBazz thinks they can sneak into the ship's main system and sabotage something for good." },
         opciones: () => {
             const prob = probabilidadHackeo()
             const alarma = { lineas: [L("El sistema os detecta. ¡Salta la alarma!", "The system detects you. The alarm goes off!")], combate: true }
@@ -775,10 +779,10 @@ const EVENTOS = [
     {
         titulo: { es: "Biblioteca de datos", en: "Data library" },
         disponible: () => [mamuri, vbz, imanps].some(p => equipoJugador.includes(p)),
-        texto: { es: "Archivos de entrenamiento de la tripulación enemiga. Mamuri, VBZ e Imanps se ponen a estudiar; Paku sabe leer, pero se queda mirando los dibujos.",
-                 en: "Training files of the enemy crew. Mamuri, VBZ and Imanps start studying; Paku can read, but he just stares at the pictures." },
+        texto: { es: "Archivos de entrenamiento de la tripulación enemiga. Mamli, VBazz e Ianproaso se ponen a estudiar; Paku sabe leer, pero se queda mirando los dibujos.",
+                 en: "Training files of the enemy crew. Mamli, VBazz and Ianproaso start studying; Paku can read, but he just stares at the pictures." },
         opciones: () => [
-            { texto: L("Técnicas básicas", "Basic techniques"), detalle: L("Mamuri, VBZ e Imanps suben un rango su primera habilidad", "Mamuri, VBZ and Imanps raise their first ability by one rank"),
+            { texto: L("Técnicas básicas", "Basic techniques"), detalle: L("Mamli, VBazz e Ianproaso suben un rango su primera habilidad", "Mamli, VBazz and Ianproaso raise their first ability by one rank"),
               efecto: () => ({ lineas: subirRangoHabilidad(0) }) },
             { texto: L("Técnicas avanzadas", "Advanced techniques"),
               detalle: L("Suben un rango su segunda habilidad (cuenta aunque aún no la hayan aprendido)", "They raise their second ability by one rank (it counts even if they haven't learned it yet)"),
@@ -787,8 +791,8 @@ const EVENTOS = [
     },
     {
         titulo: { es: "Hangar de drones", en: "Drone hangar" },
-        texto: { es: "Decenas de drones cargan en sus estaciones. VBZ podría meterles un virus para que se vuelvan contra los suyos.",
-                 en: "Dozens of drones are charging at their stations. VBZ could slip them a virus to turn them against their own." },
+        texto: { es: "Decenas de drones cargan en sus estaciones. VBazz podría meterles un virus para que se vuelvan contra los suyos.",
+                 en: "Dozens of drones are charging at their stations. VBazz could slip them a virus to turn them against their own." },
         disponible: () => !mejorasPartida.dronesPirateados,
         opciones: () => {
             const prob = probabilidadHackeo()
@@ -823,7 +827,7 @@ const EVENTOS = [
                          "In the next combat it heals you " + Math.round(CURA_DRON_ALIADO * 100) + "% at the end of each round"),
               efecto: () => {
                   preparativos.dronAliado = true
-                  return { lineas: [L("Imanps le cambia el chip: ahora es vuestro.", "Imanps swaps its chip: now it's yours."),
+                  return { lineas: [L("Ianproaso le cambia el chip: ahora es vuestro.", "Ianproaso swaps its chip: now it's yours."),
                                     L("Próximo combate: el dron cura al más herido al final de cada ronda.", "Next combat: the drone heals the most wounded ally at the end of each round.")] }
               } }
         ]
@@ -895,8 +899,8 @@ const EVENTOS = [
     },
     {
         titulo: { es: "Partida con contrabandistas", en: "Smugglers' game" },
-        texto: { es: "Unos contrabandistas juegan a los dados en un almacén. VBZ ya se está frotando las manos.",
-                 en: "Some smugglers are playing dice in a storeroom. VBZ is already rubbing their hands together." },
+        texto: { es: "Unos contrabandistas juegan a los dados en un almacén. VBazz ya se está frotando las manos.",
+                 en: "Some smugglers are playing dice in a storeroom. VBazz is already rubbing their hands together." },
         disponible: () => totalObjetos() > 0 && vivo(vbz),
         opciones: () => {
             const prob = probabilidadApuesta()
@@ -906,10 +910,10 @@ const EVENTOS = [
                   efecto: () => {
                       if (Math.random() * 100 < prob) {
                           for (const id in inventario) inventario[id] *= 2
-                          return { lineas: [L("¡VBZ gana! Ahora tenéis: ", "VBZ wins! You now have: ") + resumenInventario() + ".", L("¿Otra ronda?", "Another round?")], seguir: true }
+                          return { lineas: [L("¡VBazz gana! Ahora tenéis: ", "VBazz wins! You now have: ") + resumenInventario() + ".", L("¿Otra ronda?", "Another round?")], seguir: true }
                       }
                       for (const id in inventario) inventario[id] = 0
-                      return { lineas: [L("VBZ pierde... y con él, todos vuestros objetos.", "VBZ loses... and so do all your items.")] }
+                      return { lineas: [L("VBazz pierde... y con él, todos vuestros objetos.", "VBazz loses... and so do all your items.")] }
                   } })
             }
             lista.push({ texto: L("Retirarse", "Walk away"), detalle: L("Os quedáis con lo que tenéis", "You keep what you have"),
@@ -1120,17 +1124,17 @@ const EVENTOS = [
     },
     {
         titulo: { es: "Robot de servicio averiado", en: "Broken service robot" },
-        texto: { es: "Un robot de limpieza tirado en el suelo, echando chispas. Imanps cree que podría arreglarlo.",
-                 en: "A cleaning robot lying on the floor, throwing sparks. Imanps thinks it could be fixed." },
+        texto: { es: "Un robot de limpieza tirado en el suelo, echando chispas. Ianproaso cree que podría arreglarlo.",
+                 en: "A cleaning robot lying on the floor, throwing sparks. Ianproaso thinks it could be fixed." },
         opciones: () => {
             const pct = Math.round(CURA_ROBOT * 100)
             const lista = []
             if (vivo(imanps)) {
-                lista.push({ texto: L("Que Imanps lo repare", "Have Imanps fix it"),
+                lista.push({ texto: L("Que Ianproaso lo repare", "Have Ianproaso fix it"),
                   detalle: L("Os sigue toda la partida y os cura un " + pct + "% de vida al acabar cada combate", "It follows you for the whole run and heals you " + pct + "% after every combat"),
                   efecto: () => {
                       mejorasPartida.robots++
-                      return { lineas: [L("Imanps aprieta un par de tornillos y el robot se pone en pie.", "Imanps tightens a couple of screws and the robot gets back on its feet."),
+                      return { lineas: [L("Ianproaso aprieta un par de tornillos y el robot se pone en pie.", "Ianproaso tightens a couple of screws and the robot gets back on its feet."),
                                         L("Resto de la partida: os sigue y cura al equipo un " + pct * mejorasPartida.robots + "% al final de cada combate.",
                                           "Rest of the run: it follows you and heals the team " + pct * mejorasPartida.robots + "% at the end of each combat.")] }
                   } })
@@ -1200,30 +1204,169 @@ reiniciarHistorial()
 
 
 
-const mapa = [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,1],
-    [1,0,1,1,0,0,0,1,1,1,1,0,1,1,0,1,1,0,1,0,1,1,1,0,1,1,0,1,1,1,0,1],
-    [1,0,0,1,1,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,1],
-    [1,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,0,1,0,1],
-    [1,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,1],
-    [1,1,1,1,0,1,0,1,1,0,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,0,1],
-    [1,0,1,0,0,1,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1],
-    [1,0,1,1,1,1,0,0,1,0,1,1,0,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1],
-    [1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1],
-    [1,1,0,1,1,0,1,0,1,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,0,1,1,0,1,0,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,1,0,0,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,1],
-    [1,0,1,0,1,1,0,1,1,0,1,0,1,1,0,1,0,0,1,0,1,1,0,1,1,0,1,1,0,0,0,1],
-    [1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,0,0,0,0,1,1,1,0,1],
-    [1,0,1,1,1,0,1,0,1,1,1,0,1,1,0,1,0,0,1,0,1,1,0,1,1,0,1,0,0,1,0,1],
-    [1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,1,0,0,1],
-    [1,1,1,0,1,1,1,1,0,1,1,0,1,1,1,0,1,1,0,1,0,1,1,0,1,1,1,0,1,0,1,1],
-    [1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,1,1,0,1,0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1,1,0,1,1,1,1,0,1,0,1],
-    [1,0,0,1,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,1,0,0,0,0,1,0,1],
-    [1,0,1,1,0,0,0,1,1,0,1,1,0,1,1,0,0,0,1,1,0,1,1,0,1,0,1,1,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-]
+// --- La nave de cada sector, generada al azar ------------------------------------------------
+// Silueta de nave (proa a la derecha, motores a la izquierda) de tamaño pequeño, mediano o grande, en
+// la misma rejilla de 32 x 22 casillas (la pantalla). Por dentro se parte en compartimentos (BSP): el
+// suelo es el interior de cada uno y entre hermanos queda un mamparo con una o dos puertas. Lo que queda
+// fuera del casco es espacio: para la lógica cuenta como pared (1), pero se pinta como espacio
+// (ver espacioMapa). El grupo empieza en el compartimento de más a popa.
+const FILAS_MAPA = 22, COLUMNAS_MAPA = 32
+const TAMAÑOS_NAVE = { pequeña: { largo: 22, alto: 13, minimo: 120 }, mediana: { largo: 27, alto: 17, minimo: 200 }, grande: { largo: 28, alto: 20, minimo: 260 } }   // 28 de largo: le caben los motores
+const mapa = Array.from({ length: FILAS_MAPA }, () => Array(COLUMNAS_MAPA).fill(1))
+let espacioMapa = mapa.map(fila => fila.map(() => false))
+let inicioNave = { fila: 3, col: 2 }
+let tamañoNave = "mediana"
+let sueloNave = 356   // casillas de suelo de la nave (las probabilidades de casilla se ajustan con esto)
+// Puertas de la nave, tal como las abre el generador: { fila, col, paso } ("h" se cruza en horizontal, "v" en vertical)
+let puertasNave = []
+// Propulsores de la nave: { fila, col } de la casilla de arriba a la izquierda de cada uno (3 x 2 casillas)
+let motoresNave = []
+// En una puerta no se pone ninguna casilla (combate, descanso ni evento): tapaban la puerta
+function esPuerta(fila, col) { return puertasNave.some(q => q.fila === fila && q.col === col) }
+let sectorDelMapa = 1   // el sector de la nave que hay ahora (sectorActual se declara más abajo)
+// En los sectores de jefe, la zona del compartimento más lejano de la popa (donde irá su sala) es la suya.
+// El resto de zonas siguen al azar.
+const ZONA_DEL_JEFE = { 3: "armeria", 6: "maquinas", 9: "puente", 12: "puente" }
+function generarNave(tam) {
+    const F = FILAS_MAPA, C = COLUMNAS_MAPA, ESP = -1
+    const { largo, alto, minimo } = TAMAÑOS_NAVE[tam]
+    const azar = n => Math.floor(Math.random() * n)
+    const entre = (a, b) => a + azar(b - a + 1)
+    const dentro = (f, c) => f >= 0 && f < F && c >= 0 && c < C
+    const LADOS = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+    for (let intento = 0; intento < 60; intento++) {
+        const m = Array.from({ length: F }, () => Array(C).fill(ESP))
+        const c0 = Math.floor((C - largo) / 2), f0 = Math.floor((F - alto) / 2), cm = f0 + (alto - 1) / 2
+        const proa = entre(5, 8), popa = entre(1, 3), cintura = Math.random() < 0.5
+        const media = c => {
+            const x = c - c0
+            if (x < 0 || x >= largo) return -1
+            let h = alto / 2
+            if (x >= largo - proa) h = (alto / 2) * Math.pow((largo - x) / proa, 0.8)
+            if (cintura && x > largo * 0.35 && x < largo * 0.55) h -= 1.5
+            if (x < popa) h -= 1
+            return h
+        }
+        for (let c = 0; c < C; c++) { const h = media(c); if (h <= 0) continue; for (let f = 0; f < F; f++) if (Math.abs(f - cm) <= h) m[f][c] = 1 }
+        const motores = []
+        for (const k of [-1, 1]) { const fy = Math.round(cm + k * alto * 0.28); motores.push({ fila: fy - 1, col: c0 - 2 }); for (let c = c0 - 2; c < c0; c++) for (let f = fy - 1; f <= fy + 1; f++) if (dentro(f, c)) m[f][c] = 1 }
+        const casco = (f, c) => dentro(f, c) && m[f][c] !== ESP
+        const interior = (f, c) => casco(f, c) && casco(f - 1, c) && casco(f + 1, c) && casco(f, c - 1) && casco(f, c + 1) && casco(f - 1, c - 1) && casco(f - 1, c + 1) && casco(f + 1, c - 1) && casco(f + 1, c + 1)
+        const hojas = []
+        const partir = (r, prof) => {
+            if (!(r.w >= 7 || r.h >= 6) || (prof > 2 && Math.random() < 0.22)) { hojas.push(r); return r }
+            const vertical = r.w >= 7 && (r.h < 6 || r.w / r.h > 1.2 || Math.random() < 0.5)
+            if (vertical) {
+                const k = entre(r.c + 3, r.c + r.w - 4)
+                return { corte: { vertical, k, r }, a: partir({ c: r.c, f: r.f, w: k - r.c, h: r.h }, prof + 1), b: partir({ c: k + 1, f: r.f, w: r.c + r.w - k - 1, h: r.h }, prof + 1) }
+            }
+            const k = entre(r.f + 2, r.f + r.h - 3)
+            return { corte: { vertical, k, r }, a: partir({ c: r.c, f: r.f, w: r.w, h: k - r.f }, prof + 1), b: partir({ c: r.c, f: k + 1, w: r.w, h: r.f + r.h - k - 1 }, prof + 1) }
+        }
+        const raiz = partir({ c: c0 + 1, f: f0 + 1, w: largo - 2, h: alto - 2 }, 0)
+        for (const h of hojas) for (let f = h.f; f < h.f + h.h; f++) for (let c = h.c; c < h.c + h.w; c++) if (interior(f, c)) m[f][c] = 0
+        // fuera los pasillos de una casilla que deja el recorte del casco (suelo con pared a dos lados opuestos)
+        for (let cambia = true; cambia;) {
+            cambia = false
+            for (let f = 0; f < F; f++) for (let c = 0; c < C; c++) {
+                if (m[f][c] !== 0) continue
+                const p = (a, b) => !dentro(a, b) || m[a][b] !== 0
+                if ((p(f, c - 1) && p(f, c + 1)) || (p(f - 1, c) && p(f + 1, c))) { m[f][c] = 1; cambia = true }
+            }
+        }
+        // una o dos por mamparo (dos solo si es largo, y nunca juntas)
+        const lista = []
+        const puertas = nodo => {
+            if (!nodo.corte) return
+            puertas(nodo.a); puertas(nodo.b)
+            const { vertical, k, r } = nodo.corte, op = []
+            if (vertical) { for (let f = r.f; f < r.f + r.h; f++) if (m[f][k - 1] === 0 && m[f][k + 1] === 0) op.push([f, k]) }
+            else { for (let c = r.c; c < r.c + r.w; c++) if (m[k - 1][c] === 0 && m[k + 1][c] === 0) op.push([k, c]) }
+            const elegidas = []
+            for (const q of mezclar(op)) {
+                if (elegidas.length >= (op.length > 6 ? 2 : 1)) break
+                if (elegidas.every(e => Math.abs(e[0] - q[0]) + Math.abs(e[1] - q[1]) >= 3) && lista.every(e => Math.abs(e.fila - q[0]) + Math.abs(e.col - q[1]) >= 2)) elegidas.push(q)   // ni juntas ni pegadas a la de otro mamparo
+            }
+            elegidas.forEach(([f, c]) => { m[f][c] = 0; lista.push({ fila: f, col: c, paso: vertical ? "h" : "v" }) })
+        }
+        puertas(raiz)
+        const suelo = () => { const l = []; m.forEach((fila, f) => fila.forEach((t, c) => { if (t === 0) l.push([f, c]) })); return l }
+        if (!suelo().length) continue
+        const inicio = suelo().reduce((a, b) => b[1] < a[1] ? b : a)
+        // lo que no se alcanza desde la popa se une abriendo un mamparo; si no hay forma, se cierra
+        const alcance = () => {
+            const d = m.map(fila => fila.map(() => false)); d[inicio[0]][inicio[1]] = true; const cola = [inicio]
+            for (let k = 0; k < cola.length; k++) { const [f, c] = cola[k]; for (const [a, b] of LADOS) { const ff = f + a, cc = c + b; if (dentro(ff, cc) && m[ff][cc] === 0 && !d[ff][cc]) { d[ff][cc] = true; cola.push([ff, cc]) } } }
+            return d
+        }
+        for (let vuelta = 0; vuelta < 30; vuelta++) {
+            const d = alcance(), sueltas = suelo().filter(([f, c]) => !d[f][c])
+            if (!sueltas.length) break
+            let abierta = false
+            for (const [f, c] of mezclar(sueltas)) {
+                for (const [a, b] of LADOS) { const f2 = f + 2 * a, c2 = c + 2 * b; if (dentro(f2, c2) && m[f + a][c + b] === 1 && m[f2][c2] === 0 && d[f2][c2]) { m[f + a][c + b] = 0; lista.push({ fila: f + a, col: c + b, paso: a ? "v" : "h" }); abierta = true; break } }
+                if (abierta) break
+            }
+            if (!abierta) { sueltas.forEach(([f, c]) => m[f][c] = 1); break }
+        }
+        const n = suelo().length
+        if (n < minimo) continue
+        // se copia en el mapa de siempre (mismo array, así nadie se queda con uno viejo)
+        for (let f = 0; f < F; f++) for (let c = 0; c < C; c++) { mapa[f][c] = m[f][c] === 0 ? 0 : 1; espacioMapa[f][c] = m[f][c] === ESP }
+        inicioNave = { fila: inicio[0], col: inicio[1] }
+        puertasNave = lista.filter(q => m[q.fila][q.col] === 0)
+        motoresNave = motores
+        tamañoNave = tam
+        sueloNave = n
+        if (typeof calcularZoomNave === "function") calcularZoomNave()
+        if (typeof prepararNave === "function") prepararNave()   // Nave.js: puertas cerradas y niebla desde cero
+        return
+    }
+    generarNave(tam)
+}
+// La nave crece con la partida: pequeña en los sectores 1-4, mediana en el 5-8 y grande desde el 9.
+// Con menos suelo hay menos combates (ver generarCasillas), así que el principio es más suave y cada
+// sector pide un poco más que el anterior
+// Zoom del mapa: la nave (con una casilla de margen) se amplía hasta llenar la pantalla, sin pasar de x1,3
+// y dejando libres las líneas de texto de arriba y de abajo. Solo cambia el dibujo: la lógica (posiciones,
+// choques, casillas) sigue en las coordenadas de siempre.
+let zoomNave = { s: 1, x: 0, y: 0 }
+function calcularZoomNave() {
+    let f0 = FILAS_MAPA, f1 = -1, c0 = COLUMNAS_MAPA, c1 = -1
+    for (let f = 0; f < FILAS_MAPA; f++) for (let c = 0; c < COLUMNAS_MAPA; c++) {
+        if (espacioMapa[f][c]) continue
+        f0 = Math.min(f0, f); f1 = Math.max(f1, f); c0 = Math.min(c0, c); c1 = Math.max(c1, c)
+    }
+    const ancho = (c1 - c0 + 3) * tamTile, alto = (f1 - f0 + 3) * tamTile
+    const margenTexto = 30   // arriba (sector y atajos) y abajo (zona)
+    const s = Math.max(1, Math.min(1.3, ANCHO_JUEGO / ancho, (ALTO_JUEGO - 2 * margenTexto) / alto))
+    // centrado en la nave, sin que se vea el borde del mapa
+    const cx = (c0 + c1 + 1) / 2 * tamTile, cy = (f0 + f1 + 1) / 2 * tamTile
+    const x = Math.min(0, Math.max(ANCHO_JUEGO - ANCHO_JUEGO * s, ANCHO_JUEGO / 2 - cx * s))
+    const y = Math.min(0, Math.max(ALTO_JUEGO - ALTO_JUEGO * s, ALTO_JUEGO / 2 - cy * s))
+    zoomNave = { s, x, y }
+}
+function conZoomNave(dibujar) {
+    if (zoomNave.s === 1) { dibujar(); return }
+    ctx.save()
+    ctx.translate(zoomNave.x, zoomNave.y)
+    ctx.scale(zoomNave.s, zoomNave.s)
+    dibujar()
+    ctx.restore()
+}
+function tamañoNavePorSector() {
+    return sectorActual <= 4 ? "pequeña" : sectorActual <= 8 ? "mediana" : "grande"
+}
+// Pone al grupo en una casilla (el rastro de los que le siguen, ahí mismo)
+function colocarGrupo(casilla) {
+    lider.x = casilla.col * tamTile + (tamTile - lider.width) / 2
+    lider.y = casilla.fila * tamTile + (tamTile - lider.height) / 2
+    anteriorX = lider.x; anteriorY = lider.y
+    tileActual = 0
+    reiniciarHistorial()
+}
+generarNave("pequeña")   // la primera, la del sector 1 (sectorActual aún no existe aquí)
+calcularZoomNave()
 // Reparte casillas especiales por el pasillo vacío: PROBABILIDAD_COMBATE de combate, la de DESCANSO de
 // descanso y un 2% de evento (cada zona lo multiplica a su manera).
 // 2026-10-11: combate del 10% al 6.5%: con ~35 combates por sector se tardaba 40 minutos en
@@ -1256,7 +1399,7 @@ function lejosDeDescansos(fila, col) {
 }
 
 // --- Zonas de la nave -----------------------------------------------------------------
-// En cada sector el laberinto se reparte en zonas, cada una con su color de suelo (según el modo de
+// En cada sector la nave se reparte en zonas, cada una con su color de suelo (según el modo de
 // color, ver MODOS_COLOR) y su forma de
 // repartir casillas y enemigos. Cada zona nace en una casilla lo más lejos posible (andando) de las
 // demás y crece por los pasillos: cada casilla es de la zona a la que se llega antes.
@@ -1316,6 +1459,19 @@ function generarZonas() {
     }
     // Todas crecen a la vez, un paso cada vez, hasta repartirse el mapa
     const tipos = mezclar(ZONAS.map((_, i) => i))
+    const idJefe = typeof jefeDelSector === "function" ? (jefeDelSector(sectorDelMapa) && ZONA_JEFE[jefeDelSector(sectorDelMapa)]) : ZONA_DEL_JEFE[sectorDelMapa]
+    if (idJefe) {
+        // la casilla más lejos (andando) de la entrada; la semilla más cercana se mueve ahí y es la del jefe
+        const d = distanciasDesde(inicioNave)
+        const alcanzables = libres.filter(c => d[c.fila][c.col] !== Infinity)
+        const fondo = alcanzables.reduce((a, b) => d[b.fila][b.col] > d[a.fila][a.col] ? b : a)
+        const dFondo = distanciasDesde(fondo)
+        let k = 0
+        semillas.forEach((c, i) => { if (dFondo[c.fila][c.col] < dFondo[semillas[k].fila][semillas[k].col]) k = i })
+        semillas[k] = fondo
+        const j = tipos.indexOf(ZONAS.findIndex(z => z.id === idJefe))
+        const t = tipos[j]; tipos[j] = tipos[k]; tipos[k] = t
+    }
     zonaDe = mapa.map(filaMapa => filaMapa.map(() => null))
     const cola = []
     semillas.forEach((c, i) => { zonaDe[c.fila][c.col] = tipos[i]; cola.push(c) })
@@ -1346,9 +1502,12 @@ function generarCasillas(libre) {
     const mod = typeof modificadorSector === "function" ? modificadorSector() : { combate: 1, descanso: 1, evento: 1 }
     for (let fila = 0; fila < mapa.length; fila++) {
         for (let col = 0; col < mapa[fila].length; col++) {
-            if (mapa[fila][col] !== 0 || (fila === libre.fila && col === libre.col)) continue
+            if (mapa[fila][col] !== 0 || (fila === libre.fila && col === libre.col) || esPuerta(fila, col)) continue
             const z = (zonaEn(fila, col) || { casillas: { combate: 1, descanso: 1, evento: 1 } }).casillas
-            const combate = PROBABILIDAD_COMBATE * z.combate * mod.combate, descanso = DESCANSO.probabilidad * z.descanso * mod.descanso, evento = 0.02 * z.evento * mod.evento
+            // Descansos y eventos: los mismos que en el laberinto de 356 casillas, sea cual sea la nave.
+            // Combates: solo se compensa a medias (raíz), así que una nave pequeña tiene menos
+            const ajuste = 356 / sueloNave
+            const combate = PROBABILIDAD_COMBATE * z.combate * mod.combate * Math.sqrt(ajuste), descanso = DESCANSO.probabilidad * z.descanso * mod.descanso * ajuste, evento = 0.02 * z.evento * mod.evento * ajuste
             const roll = Math.random()
             if (roll < combate) mapa[fila][col] = 2
             else if (roll < combate + descanso) mapa[fila][col] = lejosDeDescansos(fila, col) ? 3 : 0
@@ -1364,7 +1523,7 @@ function generarCasillas(libre) {
             if (zonaDe[fila][col] === z) suyas.push({ fila, col, t })
         }))
         if (suyas.some(c => c.t === 3)) return
-        const libres = suyas.filter(c => c.t === 0 && (c.fila !== libre.fila || c.col !== libre.col))
+        const libres = suyas.filter(c => c.t === 0 && (c.fila !== libre.fila || c.col !== libre.col) && !esPuerta(c.fila, c.col))
         if (libres.length === 0) return
         libres.forEach(c => c.distancia = distanciaADescanso(c.fila, c.col))
         const separadas = mezclar(libres.filter(c => c.distancia >= DESCANSO.separacion))
@@ -1379,8 +1538,6 @@ function generarCasillas(libre) {
 // nunca (aunque solo se atacara); con el freno de XP_FRENO_NIVEL se sube a +12% y +10%.
 let sectorActual = 1
 const ESCALADO_SECTOR = { vida: 0.12, ataque: 0.10, xp: 0.10 }
-let avisoSectorHasta = 0              // hasta cuándo se ve el aviso de "Sector despejado"
-const DURACION_AVISO_SECTOR = 3500    // ms
 
 // Una vez fijados los tipos de casilla: para cada pared, en qué lados limita con algo que no es
 // pared (ahí se marca el borde). Entre paredes contiguas no hay borde, así que se ven como un bloque.
@@ -1389,21 +1546,26 @@ function esParedMapa(fila, col) {
     return mapa[fila] === undefined || mapa[fila][col] === undefined || mapa[fila][col] === 1
 }
 // Primer reparto de zonas y casillas (aquí, porque generarZonas usa esParedMapa)
-generarCasillas({ fila: 3, col: 2 })
+generarCasillas(inicioNave)
+colocarGrupo(inicioNave)
 
-const bordesPared = mapa.map((filaMapa, fila) => filaMapa.map((tile, col) => {
+function calcularBordes() {
+    const solido = (fila, col) => esParedMapa(fila, col) && !(espacioMapa[fila] && espacioMapa[fila][col])
+    return mapa.map((filaMapa, fila) => filaMapa.map((tile, col) => {
     if (tile !== 1) return null
-    const n = esParedMapa(fila - 1, col), s = esParedMapa(fila + 1, col)
-    const o = esParedMapa(fila, col - 1), e = esParedMapa(fila, col + 1)
+    const n = solido(fila - 1, col), s = solido(fila + 1, col)
+    const o = solido(fila, col - 1), e = solido(fila, col + 1)
     return {
         arriba: !n, abajo: !s, izq: !o, der: !e,
         // esquinas interiores: los dos vecinos son pared pero la diagonal no
-        esqNO: n && o && !esParedMapa(fila - 1, col - 1),
-        esqNE: n && e && !esParedMapa(fila - 1, col + 1),
-        esqSO: s && o && !esParedMapa(fila + 1, col - 1),
-        esqSE: s && e && !esParedMapa(fila + 1, col + 1)
+        esqNO: n && o && !solido(fila - 1, col - 1),
+        esqNE: n && e && !solido(fila - 1, col + 1),
+        esqSO: s && o && !solido(fila + 1, col - 1),
+        esqSE: s && e && !solido(fila + 1, col + 1)
     }
 }))
+}
+let bordesPared = calcularBordes()
 
 // Pausa: el juego deja de avanzar y el tiempo de la partida no cuenta mientras dura
 let pausado = false, inicioPausa = 0
@@ -1423,6 +1585,7 @@ function alternarPausa() {
         tiempoInicio += performance.now() - inicioPausa
         marcaAnterior = null
     }
+    if (typeof pausarAudio === "function") pausarAudio(pausado)
     bloquearTeclas()
 }
 // Rendirse: la partida acaba aquí, con la pantalla de derrota
@@ -1535,6 +1698,10 @@ document.addEventListener("keydown", function(e) {
     const confirmar = e.key === "Enter" || e.key === " "
 
     // H: ayuda sobre lo que se está haciendo ahora (en el menú de inicio, el resumen general)
+    if (estado === "records") {
+        if (!e.repeat && (confirmar || tecla === "escape" || tecla === "backspace")) cerrarRecords()
+        return
+    }
     if (tecla === "h" && !e.repeat && estado !== "victoria" && estado !== "derrota") {
         abrirAyuda()
         return
@@ -1689,13 +1856,26 @@ function empezarPartida() {
 // ←/→ (o A/D) cambian de dificultad dando la vuelta: a la derecha de Difícil va Fácil, y a la
 // izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↑ sube a la barra de
 // arriba (altavoz, ayuda y ajustes; ver dibujarBarraMenu).
+const hayPartidaGuardada = () => typeof resumenGuardado !== "undefined" && !!resumenGuardado
+// De arriba abajo, lo que hay debajo de la dificultad: Continuar (con partida guardada, Guardado.js), Estadísticas
+// (Records.js) y el botón del mando
+const columnaMenu = () => ["dificultad", ...(hayPartidaGuardada() ? ["continuar"] : []), "records", "mando"]
 function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
     if (panelAjustes) {
         teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, escape)
         return
     }
+    const columna = columnaMenu(), enColumna = columna.indexOf(focoMenu)
+    if (focoMenu === "continuar" || focoMenu === "records") {
+        if (arriba) focoMenu = columna[enColumna - 1]
+        if (abajo) focoMenu = columna[enColumna + 1]
+        if (escape) focoMenu = "dificultad"
+        if (confirmar) { if (focoMenu === "continuar") cargarPartida(); else abrirRecords() }
+        return
+    }
     if (focoMenu === "mando") {
-        if (arriba || escape) focoMenu = "dificultad"
+        if (arriba) focoMenu = columna[enColumna - 1]
+        if (escape) focoMenu = "dificultad"
         if (confirmar) abrirAyudaMando()
         return
     }
@@ -1703,7 +1883,7 @@ function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
         if (izquierda) dificultadElegida = dificultadVecina(-1)
         if (derecha) dificultadElegida = dificultadVecina(1)
         if (arriba) focoMenu = "ajustes"
-        if (abajo) focoMenu = "mando"
+        if (abajo) focoMenu = columna[1]
         if (confirmar) abrirSelector()
         return
     }
@@ -1751,6 +1931,13 @@ canvas.addEventListener("mousemove", function(e) {
         canvas.style.cursor = "pointer"
         return
     }
+    // En la pausa, pasar el ratón por un botón lo marca (Seguir / Rendirse, y en la confirmación No / Sí)
+    if (pausado) {
+        z = zonaEnPunto(zonasPausa, p.x, p.y)
+        if (z) { if (pausaConfirmar) confirmarOpcion = z.indice; else pausaOpcion = z.indice }
+        canvas.style.cursor = z ? "pointer" : "default"
+        return
+    }
     if (estado === "menu") {
         // Pasar el ratón por un recuadro lo elige. Como mousemove solo salta al mover el ratón, si
         // después se usan las flechas, la selección se queda donde la dejan ellas hasta que se mueva.
@@ -1761,7 +1948,7 @@ canvas.addEventListener("mousemove", function(e) {
         } else {
             z = zonaCercana(zonasMenu, p.x, p.y)
             if (z && z.tipo === "dificultad" && !DIFICULTADES[z.indice].bloqueada) { dificultadElegida = z.indice; focoMenu = "dificultad" }
-            if (z && (ORDEN_BARRA.includes(z.tipo) || z.tipo === "mando")) focoMenu = z.tipo
+            if (z && (ORDEN_BARRA.includes(z.tipo) || z.tipo === "mando" || z.tipo === "continuar" || z.tipo === "records")) focoMenu = z.tipo
         }
     } else if (estado === "tripulacion") {
         z = selectorRaton(p, false)
@@ -1797,6 +1984,7 @@ canvas.addEventListener("click", function(e) {
         selectorRaton(p, true)
         return
     }
+    if (estado === "records") { cerrarRecords(); return }
     if (estado === "menu") {
         // Panel de ajustes abierto: un clic en él lo usa; fuera de él lo cierra (en la tuerca, solo cierra)
         if (panelAjustes) {
@@ -1811,6 +1999,8 @@ canvas.addEventListener("click", function(e) {
         if (z.tipo === "sonido") { focoMenu = "sonido"; alternarSonidoBoton(); return }
         if (z.tipo === "ajustes") { focoMenu = "ajustes"; panelAjustes = { fila: 0 }; return }
         if (z.tipo === "mando") { focoMenu = "mando"; abrirAyudaMando(); return }
+        if (z.tipo === "continuar") { cargarPartida(); canvas.style.cursor = "default"; return }
+        if (z.tipo === "records") { abrirRecords(); canvas.style.cursor = "default"; return }
         if (z.tipo === "ayuda") {
             abrirAyuda()
             return
@@ -1855,7 +2045,8 @@ canvas.addEventListener("click", function(e) {
 function esPared(x, y) {
     const fila = Math.floor(y / tamTile)
     const col = Math.floor(x / tamTile)
-    return mapa[fila] && mapa[fila][col] === 1
+    // las puertas de la sala del jefe, mientras están cerradas, también (Jefes.js)
+    return mapa[fila] && (mapa[fila][col] === 1 || (typeof puertaJefeCerrada === "function" && puertaJefeCerrada(fila, col)))
 }
 
 function identificarTile(x, y) {
@@ -1903,7 +2094,10 @@ function crearEnemigo(base) {
     stats.PRE = Math.round(base.stats.PRE * escala("PRE"))
     stats.EVA = Math.round(base.stats.EVA * escala("EVA"))
     ajustarEnemigoEventos(base, stats)
-    const xp = Math.round(base.xp * XP_RITMO * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp * (1 + ESCALADO_SECTOR.xp * sector) * (zona.xp || 1))
+    // En una nave pequeña hay menos combates (ver generarCasillas): cada uno da más XP para que se llegue a
+    // cada sector con un nivel parecido al de una nave grande
+    const xpNave = Math.sqrt(356 / sueloNave)
+    const xp = Math.round(base.xp * XP_RITMO * Math.pow(nivelMedio(), XP_EXPONENTE) * dificultad.xp * (1 + ESCALADO_SECTOR.xp * sector) * (zona.xp || 1) * xpNave)
     // tipo = identificador interno (para todo el código); nombre = el que se ve, en el idioma elegido
     return { ...base, tipo: base.nombre, nombre: nombreDe(base.nombre), xp: xp, stats: stats }
 }
@@ -2038,6 +2232,9 @@ function iniciarCombate() {
     enemigosRetirados = []
     logAntesDeRonda = []
     rondaJugada = false
+    // la memoria del selector es solo de este combate: al empezar otro, todos vuelven a Atacar
+    ultimoObjetivo = null
+    equipoJugador.forEach(p => p.ultimaAccion = null)
     enemigosCombate = regresa ? generarRegresoFugitivo(fugitivo) : generarEnemigos(preparativos.cantidadEnemigos, preparativos.claseEnemigos)
     if (regresa) logCombate.push(L("¡" + enemigosCombate[0].nombre + " ha vuelto, y esta vez no viene solo!", enemigosCombate[0].nombre + " is back, and this time not alone!"))
     aplicarPreparativos()
@@ -2048,6 +2245,7 @@ function iniciarCombate() {
         ejecutarRonda()
         personajeActual = siguienteVivo(0)
     }
+    prepararSeleccion()
     reiniciarHistorial()
 }
 
@@ -2088,6 +2286,19 @@ function aplicarPreparativos() {
 }
 
 // El siguiente del equipo que puede elegir acción esta ronda: vivo y sin aturdir
+// La última acción del que elige ahora, si se puede repetir: la habilidad, si tiene orbes para la que usó;
+// defenderse, siempre. Los objetos no se recuerdan (manteniendo Aceptar se gastarían sin querer).
+function prepararSeleccion() {
+    const p = equipoJugador[personajeActual]
+    accionSeleccionada = 0
+    if (!p || !p.ultimaAccion) return
+    const u = p.ultimaAccion
+    if (u.accion === 2) accionSeleccionada = 2
+    if (u.accion === 1) {
+        const h = habilidadesDisponibles(p).find(x => x.id === u.habilidad)
+        if (h && p.energia >= h.coste) accionSeleccionada = 1
+    }
+}
 function siguienteVivo(desde) {
     for (let i = desde; i < equipoJugador.length; i++) {
         if (equipoJugador[i].stats.HP > 0 && !(equipoJugador[i].aturdido > 0)) return i
@@ -2216,6 +2427,7 @@ function comprobarTile() {
             bloquearTeclas()
         }
         if (tile === 4) iniciarEvento()
+        if (tile === 5 && typeof iniciarCombateJefe === "function") iniciarCombateJefe()
         if (tile === 3 || tile === 4) {
             const fila = Math.floor((lider.y + lider.height / 2) / tamTile)
             const col = Math.floor((lider.x + lider.width / 2) / tamTile)
@@ -2261,7 +2473,8 @@ function ejecutarAccion() {
         const disponibles = habilidadesDisponibles(personaje)
         if (disponibles.length > 1) {
             faseCombate = "habilidad"
-            habilidadSeleccionada = 0
+            const u = personaje.ultimaAccion
+            habilidadSeleccionada = Math.max(0, u && u.accion === 1 ? disponibles.findIndex(h => h.id === u.habilidad && personaje.energia >= h.coste) : 0)
         } else {
             elegirHabilidad(disponibles[0])
         }
@@ -2299,7 +2512,7 @@ function pedirObjetivo() {
         const vivos = enemigosVivos()
         if (vivos.length > 1) {
             faseCombate = "objetivo"
-            objetivoSeleccionado = enemigosCombate.indexOf(vivos[0])
+            objetivoSeleccionado = enemigosCombate.indexOf(vivos.includes(ultimoObjetivo) ? ultimoObjetivo : vivos[0])
             return
         }
         confirmarAccion(vivos[0])
@@ -2331,6 +2544,9 @@ function esInstantanea() {
     return accionSeleccionada === 3 || (accionSeleccionada === 1 && habilidadElegida && habilidadElegida.instantanea)
 }
 function confirmarAccion(objetivo) {
+    const quien = equipoJugador[personajeActual]
+    if (quien) quien.ultimaAccion = { accion: accionSeleccionada, habilidad: habilidadElegida ? habilidadElegida.id : null }
+    if (objetivo && enemigosCombate.includes(objetivo)) ultimoObjetivo = objetivo
     if (esInstantanea()) {
         const p = equipoJugador[personajeActual]
         const antes = logCombate.length
@@ -2350,6 +2566,7 @@ function confirmarAccion(objetivo) {
             ejecutarRonda()
             personajeActual = siguienteVivo(0)
         }
+        prepararSeleccion()
         return
     }
     accionesGuardadas.push({
@@ -2369,6 +2586,7 @@ function confirmarAccion(objetivo) {
         ejecutarRonda()
         personajeActual = siguienteVivo(0)
     }
+    prepararSeleccion()
 }
 
 // Orden por VEL de todos los que siguen vivos; quien tiene "retrasado" va el último
@@ -2506,7 +2724,7 @@ function ataqueBasico(personaje, objetivo, probabilidadExtra = 0, multPrimerGolp
 function valoresHabilidad(id, nv) {
     switch (id) {
         case "senalar":     return { atk: 0.6, marca: 0.25 }                         // golpe flojo; los demás le hacen +25% esa ronda
-        case "abordaje":    return { atk: 0.6 + 0.01 * (nv - 1), ultimo: 1.5 }       // a todos, ATK x0.6 (+1% por nivel); el último golpe, x1.5 más
+        case "abordaje":    return { atk: 0.75 + 0.01 * (nv - 1), ultimo: 1.5 }      // a todos, ATK x0.75 (+1% por nivel); el último golpe, x1.5 más
         case "todosAUna":   return { extra: 0.2 + 0.005 * (nv - 12), rondas: 2 }     // +1 orbe y +20% de daño (+0,5% por nivel) 2 rondas
         case "rafaga":      return { golpes: 3 + Math.floor(nv / 10), atk: 0.8 }     // 3 golpes (+1 cada 10 niveles)
         case "rompeguardias": return { daño: 0.6 }                                   // pega menos; si está (o va a estar) en guardia, la rompe y lo aturde
@@ -2973,7 +3191,7 @@ function huir(enemigo) {
 // Una casilla vacía para el fugitivo, a ser posible a 6 o más casillas del grupo (ha salido corriendo)
 function casillaFugitivo() {
     const p = casillaPaku()
-    const libres = casillasDeTipo(0).filter(c => c.fila !== p.fila || c.col !== p.col)
+    const libres = casillasDeTipo(0).filter(c => (c.fila !== p.fila || c.col !== p.col) && !esPuerta(c.fila, c.col) && !(typeof esSalaJefe === "function" && esSalaJefe(c.fila, c.col)))
     const lejos = libres.filter(c => distanciaPaku(c) >= 6)
     const lista = lejos.length ? lejos : libres
     const c = lista[Math.floor(Math.random() * lista.length)]
@@ -3046,6 +3264,7 @@ function movimiento(deltaMs) {
     anteriorX = lider.x
     anteriorY = lider.y
 
+    if (enTransicionNave()) return
     const paso = VELOCIDAD_PAKU * (deltaMs / 1000)
     if (teclas["arrowleft"] || teclas["a"]) lider.x -= paso
     if (teclas["arrowright"] || teclas["d"]) lider.x += paso
@@ -3363,7 +3582,7 @@ function quitarCombatesAlAzar(n) {
 // (su casilla es lo único que importa: al cambiar de sector conserva su posición)
 function pintarCasillas(cuenta) {
     const p = casillaPaku()
-    const libres = mezclar(casillasDeTipo(0).filter(c => c.fila !== p.fila || c.col !== p.col))
+    const libres = mezclar(casillasDeTipo(0).filter(c => (c.fila !== p.fila || c.col !== p.col) && !esPuerta(c.fila, c.col) && !(typeof esSalaJefe === "function" && esSalaJefe(c.fila, c.col))))
     let i = 0
     for (const tipo of [2, 3, 4]) {
         for (let k = 0; k < (cuenta[tipo] || 0) && i < libres.length; k++, i++) {
@@ -3625,7 +3844,12 @@ function dibujarMenu() {
 
     ctx.fillStyle = "rgb(150, 150, 160)"
     ctx.font = "15px sans-serif"
-    const ayuda = focoMenu === "dificultad"
+    const ayuda = focoMenu === "records"
+        ? L("Enter: ver tus estadísticas de todas las partidas  ·  ↑ ↓ moverse", "Enter: see your stats from all your runs  ·  ↑ ↓ move")
+        : focoMenu === "continuar"
+        ? L("Enter: seguir la partida guardada  ·  ↑ elegir dificultad y empezar otra (borra la guardada)",
+            "Enter: continue the saved run  ·  ↑ choose a difficulty and start a new one (erases the saved one)")
+        : focoMenu === "dificultad"
         ? L("Elige con el ratón o con ← →  ·  Clic o Enter para empezar  ·  ↑ opciones  ·  ↓ mando",
             "Choose with the mouse or ← →  ·  Click or Enter to start  ·  ↑ options  ·  ↓ controller")
         : focoMenu === "mando"
@@ -3633,6 +3857,9 @@ function dibujarMenu() {
         : L("← → para moverte por los botones  ·  Enter lo usa  ·  ↓ o Esc vuelve a la dificultad",
             "← → to move between the buttons  ·  Enter uses it  ·  ↓ or Esc back to the difficulty")
     ctx.fillText(ayuda, 512, 400)
+    // Con partida guardada, el botón para seguirla
+    if (hayPartidaGuardada()) zonasMenu.push(dibujarBoton("▶  " + textoContinuar(), 512, 440, "continuar", focoMenu === "continuar"))
+    if (typeof abrirRecords === "function") zonasMenu.push(dibujarBoton(L("Estadísticas", "Statistics"), 512, hayPartidaGuardada() ? 492 : 440, "records", focoMenu === "records"))
 
     zonasMenu.push(dibujarBoton(L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)"), 512, 600, "reportar"))
     // Abajo a la izquierda, un botón pequeño con un mando: explica cómo conectarlo
@@ -3850,12 +4077,6 @@ function dibujarBoton(texto, centroX, y, tipo, resaltado = false) {
     ctx.fillText(texto, centroX, zona.y + 23)
     ctx.textAlign = alineacion
     return zona
-}
-// El mismo botón, pegado a la esquina superior derecha (con el ancho que pida su texto)
-function dibujarBotonEsquina(texto, tipo, resaltado = false) {
-    ctx.font = "15px sans-serif"
-    const ancho = ctx.measureText(texto).width + 32
-    return dibujarBoton(texto, 1024 - 14 - ancho / 2, 14, tipo, resaltado)
 }
 
 // Versión en la esquina inferior derecha
@@ -4246,6 +4467,18 @@ function dibujarSueloZonas() {
     }
 }
 
+// Fuera del casco: negro con alguna estrella (siempre las mismas en cada casilla)
+function dibujarEspacio(x, y, fila, col) {
+    ctx.fillStyle = "rgb(6, 7, 16)"
+    ctx.fillRect(x, y, tamTile, tamTile)
+    let s = (fila * 73 + col * 151) % 997
+    for (let k = 0; k < 2; k++) {
+        s = (s * 37 + 11) % 997
+        if (s % 3) continue
+        ctx.fillStyle = s % 2 ? "rgba(220, 225, 255, 0.8)" : "rgba(150, 160, 210, 0.6)"
+        ctx.fillRect(x + (s % tamTile), y + ((s * 7) % tamTile), s % 5 === 0 ? 2 : 1, s % 5 === 0 ? 2 : 1)
+    }
+}
 function dibujarPared(x, y, b) {
     const g = 3
     ctx.fillStyle = "rgb(40, 44, 66)"
@@ -4267,14 +4500,87 @@ function dibujarPared(x, y, b) {
 function comprobarSectorDespejado() {
     const quedan = mapa.some(filaMapa => filaMapa.some(t => t === 2))
     if (quedan) return
+    if (typeof sectorConJefePendiente === "function" && sectorConJefePendiente()) return   // falta el jefe (Jefes.js)
     sectorActual++
     limpiarFugitivos()
     alCambiarSectorEventos()
-    mapa.forEach(filaMapa => filaMapa.forEach((t, col) => { if (t === 3 || t === 4) filaMapa[col] = 0 }))
-    generarCasillas(casillaPaku())
+    sectorDelMapa = sectorActual
+    generarNave(tamañoNavePorSector())
+    delete capasFijas.mapa
+    bordesPared = calcularBordes()
+    colocarGrupo(inicioNave)
+    generarCasillas(inicioNave)
+    transicionNave = performance.now()
     pintarCasillas(mejorasPartida.casillasExtra)   // las de más del Mapa estelar, después del reparto
     despuesDeGenerarSectorEventos()
-    avisoSectorHasta = performance.now() + DURACION_AVISO_SECTOR
+    if (typeof prepararSalaJefe === "function") prepararSalaJefe()   // en los sectores de jefe (Jefes.js)
+}
+
+// --- Llegada a la nave del sector siguiente ----------------------------------------------------------
+// Al despejar un sector, el grupo sube a una lanzadera y aborda la siguiente nave por la popa: pantalla
+// negra con estrellas, el aviso del sector, la silueta de la nave nueva que se va viendo y la lanzadera que
+// llega justo a donde aparece el grupo; luego se funde y ya se puede andar. Mientras dura, no se mueve nadie.
+let transicionNave = 0
+const DURACION_TRANSICION = 2800   // ms
+function enTransicionNave() {
+    return transicionNave > 0 && performance.now() - transicionNave < DURACION_TRANSICION
+}
+const ESTRELLAS_TRANSICION = Array.from({ length: 110 }, (_, i) => [(i * 397) % ANCHO_JUEGO, (i * 211 + (i % 7) * 53) % ALTO_JUEGO, (i % 5) / 5])
+// Devuelve true mientras se está viendo (entonces no se pintan los avisos del mapa por encima)
+function dibujarTransicionNave() {
+    if (!enTransicionNave()) return false
+    const t = (performance.now() - transicionNave) / DURACION_TRANSICION
+    const suave = x => x * x * (3 - 2 * x)
+    // el negro tapa la nave del todo hasta el 70% y luego se funde
+    const negro = t < 0.7 ? 1 : 1 - suave((t - 0.7) / 0.3)
+    ctx.globalAlpha = negro
+    ctx.fillStyle = "rgb(6, 7, 16)"
+    ctx.fillRect(0, 0, ANCHO_JUEGO, ALTO_JUEGO)
+    for (const [x, y, b] of ESTRELLAS_TRANSICION) {
+        ctx.fillStyle = "rgba(210, 220, 255, " + (0.3 + b * 0.6) + ")"
+        ctx.fillRect(x, y, b > 0.6 ? 2 : 1, b > 0.6 ? 2 : 1)
+    }
+    // la silueta de la nave nueva, cada vez más clara
+    ctx.save()
+    ctx.translate(zoomNave.x, zoomNave.y)
+    ctx.scale(zoomNave.s, zoomNave.s)
+    const silueta = Math.min(1, Math.max(0, (t - 0.1) / 0.45)) * 0.45
+    ctx.fillStyle = "rgba(88, 94, 124, " + silueta + ")"
+    for (let fila = 0; fila < mapa.length; fila++) for (let col = 0; col < mapa[fila].length; col++) {
+        if (!espacioMapa[fila][col]) ctx.fillRect(col * tamTile, fila * tamTile, tamTile, tamTile)
+    }
+    // la lanzadera: entra por la izquierda y para justo donde aparece el grupo
+    const destinoX = lider.x + lider.width / 2, destinoY = lider.y + lider.height / 2
+    const vuelo = Math.min(1, Math.max(0, (t - 0.12) / 0.55))
+    const x = -60 + (destinoX + 60) * (1 - Math.pow(1 - vuelo, 3)), y = destinoY
+    if (t < 0.85) {
+        const p = 3   // un "píxel" de la lanzadera
+        const forma = ["..XXXXX...", ".XXWWXXXX.", "XXXXXXXXXX", ".XXXXXXXX.", "..XXXXX..."]
+        if (vuelo < 1) {
+            // llama del motor, que parpadea mientras vuela
+            ctx.fillStyle = Math.floor(performance.now() / 60) % 2 ? "rgb(255, 170, 60)" : "rgb(255, 230, 120)"
+            ctx.fillRect(x - 5 * p - 4 * p, y - p, 4 * p, 3 * p)
+        }
+        forma.forEach((filaF, i) => {
+            for (let k = 0; k < filaF.length; k++) {
+                if (filaF[k] === ".") continue
+                ctx.fillStyle = filaF[k] === "W" ? "rgb(140, 220, 255)" : i === 0 || i === forma.length - 1 ? "rgb(120, 126, 160)" : "rgb(190, 196, 220)"
+                ctx.fillRect(Math.round(x + (k - 5) * p), Math.round(y + (i - 2) * p), p, p)
+            }
+        })
+    }
+    ctx.restore()
+    // el aviso del sector
+    ctx.textAlign = "center"
+    ctx.fillStyle = "rgb(120, 220, 140)"
+    ctx.font = "bold 28px sans-serif"
+    ctx.fillText(L("¡Sector despejado!", "Sector cleared!"), ANCHO_JUEGO / 2, 90)
+    ctx.fillStyle = "white"
+    ctx.font = "17px sans-serif"
+    ctx.fillText(L("Abordáis la siguiente nave  ·  Sector ", "You board the next ship  ·  Sector ") + sectorActual, ANCHO_JUEGO / 2, 122)
+    ctx.textAlign = "left"
+    ctx.globalAlpha = 1
+    return true
 }
 
 // Casillas especiales: cada tipo tiene su símbolo y su color, para que se distingan también sin ver
@@ -4283,6 +4589,7 @@ function comprobarSectorDespejado() {
 // 3 = descanso (cruz de curación), 4 = evento (interrogación).
 const SIMBOLOS_CASILLA = {
     2: ["X......X", ".X....X.", "..X..X..", "...XX...", "..XXXX..", ".X.XX.X.", "XX....XX", "XX....XX"],
+    5: ["..XXXX..", ".XXXXXX.", "XX.XX.XX", "XX.XX.XX", ".XXXXXX.", "..X..X..", "..XXXX..", "........"],   // jefe (calavera)
     3: ["...XX...", "...XX...", "...XX...", "XXXXXXXX", "XXXXXXXX", "...XX...", "...XX...", "...XX..."],
     4: ["..XXXX..", ".XX..XX.", ".....XX.", "....XX..", "...XX...", "...XX...", "........", "...XX..."]
 }
@@ -4298,15 +4605,15 @@ const SIMBOLOS_CASILLA = {
 //   cada modo, el ΔE mínimo entre zonas es 16-26.
 // equipo: null = los colores de siempre (ESTILOS_PLACEHOLDER en combate y los del mapa)
 const MODOS_COLOR = [
-    { nombre: { es: "Convencional", en: "Conventional" }, casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255] }, equipo: null,
+    { nombre: { es: "Convencional", en: "Conventional" }, casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255], 5: [240, 192, 64] }, equipo: null,
       zonas: [[255, 255, 0], [191, 96, 0], [51, 187, 255], [0, 191, 96], [191, 0, 128]] },
-    { nombre: { es: "Protanopia (rojo)", en: "Protanopia (red)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255] },
+    { nombre: { es: "Protanopia (rojo)", en: "Protanopia (red)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255], 5: [240, 192, 64] },
       equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255] },
       zonas: [[128, 170, 255], [191, 38, 38], [255, 255, 0], [0, 0, 191], [51, 255, 119]] },
-    { nombre: { es: "Deuteranopia (verde)", en: "Deuteranopia (green)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166] },
+    { nombre: { es: "Deuteranopia (verde)", en: "Deuteranopia (green)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166], 5: [240, 192, 64] },
       equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26] },
       zonas: [[43, 0, 255], [255, 255, 0], [255, 85, 0], [221, 51, 255], [191, 0, 32]] },
-    { nombre: { es: "Tritanopia (azul)", en: "Tritanopia (blue)" }, casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255] },
+    { nombre: { es: "Tritanopia (azul)", en: "Tritanopia (blue)" }, casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255], 5: [240, 192, 64] },
       equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] },
       zonas: [[128, 0, 191], [0, 191, 0], [166, 191, 38], [0, 32, 191], [255, 42, 0]] }
 ]
@@ -4330,10 +4637,11 @@ function letraSobre(c) {
 
 function dibujarCasilla(tipo, x, y, modo = modoColor) {
     const c = MODOS_COLOR[modo].casillas[tipo]
-    ctx.fillStyle = "rgba(" + c.join(", ") + ", 0.4)"
+    // Relleno oscuro y casi opaco (antes, el color al 40%, se perdía sobre el suelo nuevo)
+    ctx.fillStyle = "rgba(" + c.map(v => Math.round(v * 0.55)).join(", ") + ", 0.68)"
     ctx.fillRect(x, y, tamTile, tamTile)
     // El símbolo, del mismo color pero mucho más claro, para que resalte sobre el relleno
-    ctx.fillStyle = "rgb(" + c.map(v => Math.round(v + (255 - v) * 0.55)).join(", ") + ")"
+    ctx.fillStyle = "rgb(" + c.map(v => Math.round(v + (255 - v) * 0.45)).join(", ") + ")"
     const forma = formaSimbolo(tipo)
     if (forma) {
         ctx.translate(x, y)
@@ -4382,22 +4690,43 @@ function dibujarMiembroMapa(p, color, colorLetra) {
 }
 
 function dibujarExploracion() {
-    // Fondo y paredes no cambian nunca (el mapa es fijo): van en una capa fija
-    dibujarCapaFija("mapa", () => {
+    // Fondo y paredes no cambian en todo el sector: van en una capa fija, guardada sin zoom y pintada ampliada
+    const capa = capasFijas.mapa
+    const capaValida = capa && capa.width === canvas.width && capa.height === canvas.height
+    if (zoomNave.s !== 1 && capaValida) {
+        const suavizado = ctx.imageSmoothingEnabled
+        ctx.imageSmoothingEnabled = false
+        conZoomNave(() => ctx.drawImage(capa, 0, 0, ANCHO_JUEGO, ALTO_JUEGO))
+        ctx.imageSmoothingEnabled = suavizado
+    } else dibujarCapaFija("mapa", () => {
         dibujarFondo("fondoExploracion")
-        dibujarSueloZonas()
-        for (let fila = 0; fila < mapa.length; fila++) {
-            for (let col = 0; col < mapa[fila].length; col++) {
-                if (mapa[fila][col] === 1) dibujarPared(col * tamTile, fila * tamTile, bordesPared[fila][col])
+        if (typeof dibujarNaveEstatica === "function") dibujarNaveEstatica()
+        else {
+            dibujarSueloZonas()
+            for (let fila = 0; fila < mapa.length; fila++) {
+                for (let col = 0; col < mapa[fila].length; col++) {
+                    if (espacioMapa[fila][col]) dibujarEspacio(col * tamTile, fila * tamTile, fila, col)
+                    else if (mapa[fila][col] === 1) dibujarPared(col * tamTile, fila * tamTile, bordesPared[fila][col])
+                }
             }
         }
     })
+    // Recién guardada (primer fotograma de la nave): se vuelve a pintar ya ampliada encima
+    if (zoomNave.s !== 1 && !capaValida && capasFijas.mapa) {
+        const suavizado = ctx.imageSmoothingEnabled
+        ctx.imageSmoothingEnabled = false
+        conZoomNave(() => ctx.drawImage(capasFijas.mapa, 0, 0, ANCHO_JUEGO, ALTO_JUEGO))
+        ctx.imageSmoothingEnabled = suavizado
+    }
+    conZoomNave(() => {
     // Las casillas sí cambian (se pisan y se reparten de nuevo en cada sector)
     for (let fila = 0; fila < mapa.length; fila++) {
         for (let col = 0; col < mapa[fila].length; col++) {
             if (SIMBOLOS_CASILLA[mapa[fila][col]]) dibujarCasilla(mapa[fila][col], col * tamTile, fila * tamTile)
         }
     }
+    if (typeof dibujarNaveDinamica === "function") dibujarNaveDinamica()
+    if (typeof dibujarAcompañantes === "function") dibujarAcompañantes()   // aliados y acompañantes, detrás de la fila
         // El robot de servicio va el último de la fila, más pequeño
         if (mejorasPartida.robots > 0 && puntoRastro(puestoRobot())) {
             const r = puntoRastro(puestoRobot())
@@ -4407,6 +4736,7 @@ function dibujarExploracion() {
         // Los caídos no salen en el mapa hasta que vuelven a tener vida; el que va delante, encima
         const coloresMapa = { Paku: ["red", "white"], Mamuri: ["blue", "white"], VBZ: ["green", "white"], Imanps: ["yellow", "black"] }
         filaVivos().reverse().forEach(p => dibujarMiembroMapa(p, coloresMapa[p.id][0], coloresMapa[p.id][1]))
+    })
     if (mostrarPanelDescanso) dibujarPanelDescanso()
     // Contador de sector (arriba a la izquierda, sobre el muro) y aviso al despejar uno
     ctx.textAlign = "left"
@@ -4430,22 +4760,7 @@ function dibujarExploracion() {
     ctx.fillStyle = "rgb(190, 190, 210)"
     ctx.fillText(L("H: ayuda  ·  M: estadísticas  ·  P: pausa", "H: help  ·  M: stats  ·  P: pause"), 1016, 21)
     ctx.textAlign = "left"
-    if (performance.now() < avisoSectorHasta) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.75)"
-        ctx.fillRect(262, 60, 500, 80)
-        ctx.strokeStyle = "rgb(120, 220, 140)"
-        ctx.lineWidth = 2
-        ctx.strokeRect(262, 60, 500, 80)
-        ctx.lineWidth = 1
-        ctx.textAlign = "center"
-        ctx.fillStyle = "rgb(120, 220, 140)"
-        ctx.font = "bold 24px sans-serif"
-        ctx.fillText(L("¡Sector despejado!", "Sector cleared!"), 512, 95)
-        ctx.fillStyle = "white"
-        ctx.font = "15px sans-serif"
-        ctx.fillText(L("La nave manda patrullas más duras  ·  Sector ", "The ship sends tougher patrols  ·  Sector ") + sectorActual, 512, 124)
-        ctx.textAlign = "left"
-    }
+    if (dibujarTransicionNave()) return
     dibujarAvisosMapa()
 }
 
@@ -4745,10 +5060,48 @@ function estadoEspecialEnemigo(en) {
 const COLUMNAS_FORMACION = [740, 880]   // borde izquierdo de cada columna (el log acaba en 732)
 const ANCHO_COLUMNA_FORMACION = 138
 const Y_MAXIMA_ENEMIGOS = 550           // justo encima del panel inferior
+// La corte de la Rata reina: ella en el centro, a 96 px; el resto, en filas de hasta 3 arriba y abajo.
+// Hasta 6, una fila arriba y otra abajo a 48 px; con más, dos filas arriba y dos abajo a 32 px y con el texto
+// más pegado (para que quepan en el alto). Devuelve { x, y, tam, ancho, lineas } de cada enemigo (ancho: lo
+// que puede ocupar su texto; lineas: dónde van el nombre, la vida y el estado), o null si no hay reina viva
+// (entonces, la colocación de siempre)
+const X_ZONA_ENEMIGOS = 738, ANCHO_ZONA_ENEMIGOS = 284
+function posicionesCorte() {
+    const reina = enemigosCombate.find(en => en.rol === "reina" && en.stats.HP > 0)
+    if (!reina) return null
+    const resto = enemigosCombate.filter(en => en !== reina)
+    const compacto = resto.length > 6
+    const tamResto = compacto ? 32 : 48, tamReina = 96
+    const lineasResto = compacto ? [26, 41, 56] : [28, 45, 62], lineasReina = [28, 45, 62]
+    const altoResto = tamResto + (compacto ? 62 : 74), altoReina = tamReina + (compacto ? 58 : 74)
+    // Filas de hasta 3, repartidas a partes iguales (4 → 2 y 2); la mitad (redondeando hacia arriba) va encima
+    const enFilas = lista => {
+        const n = Math.ceil(lista.length / 3), porFila = Math.ceil(lista.length / Math.max(1, n)), filas = []
+        for (let i = 0; i < lista.length; i += porFila) filas.push(lista.slice(i, i + porFila))
+        return filas
+    }
+    const mitad = Math.ceil(resto.length / 2)
+    const arriba = enFilas(resto.slice(0, mitad)), abajo = enFilas(resto.slice(mitad))
+    const alto = (arriba.length + abajo.length) * altoResto + altoReina
+    let y = 20 + Math.max(0, Math.floor((Y_MAXIMA_ENEMIGOS - 20 - alto) / 2))
+    const columna = ANCHO_ZONA_ENEMIGOS / 3
+    const pos = new Map()
+    const fila = lista => {
+        const margen = (3 - lista.length) * columna / 2
+        lista.forEach((en, i) => pos.set(en, { x: Math.round(X_ZONA_ENEMIGOS + margen + i * columna + 4), y, tam: tamResto, ancho: columna - 6, lineas: lineasResto }))
+        y += altoResto
+    }
+    arriba.forEach(fila)
+    pos.set(reina, { x: X_ZONA_ENEMIGOS + Math.round((ANCHO_ZONA_ENEMIGOS - tamReina) / 2), y, tam: tamReina, ancho: ANCHO_ZONA_ENEMIGOS / 2, lineas: lineasReina })
+    y += altoReina
+    abajo.forEach(fila)
+    return enemigosCombate.map(en => pos.get(en))
+}
 function dibujarEnemigosCombate() {
     const n = enemigosCombate.length
     const tamanos = enemigosCombate.map(en => 96 * (ESCALA_ENEMIGO[en.tipo] || 1))
-    const formacion = n > 3
+    const corte = posicionesCorte()
+    const formacion = n > 3 || !!corte
     let factor, paso, enRejilla = false
     if (formacion) {
         // Cada enemigo ocupa su sprite más ~70 px de texto; entre columnas van desfasados medio hueco
@@ -4772,9 +5125,9 @@ function dibujarEnemigosCombate() {
     if (formacion) ctx.font = "13px sans-serif"
     let cursor = 20
     enemigosCombate.forEach((en, i) => {
-        const tam = Math.round(tamanos[i] * factor)
-        const x = formacion ? COLUMNAS_FORMACION[i % 2] : 850 - tam / 2
-        const y = formacion ? 20 + (enRejilla ? Math.floor(i / 2) : i) * paso : cursor
+        const tam = corte ? corte[i].tam : Math.round(tamanos[i] * factor)
+        const x = corte ? corte[i].x : formacion ? COLUMNAS_FORMACION[i % 2] : 850 - tam / 2
+        const y = corte ? corte[i].y : formacion ? 20 + (enRejilla ? Math.floor(i / 2) : i) * paso : cursor
         const muerto = en.stats.HP <= 0
         const elegido = faseCombate === "objetivo" && i === objetivoSeleccionado
         en.rect = { x, y, tam }
@@ -4798,13 +5151,15 @@ function dibujarEnemigosCombate() {
         const especial = estadoEspecialEnemigo(en)
         if (formacion) {
             // Un nombre que no quepa en la columna (p. ej. "Androide de asalto B") va un punto más pequeño
-            if (ctx.measureText(en.nombre).width > ANCHO_COLUMNA_FORMACION) ctx.font = "12px sans-serif"
-            ctx.fillText(en.nombre, x, y + tam + 28)
+            const ancho = corte ? corte[i].ancho : ANCHO_COLUMNA_FORMACION
+            const lineas = corte ? corte[i].lineas : [28, 45, 62]
+            if (ctx.measureText(en.nombre).width > ancho) ctx.font = "12px sans-serif"
+            textoAjustado(en.nombre, x, y + tam + lineas[0], ancho)
             ctx.font = "13px sans-serif"
-            ctx.fillText(textoHP, x, y + tam + 45)
+            textoAjustado(textoHP, x, y + tam + lineas[1], ancho)
             if (especial) {
                 ctx.fillStyle = especial.color
-                ctx.fillText(especial.texto, x, y + tam + 62)
+                textoAjustado(especial.texto, x, y + tam + lineas[2], ancho)
             }
         } else {
             ctx.fillText(en.nombre, x, y + tam + 30)
@@ -4826,7 +5181,7 @@ const X_REGISTRO = 262   // borde izquierdo del panel del registro (a la derecha
 function textoAjustado(texto, x, y, ancho) {
     const anterior = ctx.font
     let tam = parseInt(anterior, 10) || 14
-    while (ctx.measureText(texto).width > ancho && tam > 10) { tam--; ctx.font = anterior.replace(/d+px/, tam + "px") }
+    while (ctx.measureText(texto).width > ancho && tam > 10) { tam--; ctx.font = anterior.replace(/\d+px/, tam + "px") }
     ctx.fillText(texto, x, y)
     ctx.font = anterior
 }
@@ -4835,7 +5190,7 @@ function textoAjustado(texto, x, y, ancho) {
 function textoDosLineas(texto, x, y, ancho, alto = 16) {
     const anterior = ctx.font
     let tam = parseInt(anterior, 10) || 14, lineas = partirEnLineas(texto, ancho)
-    while (lineas.length > 2 && tam > 11) { tam--; ctx.font = anterior.replace(/d+px/, tam + "px"); lineas = partirEnLineas(texto, ancho) }
+    while (lineas.length > 2 && tam > 11) { tam--; ctx.font = anterior.replace(/\d+px/, tam + "px"); lineas = partirEnLineas(texto, ancho) }
     lineas.slice(0, 2).forEach((l, i) => ctx.fillText(l, x, y + i * alto))
     ctx.font = anterior
     return Math.min(2, lineas.length)
@@ -5500,20 +5855,24 @@ function formatearTiempo(ms) {
 // Pantalla de derrota: la tripulación caída y una pared de trofeos con cada tipo de enemigo
 // derrotado en la partida, enmarcado, con cuántos han caído
 function dibujarDerrota() {
-    dibujarFondo("fondoDerrota")
-    dibujarTituloPixel(L("Derrota", "Defeat"), 512, 64, 30, "rgb(240, 90, 90)")
+    // la misma pantalla sirve para la partida ganada (tras vencer al Almirante y elegir terminar, Jefes.js)
+    const ganada = typeof partidaGanada !== "undefined" && partidaGanada
+    dibujarFondo(ganada ? "fondoVictoria" : "fondoDerrota")
+    if (ganada) dibujarTituloPixel(L("¡Victoria!", "Victory!"), 512, 64, 30, "rgb(250, 214, 110)")
+    else dibujarTituloPixel(L("Derrota", "Defeat"), 512, 64, 30, "rgb(240, 90, 90)")
     ctx.textAlign = "center"
     ctx.fillStyle = "rgb(220, 205, 215)"
     ctx.font = "16px sans-serif"
-    ctx.fillText((rendidos ? L("La tripulación se ha rendido en el sector " + sectorActual, "The crew gave up in sector " + sectorActual)
+    ctx.fillText((ganada ? L("La tripulación ha vencido al Almirante: la flota es vuestra", "The crew defeated the Admiral: the fleet is yours")
+                 : rendidos ? L("La tripulación se ha rendido en el sector " + sectorActual, "The crew gave up in sector " + sectorActual)
                            : L("La tripulación ha caído en el sector " + sectorActual, "The crew fell in sector " + sectorActual)) +
                  "   ·   " + L("Tiempo: ", "Time: ") + formatearTiempo(tiempoPartida), 512, 96)
 
     // La tripulación, caída
     equipoJugador.forEach((p, i) => {
         const x = 512 - 2 * 84 + i * 84 + 4
-        dibujarMarco(x, 112, 76, 76, "rgb(110, 50, 60)")
-        ctx.globalAlpha = 0.55
+        dibujarMarco(x, 112, 76, 76, ganada ? "rgb(120, 100, 40)" : "rgb(110, 50, 60)")
+        ctx.globalAlpha = ganada ? 1 : 0.55
         dibujarSprite(p.id, x + 6, 118, 64, false, 0)
         ctx.globalAlpha = 1
     })
@@ -5559,7 +5918,7 @@ function dibujarDerrota() {
     ctx.textAlign = "center"
     ctx.fillStyle = "rgb(220, 205, 215)"
     ctx.font = "15px sans-serif"
-    ctx.fillText(L("Pulsa Enter para volver a intentarlo", "Press Enter to try again"), 512, 680)
+    ctx.fillText(ganada ? L("Pulsa Enter para jugar otra partida", "Press Enter to play another run") : L("Pulsa Enter para volver a intentarlo", "Press Enter to try again"), 512, 680)
     ctx.textAlign = "left"
 }
 function bordes() {
@@ -5596,6 +5955,9 @@ function loop(marca) {
     }
     else if (estado === "tripulacion") {
         dibujarSelector()
+    }
+    else if (estado === "records") {
+        dibujarRecords()
     }
     else if (estado === "exploracion") {
         movimiento(deltaMs)
