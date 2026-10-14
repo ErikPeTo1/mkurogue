@@ -137,6 +137,14 @@ function sectorConJefePendiente() {
     return true
 }
 // Al pisar la calavera: el combate contra el jefe del sector
+// Sus nombres en los dos idiomas (las cabezas de la Hidra se llaman según su tipo: CABEZAS)
+Object.assign(NOMBRES, {
+    "Sargento Brutus": { es: "Sargento Brutus", en: "Sergeant Brutus" },
+    "Cabeza de la Hidra": { es: "Cabeza de la Hidra", en: "Hydra head" },
+    "Primer oficial Vex": { es: "Primer oficial Vex", en: "First Officer Vex" },
+    "El Almirante": { es: "El Almirante", en: "The Admiral" },
+    "Proyector": { es: "Proyector", en: "Projector" }
+})
 const ENEMIGOS_JEFE = { sargento: ["Sargento Brutus"], hidra: ["Cabeza de la Hidra"], oficial: ["Primer oficial Vex"], almirante: ["El Almirante", "Proyector", "Proyector"] }
 let combateJefe = null   // el jefe del combate que se está jugando (o null)
 let jefePendiente = null

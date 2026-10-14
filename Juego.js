@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.15.1"
+const VERSION = "0.15.2"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
