@@ -44,6 +44,8 @@ function abrirSelector() {
     bloquearTeclas()
 }
 function zarpar() {
+    // por si acaso: nadie vacío, bloqueado ni repetido
+    selector.tripulacion = [...new Set(selector.tripulacion.filter(desbloqueado))]
     if (!selector.tripulacion.length) return
     progreso.ultimaTripulacion = selector.tripulacion.slice(); guardarProgreso()
     equipoJugador = selector.tripulacion.map(personajeDe)
@@ -55,6 +57,7 @@ function idEnLista(i) { return i < PERSONAJES.length ? PERSONAJES[i].ref.id : nu
 function alternarEnTripulacion(id) {
     if (!id || !desbloqueado(id)) return
     const t = selector.tripulacion
+    selector.cogido = null   // si había uno cogido en los huecos, se suelta (su sitio puede dejar de existir)
     if (t.includes(id)) { if (t.length > 1) t.splice(t.indexOf(id), 1) }
     else if (t.length < 4) t.push(id)
 }
@@ -72,6 +75,7 @@ function selectorTecla(arriba, abajo, izquierda, derecha, confirmar, escape, tec
             else {
                 // Se deja en el hueco elegido (si está vacío, va al final)
                 const t = s.tripulacion, id = t[s.cogido]
+                if (!id) { s.cogido = null; return }
                 const destino = Math.min(s.indice, t.length - 1)
                 t.splice(s.cogido, 1); t.splice(destino, 0, id)
                 s.cogido = null
@@ -214,7 +218,7 @@ function dibujarSelector() {
     const ayuda = s.foco === "huecos"
         ? (s.cogido !== null ? L("← → elige dónde dejarlo · Enter lo deja · Esc lo suelta", "← → choose where to put it · Enter drops it · Esc lets go")
                              : L("← → hueco · Enter coge a ese tripulante para cambiarle el sitio · ↓ personajes", "← → slot · Enter picks that crew member up to move them · ↓ characters"))
-        : s.foco === "zarpar" ? L("Enter: ¡a la nave! · ↑ personajes · Esc vuelve a la dificultad", "Enter: to the ship! · ↑ characters · Esc back to the difficulty")
+        : s.foco === "zarpar" ? L("Enter: ¡a la nave! · ↑ personajes · Esc vuelve al menú", "Enter: to the ship! · ↑ characters · Esc back to the menu")
         : L("Flechas: moverse · Enter: meter o sacar · ↑ huecos (para cambiar el orden) · Esc vuelve", "Arrows: move · Enter: add or remove · ↑ slots (to change the order) · Esc goes back")
     ctx.fillText(ayuda, 512, 684)
     ctx.textAlign = "left"

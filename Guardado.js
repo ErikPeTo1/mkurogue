@@ -7,8 +7,11 @@
 const CLAVE_PARTIDA = "mkurogue-partida"
 const VERSION_GUARDADO = 1
 const CADA_CUANTO_GUARDAR = 1000   // ms
-// Lo que no se guarda de cada tripulante: posición en el mapa y cosas de un solo combate
-const FUERA_DEL_GUARDADO = ["x", "y", "defendiendo", "escoltando"]
+// Lo que no se guarda de cada tripulante: posición en el mapa, cosas de un solo combate y lo que es fijo del
+// personaje (crecimiento, pasiva, habilidades: salen siempre del código, por si cambian de una versión a otra).
+// De las habilidades solo se guarda su rango (Biblioteca)
+const FUERA_DEL_GUARDADO = ["x", "y", "defendiendo", "escoltando", "crecimiento", "pasiva", "habilidades"]
+const rangosDe = habilidades => Object.fromEntries((habilidades || []).filter(h => h.rango).map(h => [h.id, h.rango]))
 
 function leerGuardado() {
     try {
@@ -45,7 +48,7 @@ function datosPartida() {
         lider: { x: lider.x, y: lider.y },
         // la tripulación
         equipo: equipoJugador.map(p => p.id),
-        personajes: PERSONAJES.map(p => copiaGuardable(p.ref, FUERA_DEL_GUARDADO)),
+        personajes: PERSONAJES.map(p => ({ ...copiaGuardable(p.ref, FUERA_DEL_GUARDADO), rangos: rangosDe(p.ref.habilidades) })),
         aliados: aliados.filter(a => !a.seVa).map(a => copiaGuardable(a, FUERA_DEL_GUARDADO)),
         inventario, mejorasPartida, enemigosDerrotados,
         fugitivos: fugitivos.map(f => ({ tipo: f.base && f.base.nombre, hp: f.hp, casilla: f.casilla })),
@@ -90,7 +93,15 @@ function cargarPartida() {
     bordesPared = calcularBordes()
     for (const k in capasFijas) delete capasFijas[k]
     // la tripulación
-    g.personajes.forEach(datos => { const p = personajeDe(datos.id); if (p) Object.assign(p, datos) })
+    g.personajes.forEach(datos => {
+        const p = personajeDe(datos.id)
+        if (!p) return
+        // (los guardados de la 0.15.0-0.15.3 traen el personaje entero: de ahí solo se aprovechan los rangos)
+        const rangos = datos.rangos || rangosDe(datos.habilidades)
+        const { crecimiento, pasiva, habilidades, rangos: _, ...resto } = datos
+        Object.assign(p, resto)
+        p.habilidades.forEach(h => { if (rangos[h.id]) h.rango = rangos[h.id]; else delete h.rango })
+    })
     equipoJugador = g.equipo.map(personajeDe).filter(Boolean)
     equipoJugador.forEach(p => { p.nombre = nombreDe(p.id); p.ultimaAccion = null })
     aliados = g.aliados.map(a => ({ ...a, nombre: nombreDe(a.id) }))
@@ -122,19 +133,19 @@ function cargarPartida() {
     reiniciarHistorial()
     tiempoInicio = performance.now() - g.jugado
     estado = "exploracion"
-    focoMenu = "dificultad"
+    focoMenu = "nueva"
     if (g.eventoTrasVictoria) iniciarEvento()
     avisarEnMapa(L("Partida cargada: sector " + sectorActual + ".", "Run loaded: sector " + sectorActual + "."))
     bloquearTeclas()
     return true
 }
 
-// Para el menú: la línea del botón de Continuar
+// Para el menú: la línea pequeña del botón de Continuar
 function textoContinuar() {
     const r = resumenGuardado
     if (!r) return ""
     const nombres = r.tripulacion.map(nombreDe).join(", ")
-    return L("Continuar partida", "Continue run") + "  ·  " + L("Sector ", "Sector ") + r.sector + "  ·  " + tr(DIFICULTADES[r.dificultad].nombre) + "  ·  " + nombres
+    return L("Sector ", "Sector ") + r.sector + "  ·  " + nombres
 }
 // Con partida guardada, el menú empieza con el foco en Continuar
 if (resumenGuardado) focoMenu = "continuar"

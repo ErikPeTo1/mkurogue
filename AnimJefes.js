@@ -312,7 +312,7 @@ sumarEnemigo = function (nombre) {
 }
 
 // --- La Hidra en combate: el cuerpo acorazado abajo, tres huecos fijos para las cabezas y los cuellos de
-// manguera (tramos de 12 x 12 a 24 px) del cuerpo a la nuca de cada cabeza. El cuerpo no es enemigo: sin vida ---
+// manguera (tramos de 12 x 12 a 22-26 px) del cuerpo a la nuca de cada cabeza. El cuerpo no es enemigo: sin vida ---
 const HUECOS_HIDRA = [{ x: 800, y: 22 }, { x: 742, y: 214 }, { x: 904, y: 160 }]   // arriba, delante, detrás
 const CUERPO_HIDRA = { x: 852, y: 392, tam: 128 }
 // dónde nace cada cuello en el cuerpo (columna, fila del sprite de 64 sin voltear) y la nuca de la cabeza (48)
@@ -334,11 +334,13 @@ function dibujarHidraCombate() {
         const a = { x: CUERPO_HIDRA.x + (63 - ec) * 2, y: CUERPO_HIDRA.y + ef * 2 }
         const b = { x: x + an.dx + (47 - NUCA_HIDRA[0]) * 2, y: y + an.dy + NUCA_HIDRA[1] * 2 }
         const ctrl = { x: (a.x + b.x) / 2 + (en.hueco === 1 ? -40 : 40), y: Math.min(a.y, b.y) + (b.y - a.y) * 0.2 }
-        const largo = Math.hypot(b.x - a.x, b.y - a.y), pasos = Math.max(4, Math.round(largo / 14))
+        // como en la escena de diseño: un tramo cada 7 px (las placas se solapan), más gordo junto al cuerpo
+        // (26 px) y más fino hacia la cabeza (22), del cuerpo a la nuca (los de la cabeza quedan encima)
+        const largo = Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(ctrl.x - a.x, ctrl.y - a.y) * 0.4, pasos = Math.max(6, Math.round(largo / 7))
         ctx.globalAlpha = (muerto ? 0.35 : 1) * (an.alfa === undefined ? 1 : Math.max(0.25, an.alfa))
-        if (tramo) for (let k = pasos; k >= 0; k--) {
-            const t = k / pasos, px = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * ctrl.x + t * t * b.x, py = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * ctrl.y + t * t * b.y
-            ctx.drawImage(tramo, Math.round(px - 12), Math.round(py - 12), 24, 24)
+        if (tramo) for (let k = 0; k <= pasos; k++) {
+            const t = k / pasos, px = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * ctrl.x + t * t * b.x, py = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * ctrl.y + t * t * b.y, w = 26 - 4 * t
+            ctx.drawImage(tramo, Math.round(px - w / 2), Math.round(py - w / 2), w, w)
         }
         ctx.globalAlpha = (muerto ? 0.25 : 1) * (an.alfa === undefined ? 1 : an.alfa)
         dibujarSprite(en.sprite, x + an.dx, y + an.dy, tam, true, en.stats.HP / en.stats.HP_MAX)

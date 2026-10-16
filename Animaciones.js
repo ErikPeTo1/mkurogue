@@ -412,7 +412,7 @@ function reproducirHabilidad(ev) {
         })
         fin = Math.max(fin, 1100)
     } else if (id === "dobleONada") {
-        // Moneda al aire: cara, disparo dorado; cruz, nada
+        // Moneda al aire: cara, disparo dorado; cruz, disparo flojo y gris (0.15.4: antes no pasaba nada)
         const cara = a.ultimaMoneda === "cara"
         sonarEn(0, "lanzarMoneda")
         efecto(0, 900, t => {
@@ -420,16 +420,16 @@ function reproducirHabilidad(ev) {
             ctx.fillStyle = ORO; ctx.beginPath(); ctx.ellipse(c.x, y, ancho, 16, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "rgb(200,140,40)"; ctx.lineWidth = 2; ctx.stroke()
             if (t > 0.8) { ctx.font = "14px 'Press Start 2P'"; ctx.textAlign = "center"; ctx.fillStyle = "rgb(26,16,32)"; ctx.fillText(cara ? L("¡CARA!", "HEADS!") : L("CRUZ", "TAILS"), c.x + 2, y - 26); ctx.fillStyle = cara ? ORO : GRIS; ctx.fillText(cara ? L("¡CARA!", "HEADS!") : L("CRUZ", "TAILS"), c.x, y - 28); ctx.textAlign = "left" }
         })
-        if (cara && ev.golpes.length) {
-            sonarEn(900, "jackpot")
+        if (ev.golpes.length) {
+            sonarEn(900, cara ? "jackpot" : "refilon")
             ev.golpes.forEach((g, k) => {
                 const ms = 950 + k * 230
-                disparo(armaDe(a), centroDe(g.defensor), "rgba(250,200,80,0.9)", "rgb(255,250,200)", ms, 180, k ? 5 : 8)
-                golpeado(g.defensor, ms + 180, k ? 1 : 1.8); numero(g.defensor, String(g.daño), ORO, ms + 180, k ? 20 : 30, k ? "x" + (k + 1) : g.critico ? L("CRÍTICO", "CRITICAL") : null)
+                disparo(armaDe(a), centroDe(g.defensor), cara ? "rgba(250,200,80,0.9)" : "rgba(170,165,185,0.9)", cara ? "rgb(255,250,200)" : "rgb(220,220,230)", ms, 180, k ? 5 : cara ? 8 : 4)
+                golpeado(g.defensor, ms + 180, k ? 1 : cara ? 1.8 : 0.9); numero(g.defensor, String(g.daño), cara ? ORO : BLANCO, ms + 180, k ? 20 : cara ? 30 : 20, k ? "x" + (k + 1) : g.critico ? L("CRÍTICO", "CRITICAL") : null)
                 sonarEn(ms + 180, k ? "moneda" : "critico", k); vida(g, ms + 180)
                 fin = ms + 600
             })
-            sacudir(9, 240, 1130)
+            if (cara) sacudir(9, 240, 1130)
         } else { sonarEn(900, "refilon"); fin = 1200 }
     } else if (id === "monedaSuerte" || id === "todosAUna") {
         // Anillos desde quien la usa y brillo dorado en todo el equipo
