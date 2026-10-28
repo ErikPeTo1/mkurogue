@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.15.4"
+const VERSION = "0.16.0"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -81,29 +81,6 @@ const capasFijas = {}
 ajustarTamaño()
 if (typeof window !== "undefined" && window.addEventListener) window.addEventListener("resize", ajustarTamaño)
 const tamTile = 32
-
-// --- Imágenes -------------------------------------------------------------
-// Cuando tengas los archivos reales, pon aquí su ruta (p. ej. "img/fondo_combate.png").
-// Mientras una clave esté en null (o la imagen no cargue) se dibuja el placeholder.
-// Fondos: se estiran al tamaño del canvas. Sprites: se dibujan en cuadrado.
-const RUTAS_IMAGENES = {
-    fondoExploracion: null, fondoCombate: null, fondoVictoria: null, fondoDerrota: null,
-    "Paku": null, "Mamuri": null, "VBZ": null, "Imanps": null,
-    "Corsario Espacial": null, "Moto Pirata": null, "Cañón de cristal": null, "Bisotuf": null,
-    "Dron vigía": null, "Mercenario": null, "Francotirador": null, "Androide de asalto": null,
-    "Dron reparador": null, "Dron kamikaze": null, "Escolta acorazado": null
-}
-const imagenes = {}
-for (const clave in RUTAS_IMAGENES) {
-    if (RUTAS_IMAGENES[clave]) {
-        imagenes[clave] = new Image()
-        imagenes[clave].src = RUTAS_IMAGENES[clave]
-    }
-}
-function imagenLista(clave) {
-    const img = imagenes[clave]
-    return img && img.complete && img.naturalWidth > 0 ? img : null
-}
 
 // Aspecto de los placeholders (mismas claves que las imágenes)
 const ESTILOS_PLACEHOLDER = {
@@ -1853,9 +1830,9 @@ function empezarPartida() {
 // izquierda de Fácil, Difícil. Enter/espacio empiezan la partida con la elegida. ↑ sube a la barra de
 // arriba (altavoz, ayuda y ajustes; ver dibujarBarraMenu).
 const hayPartidaGuardada = () => typeof resumenGuardado !== "undefined" && !!resumenGuardado
-// Los botones del menú, de arriba abajo: Continuar (con partida guardada, Guardado.js), Nueva partida, Estadísticas
-// (Records.js) y el botón del mando (abajo a la izquierda)
-const columnaMenu = () => [...(hayPartidaGuardada() ? ["continuar"] : []), "nueva", "records", "mando"]
+// Los botones del menú, de arriba abajo: Continuar (con partida guardada, Guardado.js), Nueva partida y Estadísticas
+// (Records.js). El del mando va en la barra de arriba, debajo de la tuerca (ver ORDEN_BARRA)
+const columnaMenu = () => [...(hayPartidaGuardada() ? ["continuar"] : []), "nueva", "records"]
 function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
     if (panelAjustes) {
         teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, escape)
@@ -1870,16 +1847,25 @@ function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
         if (confirmar) {
             if (focoMenu === "continuar") cargarPartida()
             else if (focoMenu === "nueva") abrirSelector()
-            else if (focoMenu === "records") abrirRecords()
-            else abrirAyudaMando()
+            else abrirRecords()
         }
         return
     }
+    // El mando, debajo de la tuerca: ↑ sube a la tuerca, ← a la ayuda, ↓ o Esc vuelven a los botones
+    if (focoMenu === "mando") {
+        if (arriba) focoMenu = "ajustes"
+        if (izquierda) focoMenu = "ayuda"
+        if (abajo || escape) focoMenu = columnaMenu()[0]
+        if (confirmar) abrirAyudaMando()
+        return
+    }
+    if (focoMenu === "ajustes" && abajo) { focoMenu = "mando"; return }
     // En la barra de arriba: ←/→ se mueven por ella, Enter usa el botón y ↓ o Esc vuelven
     const pos = ORDEN_BARRA.indexOf(focoMenu)
     if (izquierda) focoMenu = ORDEN_BARRA[Math.max(haySonido() ? 0 : 1, pos - 1)]
     if (derecha) focoMenu = ORDEN_BARRA[Math.min(ORDEN_BARRA.length - 1, pos + 1)]
     if (abajo || escape) focoMenu = columnaMenu()[0]
+    if (focoMenu === "mando") return
     if (confirmar) {
         if (focoMenu === "ayuda") abrirAyuda()
         else if (focoMenu === "sonido") alternarSonidoBoton()
@@ -1935,7 +1921,7 @@ canvas.addEventListener("mousemove", function(e) {
             if (z) panelAjustes.fila = z.fila
         } else {
             z = zonaCercana(zonasMenu, p.x, p.y)
-            if (z && (ORDEN_BARRA.includes(z.tipo) || columnaMenu().includes(z.tipo))) focoMenu = z.tipo
+            if (z && (ORDEN_BARRA.includes(z.tipo) || columnaMenu().includes(z.tipo) || z.tipo === "mando")) focoMenu = z.tipo
         }
     } else if (estado === "tripulacion") {
         z = selectorRaton(p, false)
@@ -3792,7 +3778,7 @@ function dibujarMenu() {
     ctx.font = "17px sans-serif"
     ctx.fillText(L("Roguelike de piratas espaciales", "Space pirate roguelike"), 512, 156)
     let yBoton = 200
-    for (const tipo of columnaMenu().filter(t => t !== "mando")) {
+    for (const tipo of columnaMenu()) {
         const [texto, sub] = tipo === "continuar" ? ["▶  " + L("Continuar partida", "Continue run"), textoContinuar()]
             : tipo === "nueva" ? [L("Nueva partida", "New run"), L("Elige tu tripulación y zarpa", "Pick your crew and set sail")]
             : [L("Estadísticas", "Statistics"), L("Todas tus partidas en este navegador", "All your runs in this browser")]
@@ -3814,8 +3800,6 @@ function dibujarMenu() {
     ctx.fillText(ayuda, 512, yBoton + 18)
 
     zonasMenu.push(dibujarBoton(L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)"), 512, 600, "reportar"))
-    // Abajo a la izquierda, un botón pequeño con un mando: explica cómo conectarlo
-    zonasMenu.push(dibujarBotonIcono(14, ALTO_JUEGO - 14 - 36, "mando", "mando", focoMenu === "mando"))
     // La barra de arriba va lo último: si el panel de ajustes está abierto, queda por encima de todo
     dibujarBarraMenu()
     dibujarVersion()
@@ -3910,6 +3894,9 @@ let xPanelAjustes = 0
 function dibujarBarraMenu() {
     if (haySonido()) zonasMenu.push(dibujarBotonIcono(14, 14, "altavoz", "sonido", focoMenu === "sonido"))
     const tuerca = dibujarBotonIcono(1024 - 14 - ANCHO_ICONO, 14, "tuerca", "ajustes", focoMenu === "ajustes" || panelAjustes !== null)
+    // en el menú de inicio, debajo de la tuerca, un botón con un mando: explica cómo conectarlo (con el panel de
+    // ajustes abierto no se pinta: el panel va justo ahí)
+    if (estado === "menu" && !panelAjustes) zonasMenu.push(dibujarBotonIcono(tuerca.x, 14 + 36 + 8, "mando", "mando", focoMenu === "mando"))
     const anchoAyuda = anchoTexto("15px sans-serif", TEXTO_AYUDA_MENU()) + 32
     zonasMenu.push(tuerca, dibujarBoton(TEXTO_AYUDA_MENU(), tuerca.x - 10 - anchoAyuda / 2, 14, "ayuda", focoMenu === "ayuda"))
     if (panelAjustes) dibujarPanelAjustes(1024 - 14 - ANCHO_PANEL_AJUSTES, 58)
@@ -3972,6 +3959,14 @@ function dibujarPanelAjustes(x, y) {
             ctx.fillStyle = "rgb(200, 190, 215)"; ctx.textAlign = "right"
             ctx.fillText(Math.round(valor * 100) + "%", finValor, fy + 26); ctx.textAlign = "left"
             zona.barra = { clave: f.barra, x: xValor, w: 200 }
+        } else if (f.boton) {
+            // Botón (la cuenta): se pulsa con clic o Enter; las flechas no lo tocan
+            const bx = xValor, bw = finValor - xValor, by = fy + 6, bh = ALTO_FILA_AJUSTES - 12
+            ctx.fillStyle = marcada ? "rgba(60, 140, 255, 0.28)" : "rgba(60, 140, 255, 0.14)"; ctx.fillRect(bx, by, bw, bh)
+            ctx.strokeStyle = marcada ? "yellow" : "rgba(120, 200, 255, 0.7)"; ctx.lineWidth = marcada ? 2 : 1; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1); ctx.lineWidth = 1
+            ctx.textAlign = "center"; ctx.fillStyle = marcada ? "rgb(250, 214, 110)" : "white"
+            ctx.fillText(f.valor(), bx + bw / 2, fy + 26); ctx.textAlign = "left"
+            zona.boton = true
         } else {
             // ◀ valor ▶ (en los colores, con las casillas de muestra del modo junto al nombre)
             ctx.fillStyle = "rgb(200, 190, 215)"
@@ -3992,6 +3987,7 @@ function teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, cerrar)
     if (abajo) panelAjustes.fila = Math.min(filas.length - 1, panelAjustes.fila + 1)
     const f = filas[panelAjustes.fila]
     if (f.barra) { if (izquierda || derecha) ajustarVolumen(f.barra, derecha ? 0.1 : -0.1) }
+    else if (f.boton) { if (confirmar) f.cambiar(1) }
     else if (izquierda || derecha || confirmar) f.cambiar(izquierda ? -1 : 1)
 }
 // Clic o toque en el panel: devuelve true si ha caído dentro (y lo gestiona)
@@ -4003,7 +3999,8 @@ function clicPanelAjustes(p) {
     if (z.barra) {
         const fraccion = (p.x - z.barra.x) / z.barra.w
         if (fraccion >= -0.05 && fraccion <= 1.05) fijarVolumen(z.barra.clave, Math.ceil(Math.max(0, Math.min(1, fraccion)) * 10) / 10)
-    } else if (p.x >= z.xValor) f.cambiar(p.x < (z.xValor + z.finValor) / 2 ? -1 : 1)
+    } else if (z.boton) { if (p.x >= z.xValor) f.cambiar(1) }
+    else if (p.x >= z.xValor) f.cambiar(p.x < (z.xValor + z.finValor) / 2 ? -1 : 1)
     return true
 }
 function alternarSonidoBoton() {
@@ -4578,13 +4575,13 @@ const MODOS_COLOR = [
     { nombre: { es: "Convencional", en: "Conventional" }, casillas: { 2: [255, 0, 40], 3: [120, 255, 0], 4: [0, 80, 255], 5: [240, 192, 64] }, equipo: null,
       zonas: [[255, 255, 0], [191, 96, 0], [51, 187, 255], [0, 191, 96], [191, 0, 128]] },
     { nombre: { es: "Protanopia (rojo)", en: "Protanopia (red)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 255, 255], 5: [240, 192, 64] },
-      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255] },
+      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [0, 204, 136], Imanps: [102, 204, 255], Milo: [255, 140, 255] },
       zonas: [[128, 170, 255], [191, 38, 38], [255, 255, 0], [0, 0, 191], [51, 255, 119]] },
     { nombre: { es: "Deuteranopia (verde)", en: "Deuteranopia (green)" }, casillas: { 2: [255, 255, 0], 3: [0, 0, 255], 4: [255, 77, 166], 5: [240, 192, 64] },
-      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26] },
+      equipo: { Paku: [26, 26, 255], Mamuri: [255, 255, 26], VBZ: [26, 102, 255], Imanps: [255, 102, 26], Milo: [200, 120, 255] },
       zonas: [[43, 0, 255], [255, 255, 0], [255, 85, 0], [221, 51, 255], [191, 0, 32]] },
     { nombre: { es: "Tritanopia (azul)", en: "Tritanopia (blue)" }, casillas: { 2: [255, 0, 0], 3: [64, 255, 0], 4: [210, 77, 255], 5: [240, 192, 64] },
-      equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0] },
+      equipo: { Paku: [255, 255, 255], Mamuri: [204, 0, 136], VBZ: [0, 0, 204], Imanps: [204, 0, 0], Milo: [0, 160, 120] },
       zonas: [[128, 0, 191], [0, 191, 0], [166, 191, 38], [0, 32, 191], [255, 42, 0]] }
 ]
 let modoColor = 0   // índice en MODOS_COLOR (se guarda con el resto de ajustes; la primera vez, Convencional)
@@ -4704,7 +4701,7 @@ function dibujarExploracion() {
             ctx.fillRect(r.x + 4, r.y + 4, 10, 10)
         }
         // Los caídos no salen en el mapa hasta que vuelven a tener vida; el que va delante, encima
-        const coloresMapa = { Paku: ["red", "white"], Mamuri: ["blue", "white"], VBZ: ["green", "white"], Imanps: ["yellow", "black"] }
+        const coloresMapa = { Paku: ["red", "white"], Mamuri: ["blue", "white"], VBZ: ["green", "white"], Imanps: ["yellow", "black"], Milo: ["purple", "white"] }
         filaVivos().reverse().forEach(p => dibujarMiembroMapa(p, coloresMapa[p.id][0], coloresMapa[p.id][1]))
     })
     if (mostrarPanelDescanso) dibujarPanelDescanso()
@@ -4882,14 +4879,10 @@ function trazarPoligono(puntos, x, y, tam, espejo) {
     ctx.closePath()
 }
 
-// Sprite cuadrado de tam x tam. Usa la imagen real si existe; si no, un placeholder.
+// Sprite cuadrado de tam x tam: un placeholder (Pixelart.js lo sustituye por el pixel art; esto queda
+// solo para lo que no tenga sprite).
 // izquierda = true lo voltea para que mire a la izquierda (los enemigos).
 function dibujarSprite(clave, x, y, tam, izquierda = false) {
-    const img = imagenLista(clave)
-    if (img) {
-        ctx.drawImage(img, x, y, tam, tam)
-        return
-    }
     const estilo = ESTILOS_PLACEHOLDER[clave] || { color: "gray", forma: "caja" }
     // Los del equipo cambian de color con el modo de color elegido en el menú
     const delModo = colorEquipoModo(clave)
@@ -4936,13 +4929,8 @@ function dibujarCapaFija(clave, dibujar) {
     capasFijas[clave] = capa
 }
 
-// Fondo a pantalla completa: la imagen real si existe; si no, degradado (+ rejilla o estrellas)
+// Fondo a pantalla completa: degradado (+ rejilla o estrellas)
 function dibujarFondo(clave) {
-    const img = imagenLista(clave)
-    if (img) {
-        ctx.drawImage(img, 0, 0, ANCHO_JUEGO, ALTO_JUEGO)
-        return
-    }
     dibujarCapaFija(clave, () => pintarFondo(clave))
 }
 function pintarFondo(clave) {

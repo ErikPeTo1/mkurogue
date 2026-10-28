@@ -2,8 +2,7 @@
 // Paleta y sprites del estilo pixel art (chibi 32 x 32 sombreado a mano con rampas de color)
 // Paleta apagada, sombras que giran hacia el morado y luces hacia el dorado, contorno de color
 // (no negro) y brillos puntuales. Diseño: piratas con añadidos tecnológicos.
-// Los que todavía no están aquí usan su sprite del primer estilo (Sprites32.js / Pixelart.js)
-// pintado con esta paleta.
+// Los que no están aquí usan su sprite de 48 (Sprites48.js), reducido.
 // =====================================================================================
 
 // Rampas fijas (de oscuro a claro). Letras:
@@ -306,4 +305,3 @@ SPRITES_V2["Rata mutante"] = [
     ".......KLqqK......KLqqK",
     ".......KTSTK......KTSTK"
 ]
-SPRITES_PIXEL_32["Rata mutante"] = SPRITES_V2["Rata mutante"]

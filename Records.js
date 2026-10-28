@@ -170,17 +170,20 @@ function dibujarRecords() {
     dibujarMarco(692, 102, 322, 206)
     ctx.textAlign = "left"; ctx.fillStyle = "rgb(120, 200, 255)"; ctx.font = "11px 'Press Start 2P'"
     ctx.fillText(L("TRIPULACIÓN", "CREW"), 708, 128)
-    const maxPartidas = Math.max(0, ...PERSONAJES.map(p => r.personajes[p.ref.id] || 0))
-    PERSONAJES.forEach((p, i) => {
-        const x = 708 + i * 74, n = r.personajes[p.ref.id] || 0, favorito = n > 0 && n === maxPartidas
-        dibujarMarco(x, 142, 66, 66, favorito ? "rgb(250, 200, 80)" : undefined)
+    // solo los desbloqueados (los que no, ni se ven: sin pistas); si son más de cuatro, las fichas se encogen
+    const lista = PERSONAJES.filter(p => desbloqueado(p.ref.id))
+    const maxPartidas = Math.max(0, ...lista.map(p => r.personajes[p.ref.id] || 0))
+    const paso = Math.min(74, 294 / lista.length), lado = Math.min(66, paso - 6)
+    lista.forEach((p, i) => {
+        const x = 708 + i * paso, n = r.personajes[p.ref.id] || 0, favorito = n > 0 && n === maxPartidas
+        dibujarMarco(x, 142, lado, lado, favorito ? "rgb(250, 200, 80)" : undefined)
         ctx.globalAlpha = n ? 1 : 0.35
-        dibujarSprite(p.ref.id, x + 5, 147, 56, false, 0)
+        dibujarSprite(p.ref.id, x + 5, 147, lado - 10, false, 0)
         ctx.globalAlpha = 1
         ctx.textAlign = "center"; ctx.fillStyle = "rgb(200, 195, 215)"; ctx.font = "12px sans-serif"
-        textoAjustado(nombreDe(p.ref.id), x + 33, 226, 70)
+        textoAjustado(nombreDe(p.ref.id), x + lado / 2, 226, paso - 2)
         ctx.fillStyle = favorito ? "rgb(250, 214, 110)" : "white"; ctx.font = "10px 'Press Start 2P'"
-        ctx.fillText(numeroRecords(n), x + 33, 246)
+        ctx.fillText(numeroRecords(n), x + lado / 2, 246)
     })
     ctx.textAlign = "center"; ctx.fillStyle = "rgb(150, 145, 165)"; ctx.font = "12px sans-serif"
     ctx.fillText(L("partidas con cada uno", "runs with each one"), 853, 270)

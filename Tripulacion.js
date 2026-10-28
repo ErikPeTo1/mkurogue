@@ -11,7 +11,7 @@ const PERSONAJES = [
     { ref: vbz,    rol: { es: "Droide · suerte y críticos", en: "Droid · luck and crits" } },
     { ref: imanps, rol: { es: "Apoyo · cura", en: "Support · heals" } }
 ]
-const HUECOS_FUTUROS = 4
+const HUECOS_FUTUROS = 3
 const CLAVE_PROGRESO = "mkurogue-progreso"
 let progreso = { desbloqueados: PERSONAJES.map(p => p.ref.id), ultimaTripulacion: null }
 try { Object.assign(progreso, JSON.parse(localStorage.getItem(CLAVE_PROGRESO) || "{}")) } catch (e) {}
@@ -38,7 +38,7 @@ const selector = { tripulacion: [], foco: "lista", indice: 0, cogido: null }
 let zonasSelector = []
 function abrirSelector() {
     const ultima = (progreso.ultimaTripulacion || []).filter(desbloqueado)
-    selector.tripulacion = ultima.length ? ultima : PERSONAJES.map(p => p.ref.id)
+    selector.tripulacion = ultima.length ? ultima : PERSONAJES.map(p => p.ref.id).filter(desbloqueado).slice(0, 4)
     selector.foco = "zarpar"; selector.indice = 0; selector.cogido = null
     estado = "tripulacion"
     bloquearTeclas()

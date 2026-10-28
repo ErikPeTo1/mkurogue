@@ -1,287 +1,9 @@
 // =====================================================================================
 // Estética pixel art de MKURogue
-// Se carga después de Juego.js, Sprites32.js y Sprites-v2.js, y sustituye solo funciones de dibujo
+// Se carga después de Juego.js y Sprites-v2.js, y sustituye solo funciones de dibujo
 // (sprites, equipo en el mapa, paredes y fondos). La lógica del juego no se toca.
 // Todo se pinta a baja resolución y se amplía sin suavizado, para que cada píxel se vea nítido.
 // =====================================================================================
-
-// --- Sprites de 16 x 16 (los del mapa y los tamaños pequeños) -----------------------------
-// Del primer estilo: se pintan con la paleta de Sprites-v2.js (ver LETRAS_A_V2) hasta que se redibujen.
-// Miran a la derecha; los enemigos se voltean al dibujarlos.
-const SPRITES_PIXEL = {
-    // Tripulación
-    "Paku": [   // el capitán: tricornio con estrella, casaca y pistola
-        "................",
-        "....KKKKKKK.....",
-        "...KAAAAAAAK....",
-        "..KAAAAYAAAAK...",
-        ".KKKKKKKKKKKKK..",
-        "....KSSSSSK.....",
-        "....KSSKSSK.....",
-        "....KSSSSsK.....",
-        "...KKAKKKAKK....",
-        "..KAAAAYAAAAK...",
-        "..KAAKAYAKSSKKKK",
-        "..KAAKAYAKKgggGK",
-        "..KSKAAAAAK.KK..",
-        "...KKNNNNNK.....",
-        "...KDDK.KDDK....",
-        "...KKKK.KKKK...."
-    ],
-    "Mamuri": [   // artillero pesado: casco con visor, armadura y cañón al hombro
-        "................",
-        ".....KKKKK......",
-        "....KAAAAAK.....",
-        "....KCCCCCK.....",
-        "....KAAAAAK..KK.",
-        "..KKKKKKKKKKKGGK",
-        ".KAAAAAAAAKgggGK",
-        ".KALAAAAAaKKKKK.",
-        ".KALAYYAAaK.....",
-        ".KSKAAAAAKSK....",
-        ".KKKAAAAAKKK....",
-        "...KDDDDDK......",
-        "...KAAKAAK......",
-        "...KAAKAAK......",
-        "..KKKKKKKKK.....",
-        "................"
-    ],
-    "VBZ": [   // la suerte en persona: capucha y un dado en la mano
-        "................",
-        ".....KKKKK......",
-        "....KAAAAAK.....",
-        "...KAAKKKAAK....",
-        "...KAKSSSKAK....",
-        "...KAKSKSKAK....",
-        "...KAKSSSKAK....",
-        "....KAAAAAK.....",
-        "...KAAALAAAK....",
-        "..KAAALAAAAAK...",
-        "..KSKAALAAKWWK..",
-        "..KKKAAAaAKWKWK.",
-        "....KAAAAAKKWWK.",
-        "....KAaAaAK.KK..",
-        "....KKK.KKK.....",
-        "................"
-    ],
-    "Imanps": [   // el apoyo: gorra, cruz de médico y llave inglesa
-        "................",
-        ".....KKKKK......",
-        "....KAAAAAK.....",
-        "....KKKKKKKK....",
-        "....KSSSSSK.....",
-        "....KSKSKSK.....",
-        "....KSSSSSK.....",
-        "...KKAAAAAKK....",
-        "..KAAAWRWAAAK.K.",
-        "..KAAARRRAAAKGK.",
-        "..KSKAWRWAKSKGK.",
-        "..KKKAAAAAKKGK..",
-        "....KDDDDDK.K...",
-        "....KAAKAAK.....",
-        "....KKK.KKK.....",
-        "................"
-    ],
-    // Enemigos
-    "Corsario Espacial": [   // pañuelo, parche en el ojo y sable
-        "................",
-        ".....KKKKKK.....",
-        "....KAAAAAAKK...",
-        "....KAAAAAAKAK..",
-        "....KSSKKSSK.K..",
-        "....KSSKKSSK....",
-        "....KSSSSSSK....",
-        ".....KNNNNK.....",
-        "...KKNNNNNNKK...",
-        "..KSKNWNNWNKSKG.",
-        "..KSKNNNNNNKSKGK",
-        "..KKKNNNNNNKKGK.",
-        "....KDDDDDDKG...",
-        "....KDDKKDDK....",
-        "....KKK..KKK....",
-        "................"
-    ],
-    "Moto Pirata": [   // piloto con casco sobre una moto flotante
-        "................",
-        "................",
-        "......KKK.......",
-        ".....KAAAK......",
-        ".....KACCK......",
-        "......KAK.......",
-        "....KKAAAKK.....",
-        "...KSKAAAKSK....",
-        "....KKAAAKKKK...",
-        "..KKKKKKKKKKKKK.",
-        ".KAAAAAAAAAAAAYK",
-        ".KaaaaaaaaaaaaaK",
-        "..KKgKKKKKKgKK..",
-        "..BBB......BBB..",
-        "...B........B...",
-        "................"
-    ],
-    "Cañón de cristal": [   // torreta con un cañón de cristal: pega fuerte, se rompe enseguida
-        "................",
-        "................",
-        "......KKKKKKKKK.",
-        ".....KCCCCCCCCWK",
-        ".....KCWCCCCCCCK",
-        "...KKKKKKKKKKKK.",
-        "..KgggggK.......",
-        ".KgAAAAAgK......",
-        ".KgAEEAAgK......",
-        ".KgAAAAAgK......",
-        "..KgggggK.......",
-        "...KDDDK........",
-        "..KDDDDDK.......",
-        ".KKKKKKKKK......",
-        "................",
-        "................"
-    ],
-    "Bisotuf": [   // la mole: una esfera blindada con un solo ojo
-        "................",
-        ".....KKKKKK.....",
-        "...KKAAAAAAKK...",
-        "..KAALAAAAAAAK..",
-        ".KAALAKKKKAAAAK.",
-        ".KAAAKWWEEKAAAK.",
-        ".KAAAKWEEEKAAAK.",
-        ".KAAAAKKKKAAAAK.",
-        ".KAAAAAAAAAAAAK.",
-        ".KaAAgggggAAAaK.",
-        "..KaAAAAAAAAaK..",
-        "...KKaaaaaaKK...",
-        ".....KKKKKK.....",
-        "....KgK..KgK....",
-        "...KKKK..KKKK...",
-        "................"
-    ],
-    "Dron vigía": [   // dron con un gran ojo que lo ve todo
-        "................",
-        "..KKKK....KKKK..",
-        "....KK....KK....",
-        "....KKKKKKKK....",
-        "...KAAAAAAAAK...",
-        "..KAAKKKKKAAAK..",
-        "..KAKWBBBKKAAK..",
-        "..KAKWBKBKKAAK..",
-        "..KAKBBBBKKAAK..",
-        "..KAAKKKKKAAAK..",
-        "...KAAAAAAAAK...",
-        "....KKgKKgKK....",
-        ".....K....K.....",
-        "................",
-        "................",
-        "................"
-    ],
-    "Mercenario": [   // soldado a sueldo con casco y fusil
-        "................",
-        ".....KKKKK......",
-        "....KAAAAAK.....",
-        "...KAAAAAAAK....",
-        "...KAKKKKKAK....",
-        "...KAKVVVKAK....",
-        "....KKSSSKK.....",
-        "...KKAAAAAKK....",
-        "..KAAAgAgAAAK...",
-        "..KSKKKKKKKKKKKK",
-        "..KAAKgggggGGgDK",
-        "..KKKAAAAAKKKK..",
-        "....KDDDDDK.....",
-        "....KAAKAAK.....",
-        "....KKK.KKK.....",
-        "................"
-    ],
-    "Francotirador": [   // encapuchado con mira y un rifle larguísimo
-        "................",
-        "....KKKKK.......",
-        "...KAAAAAK......",
-        "..KAAKKKAAK.....",
-        "..KAKSSSKAK.....",
-        "..KAKEKSKAK..KK.",
-        "..KAKSSSKAK.KYK.",
-        "...KAAAAAK..KK..",
-        "..KAAAAAAAKKKKKK",
-        ".KSSKKKKKKKgggGK",
-        "..KAAAAAAAKKKKK.",
-        "..KAAaAAaAK.....",
-        "...KAAKAAK......",
-        "...KAAKAAK......",
-        "...KKK.KKK......",
-        "................"
-    ],
-    "Androide de asalto": [   // robot de combate con ojos rojos
-        "................",
-        ".....KKKKKK.....",
-        "....KAAAAAAK....",
-        "....KAKKKKAK....",
-        "....KAKEEKAK....",
-        "....KAAAAAAK....",
-        ".....KgKKgK.....",
-        "..KKKKAAAAKKKK..",
-        ".KAAKAAAAAAKAAK.",
-        ".KAAKAEggEAKAAK.",
-        ".KggKAAAAAAKggK.",
-        ".KDDKKAAAAKKDDK.",
-        "....KAAKKAAK....",
-        "....KggKKggK....",
-        "...KKKKKKKKKK...",
-        "................"
-    ],
-    "Dron reparador": [   // dron con una cruz y brazos de pinza: arregla a las máquinas
-        "................",
-        "...KKKKKKKKKK...",
-        "......KKKK......",
-        "....KKKKKKKK....",
-        "...KAAAAAAAAK...",
-        "..KAAAAKKAAAAK..",
-        "..KAAAKWWKAAAK..",
-        "..KAKKKWWKKKAK..",
-        "..KAKWWWWWWKAK..",
-        "..KAKWWWWWWKAK..",
-        "..KAKKKWWKKKAK..",
-        "..KAAAKWWKAAAK..",
-        "...KAAAKKAAAK...",
-        "....KKgKKgKK....",
-        "...KgK....KgK...",
-        "..KgK......KgK.."
-    ],
-    "Dron kamikaze": [   // dron-bomba con franjas de peligro: cuenta atrás y ¡bum!
-        "................",
-        "..KKKK....KKKK..",
-        "....KK....KK....",
-        "....KKKKKKKK....",
-        "...KYKYKYKYKK...",
-        "..KAAAAAAAAAAK..",
-        "..KAAAAAAAAAAK..",
-        "..KAAKEEEEKAAK..",
-        "..KAAKEWWEKAAK..",
-        "..KAAAAAAAAAAK..",
-        "...KAAAAAAAAK...",
-        "....KKAAAAKK....",
-        "......KOOK......",
-        ".......OO.......",
-        ".......YY.......",
-        "................"
-    ],
-    "Escolta acorazado": [   // guardaespaldas con armadura y un escudo enorme
-        "................",
-        "....KKKKKK......",
-        "...KAAAAAAK.....",
-        "...KAKKKKAK.....",
-        "...KAKVVKAK.....",
-        "...KAAAAAAK.KKK.",
-        "..KKKKKKKKKKGGGK",
-        ".KAAAAAAAAKGWGGK",
-        ".KAAgAAgAAKGGGGK",
-        ".KAAAAAAAAKGGWGK",
-        ".KAAAAAAAAKGGGGK",
-        "..KDDDDDDKKGGGK.",
-        "..KAAK.KAAK.KKK.",
-        "..KAAK.KAAK.....",
-        ".KKKKK.KKKKK....",
-        "................"
-    ]
-}
 
 // Color propio de cada sprite: el de la tripulación sigue el modo de color elegido
 function colorPropioPixel(clave) {
@@ -402,13 +124,8 @@ function marcarDaño(c, filas, n, nivel, maquina, semilla) {
     c.putImageData(datos, 0, 0)
 }
 
-// Letras de los sprites del primer estilo → letras de la paleta v2 (el cuero pasa a traje oscuro)
-const LETRAS_A_V2 = { K: "K", A: "A", a: "a", L: "L", S: "S", s: "s", H: "H", W: "W", G: "N", g: "M", D: "D",
-                      N: "D", Y: "Y", R: "E", E: "E", B: "C", C: "C", V: "C", O: "Y" }
-
 // Cada sprite se pinta una vez (a su tamaño de rejilla, volteado o no y con su nivel de daño) en un
-// canvas propio, guardado por modo de color. Usa el sprite v2 si lo hay; si no, el del primer estilo
-// con las letras pasadas a la paleta v2.
+// canvas propio, guardado por modo de color.
 // grande: false = 16 x 16, true = 32 x 32, 48 = 48 x 48 (Sprites48.js)
 const cacheSprites = {}
 const hay48 = clave => typeof SPRITES48 !== "undefined" && !!SPRITES48[clave]
@@ -417,7 +134,7 @@ function lienzoSprite(clave, volteado, grande = false, daño = 0) {
     if (clave.endsWith("*")) return lienzoReflejo(clave.slice(0, -1), volteado, grande, daño)
     const n = grande === 48 ? 48 : grande ? 32 : 16
     const nuevo = n === 48 ? (hay48(clave) ? SPRITES48[clave] : null) : grande ? SPRITES_V2[clave] : SPRITES_V2_16[clave]
-    const filas = nuevo || (n === 48 ? null : grande ? SPRITES_PIXEL_32[clave] : SPRITES_PIXEL[clave])
+    const filas = nuevo
     if (!filas) return null
     const propio = colorPropioPixel(clave)
     const id = [clave, volteado, n, daño, propio.join(",")].join("|")
@@ -430,7 +147,6 @@ function lienzoSprite(clave, volteado, grande = false, daño = 0) {
     const rejilla = []
     for (let y = 0; y < n; y++) {
         let fila = (filas[y] || "").padEnd(n, ".").slice(0, n)
-        if (!nuevo) fila = fila.split("").map(l => l === "." ? "." : (LETRAS_A_V2[l] || l)).join("")
         rejilla.push(volteado ? fila.split("").reverse().join("") : fila)
     }
     rejilla.forEach((fila, y) => {
@@ -469,9 +185,8 @@ function lienzoReflejo(clave, volteado, grande, daño) {
 // enemigos rediseñados (su sprite de 32 es del diseño viejo).
 const dibujarSpriteOriginal = dibujarSprite
 dibujarSprite = function (clave, x, y, tam, izquierda = false, vida) {
-    if (imagenLista(clave)) return dibujarSpriteOriginal(clave, x, y, tam, izquierda)
     const original = clave.endsWith("*") ? clave.slice(0, -1) : clave
-    let grande = tam >= 32 && !!SPRITES_PIXEL_32[original]
+    let grande = tam >= 32 && !!SPRITES_V2[original]
     if (tam >= 48 && hay48(original) && (SOLO_48.has(original) || Math.floor(tam / 48) * 48 >= Math.floor(tam / 32) * 32)) grande = 48
     let n = grande === 48 ? 48 : grande ? 32 : 16
     let lienzo = lienzoSprite(clave, izquierda, grande, nivelDaño(vida))
