@@ -1780,8 +1780,10 @@ document.addEventListener("keydown", function(e) {
             if (confirmar) { ultimaConfirmacion = performance.now(); confirmarAccion(vivos[aliadoSeleccionado]) }
             if (atras) volverAtras()
         } else if (faseCombate === "objetivo") {
-            if (arriba) moverObjetivo(-1)
-            if (abajo) moverObjetivo(1)
+            if (arriba) moverObjetivoHacia(0, -1)
+            if (abajo) moverObjetivoHacia(0, 1)
+            if (izquierda) moverObjetivoHacia(-1, 0)
+            if (derecha) moverObjetivoHacia(1, 0)
             if (confirmar) {
                 ultimaConfirmacion = performance.now()
                 confirmarAccion(enemigosCombate[objetivoSeleccionado])
@@ -2503,6 +2505,26 @@ function volverAtras() {
     else faseCombate = habiaSubmenu ? "habilidad" : "seleccion"
 }
 
+// Por la pantalla: al enemigo más cercano en esa dirección (arriba/abajo o de columna); si no hay nadie
+// por ahí, se queda donde está. Sin posiciones todavía (antes del primer dibujo), por el orden de la lista
+function moverObjetivoHacia(dx, dy) {
+    const actual = enemigosCombate[objetivoSeleccionado]
+    const centro = en => en.rect ? { x: en.rect.x + en.rect.tam / 2, y: en.rect.y + en.rect.tam / 2 } : null
+    const c0 = actual && centro(actual)
+    if (!c0) return moverObjetivo(dy || dx)
+    let mejor = null, mejorCoste = Infinity
+    enemigosCombate.forEach((en, i) => {
+        if (i === objetivoSeleccionado || en.stats.HP <= 0) return
+        const c = centro(en); if (!c) return
+        const ax = c.x - c0.x, ay = c.y - c0.y
+        // que esté de verdad hacia ese lado; lo que se desvía del eje cuenta el doble
+        const avance = dx ? ax * dx : ay * dy, desvio = dx ? Math.abs(ay) : Math.abs(ax)
+        if (avance <= 8) return
+        const coste = avance + desvio * 2
+        if (coste < mejorCoste) { mejorCoste = coste; mejor = i }
+    })
+    if (mejor !== null) objetivoSeleccionado = mejor
+}
 function moverObjetivo(delta) {
     const indices = []
     enemigosCombate.forEach((en, i) => { if (en.stats.HP > 0) indices.push(i) })
@@ -5277,7 +5299,7 @@ function dibujarCombate() {
         if (marcado) textoAjustado(marcado.nombre + ": " + marcado.stats.HP + "/" + marcado.stats.HP_MAX + " HP", X_REGISTRO + 10, 352, 732 - X_REGISTRO - 20)
     } else if (faseCombate === "objetivo") {
         ctx.fillStyle = "orange"
-        textoAjustado(L("Elige objetivo: W/S o flechas, Enter confirma, Esc vuelve", "Choose a target: W/S or arrows, Enter confirms, Esc goes back"), X_REGISTRO + 10, 352, 732 - X_REGISTRO - 20)
+        textoAjustado(L("Elige objetivo: flechas o WASD, Enter confirma, Esc vuelve", "Choose a target: arrows or WASD, Enter confirms, Esc goes back"), X_REGISTRO + 10, 352, 732 - X_REGISTRO - 20)
         // Probabilidad de dar de refilón al marcado (si el Escolta está protegido, ya cuenta)
         const marcado = enemigosCombate[objetivoSeleccionado]
         if (marcado && marcado.stats.HP > 0) {
