@@ -268,6 +268,16 @@ function alEmpezarCombateEventos() {
     efectosCombate = { ataqueEquipo: pr.ataqueEquipo, criticos: pr.criticos, escudos: pr.escudos, practica: null }
     equipoJugador.forEach(p => p.estimulado = pr.estimulados && p.stats.HP > 0)
     if (pr.estimulados) logCombate.push(L("Vais estimulados: +30% de ATK y " + etiquetaStat("VEL") + ".", "You're stimulated: +30% ATK and " + etiquetaStat("VEL") + "."))
+    // lo que se eligió en el descanso (0.16.1): armas afiladas para este combate y orbes de la meditación
+    equipoJugador.forEach(p => {
+        p.afiladoCombate = p.stats.HP > 0 ? (p.afilado || 0) : 0
+        if (p.afiladoCombate > 0) logCombate.push(L(p.nombre + " lleva las armas afiladas: +" + Math.round(p.afiladoCombate * 100) + "% de ATK este combate.", p.nombre + " has sharpened weapons: +" + Math.round(p.afiladoCombate * 100) + "% ATK this combat."))
+        if (p.meditacion > 0 && p.stats.HP > 0) {
+            p.energia = Math.min(energiaMaxima(p), p.energia + p.meditacion)
+            logCombate.push(L(p.nombre + " llega concentrado: empieza con " + p.meditacion + (p.meditacion > 1 ? " orbes" : " orbe") + " más.", p.nombre + " arrives focused: starts with " + p.meditacion + (p.meditacion > 1 ? " extra orbs" : " extra orb") + "."))
+        }
+        p.afilado = 0; p.meditacion = 0
+    })
     const loro = equipoJugador.find(p => p.id === mejorasPartida.mascotas.loro && p.stats.HP > 0)
     if (loro) {
         loro.energia = Math.min(energiaMaxima(loro), loro.energia + 1)
@@ -354,7 +364,7 @@ function alGanarCombateEventos() {
         fuentesCuraVictoria.push({ quien: L("Los hologramas se apagan y", "The holograms switch off and"), pct: null })
     }
     efectosCombate = {}
-    equipoJugador.forEach(p => p.estimulado = false)
+    equipoJugador.forEach(p => { p.estimulado = false; p.afiladoCombate = 0 })
     // Curas de los que os acompañan: el dron perdido (toda la partida) y los temporales
     const curas = []
     if (mejorasPartida.curaExtra > 0) curas.push({ quien: L("El dron perdido", "The lost drone"), f: mejorasPartida.curaExtra })

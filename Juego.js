@@ -1,6 +1,6 @@
 // Versión del juego (0.x mientras esté en desarrollo; la 1.0, cuando esté terminado). Súbela al publicar
 // cambios: el tercer número para arreglos pequeños, el segundo para novedades. Sale en el menú y en Estadísticas.
-const VERSION = "0.16.0"
+const VERSION = "0.16.1"
 // Reportes de bugs e ideas desde el propio juego (menú o Estadísticas, tecla R). Se envían por debajo
 // a un formulario de Google Forms, así que quien reporta no inicia sesión en nada; las respuestas
 // llegan al formulario. url = la del formulario terminada en /formResponse, y en campos, el
@@ -214,7 +214,7 @@ const PASO_HISTORIAL = 1000 / 60   // ~16.67 ms
 // Pasos del rastro que se guardan: el primero vivo de la fila (Paku, Mamuri, VBZ, Imanps) va delante
 // y los demás en el 50, 100 y 150; el robot de servicio (si lo tenéis), detrás del último y como mucho
 // en el 190
-const LARGO_HISTORIAL = 441   // la tripulación (cada 50) y detrás, los acompañantes (ver Nave.js)
+const LARGO_HISTORIAL = 801   // la tripulación (cada 50) y detrás, los acompañantes (hasta 16 puestos en total; ver Nave.js)
 let acumuladorHistorial = 0
 // Tope del delta entre fotogramas (ms): si la pestaña estuvo en segundo plano, evita un salto enorme
 const DELTA_MAXIMO = 100
@@ -262,7 +262,7 @@ function moverTripulante(i, paso) {
 // Botón de arriba con el foco en Estadísticas (null: el foco está en la lista). Como en el menú de inicio:
 // ↑ desde el primer personaje sube a la barra, ←→ se mueven por ella, Enter usa el botón y ↓ o Esc bajan
 let focoEstadisticas = null
-const ORDEN_BARRA_ESTADISTICAS = ["sonido", "reportar", "ayuda", "ajustes"]   // de izquierda a derecha
+const ORDEN_BARRA_ESTADISTICAS = ["sonido", "guardar", "reportar", "ayuda", "ajustes"]   // de izquierda a derecha
 let zonasEstadisticas = []      // zonas clicables de esa lista, recalculadas cada fotograma
 const teclas = {}
 // crecimiento = lo que gana cada stat por nivel (admite decimales; el valor final se redondea)
@@ -1693,6 +1693,13 @@ document.addEventListener("keydown", function(e) {
         return
     }
     if (estado === "descanso") {
+        // con alguien a tope, primero se elige la ventaja (flechas y Enter); luego cualquier tecla sigue
+        if (eleccionDescanso && !eleccionDescanso.hecha) {
+            if (izquierda || arriba) eleccionDescanso.seleccion = (eleccionDescanso.seleccion + 2) % 3
+            if (derecha || abajo) eleccionDescanso.seleccion = (eleccionDescanso.seleccion + 1) % 3
+            if (confirmar) { elegirVentajaDescanso(eleccionDescanso.seleccion); bloquearTeclas() }
+            return
+        }
         estado = "exploracion"
         mostrarPanelDescanso = false
         return
@@ -1703,6 +1710,7 @@ document.addEventListener("keydown", function(e) {
     }
     if (estado === "estadisticas") {
         if (tecla === "v") { alternarSonidoBoton(); return }
+        if (tecla === "g" && typeof guardarAhora === "function") { guardarAhora(); return }
         if (tecla === "o") { panelAjustes = panelAjustes ? null : { fila: 0 }; return }
         if (panelAjustes) {
             teclaPanelAjustes(arriba, abajo, izquierda, derecha, confirmar, tecla === "escape" || tecla === "m")
@@ -1717,6 +1725,7 @@ document.addEventListener("keydown", function(e) {
             if (tecla === "m") { focoEstadisticas = null; estado = "exploracion" }
             if (confirmar) {
                 if (focoEstadisticas === "sonido") alternarSonidoBoton()
+                else if (focoEstadisticas === "guardar") { if (typeof guardarAhora === "function") guardarAhora() }
                 else if (focoEstadisticas === "reportar") { e.preventDefault(); abrirReporte() }
                 else if (focoEstadisticas === "ayuda") abrirAyuda()
                 else if (focoEstadisticas === "ajustes") panelAjustes = { fila: 0 }
@@ -1769,6 +1778,7 @@ document.addEventListener("keydown", function(e) {
     if (estado === "exploracion") {
         teclas[tecla] = true
         if (tecla === "m") { estado = "estadisticas"; focoEstadisticas = null; moviendoTripulante = false }
+        if (tecla === "g" && !e.repeat && typeof guardarAhora === "function") guardarAhora()   // guardar a mano (Nube.js)
     }
     if (estado === "combate" && tecla === "v" && !e.repeat) { alternarSonidoBoton(); return }
     if (estado === "combate") {
@@ -1854,11 +1864,22 @@ function menuTecla(arriba, abajo, izquierda, derecha, confirmar, escape) {
         return
     }
     // El mando, debajo de la tuerca: ↑ sube a la tuerca, ← a la ayuda, ↓ o Esc vuelven a los botones
+    // (con la cuenta disponible, ↓ desde el mando baja a ella)
+    const hayCuenta = typeof abrirCuenta === "function"
     if (focoMenu === "mando") {
         if (arriba) focoMenu = "ajustes"
         if (izquierda) focoMenu = "ayuda"
-        if (abajo || escape) focoMenu = columnaMenu()[0]
+        if (abajo) focoMenu = hayCuenta ? "cuenta" : columnaMenu()[0]
+        if (escape) focoMenu = columnaMenu()[0]
         if (confirmar) abrirAyudaMando()
+        return
+    }
+    // La cuenta, debajo del mando: ↑ sube al mando, ← a la ayuda, ↓ o Esc vuelven a los botones
+    if (focoMenu === "cuenta") {
+        if (arriba) focoMenu = "mando"
+        if (izquierda) focoMenu = "ayuda"
+        if (abajo || escape) focoMenu = columnaMenu()[0]
+        if (confirmar && hayCuenta) abrirCuenta()
         return
     }
     if (focoMenu === "ajustes" && abajo) { focoMenu = "mando"; return }
@@ -1923,7 +1944,7 @@ canvas.addEventListener("mousemove", function(e) {
             if (z) panelAjustes.fila = z.fila
         } else {
             z = zonaCercana(zonasMenu, p.x, p.y)
-            if (z && (ORDEN_BARRA.includes(z.tipo) || columnaMenu().includes(z.tipo) || z.tipo === "mando")) focoMenu = z.tipo
+            if (z && (ORDEN_BARRA.includes(z.tipo) || columnaMenu().includes(z.tipo) || z.tipo === "mando" || z.tipo === "cuenta")) focoMenu = z.tipo
         }
     } else if (estado === "tripulacion") {
         z = selectorRaton(p, false)
@@ -1931,6 +1952,9 @@ canvas.addEventListener("mousemove", function(e) {
         z = zonaCercana(zonasEstadisticas, p.x, p.y)
         if (z && z.tipo === undefined) { personajeSeleccionado = z.indice; focoEstadisticas = null }   // las fichas de personaje no tienen tipo
         if (z && z.tipo === "objeto") objetoEstadisticas = objetosEnInventario().indexOf(z.id)
+    } else if (estado === "descanso" && eleccionDescanso && !eleccionDescanso.hecha) {
+        z = zonaEnPunto(zonasDescanso, p.x, p.y)
+        if (z) eleccionDescanso.seleccion = z.indice
     } else if (estado === "evento" && !eventoEnCurso.resultado) {
         // Como en el menú de inicio: pasar el ratón por una opción la elige
         z = zonaCercana(zonasEvento, p.x, p.y)
@@ -1974,6 +1998,7 @@ canvas.addEventListener("click", function(e) {
         if (z.tipo === "sonido") { focoMenu = "sonido"; alternarSonidoBoton(); return }
         if (z.tipo === "ajustes") { focoMenu = "ajustes"; panelAjustes = { fila: 0 }; return }
         if (z.tipo === "mando") { focoMenu = "mando"; abrirAyudaMando(); return }
+        if (z.tipo === "cuenta") { focoMenu = "cuenta"; abrirCuenta(); canvas.style.cursor = "default"; return }
         if (z.tipo === "continuar") { cargarPartida(); canvas.style.cursor = "default"; return }
         if (z.tipo === "records") { abrirRecords(); canvas.style.cursor = "default"; return }
         if (z.tipo === "ayuda") {
@@ -1984,6 +2009,7 @@ canvas.addEventListener("click", function(e) {
             abrirReporte()
             return
         }
+        if (z.tipo === "discord") { abrirDiscord(); return }
         if (z.tipo === "nueva") { abrirSelector(); canvas.style.cursor = "default" }
     } else if (estado === "estadisticas") {
         if (panelAjustes) {
@@ -1994,12 +2020,17 @@ canvas.addEventListener("click", function(e) {
         }
         const z = zonaEnPunto(zonasEstadisticas, p.x, p.y)
         if (z && z.tipo === "sonido") { alternarSonidoBoton(); return }
+        if (z && z.tipo === "guardar") { if (typeof guardarAhora === "function") guardarAhora(); return }
         if (z && z.tipo === "ajustes") { panelAjustes = { fila: 0 }; return }
         if (z && z.tipo === "reportar") abrirReporte()
         else if (z && z.tipo === "ayuda") abrirAyuda()
         else if (z && z.tipo === "objeto") usarObjetoFuera(z.id, equipoJugador[personajeSeleccionado])
         else if (z && (z.tipo === "subir" || z.tipo === "bajar")) personajeSeleccionado = moverTripulante(z.indice, z.tipo === "subir" ? -1 : 1)
         else if (z) personajeSeleccionado = z.indice
+    } else if (estado === "descanso") {
+        // la ficha que se toca elige la ventaja; ya elegida (o sin elección), un clic sigue
+        if (eleccionDescanso && !eleccionDescanso.hecha) { const z = zonaEnPunto(zonasDescanso, p.x, p.y); if (z) { elegirVentajaDescanso(z.indice); bloquearTeclas() } }
+        else if (performance.now() >= bloqueoTeclasHasta) { estado = "exploracion"; mostrarPanelDescanso = false }
     } else if (estado === "combate") {
         if (zonaSonidoCombate && zonaEnPunto([zonaSonidoCombate], p.x, p.y)) alternarSonidoBoton()
     } else if (estado === "evento") {
@@ -2375,7 +2406,7 @@ function probabilidadRefilon(atacante, defensor) {
 // Si sale de refilón, hace la mitad y no puede ser crítico (ni siquiera uno forzado, como el de Apuesta).
 function calcularDaño(atacante, defensor, opciones = {}) {
     const def = opciones.ignorarDEF ? 0 : defensor.stats.DEF * (defensor.defendiendo ? factorDefender(defensor) : 1) * (opciones.mitadDEF ? 0.5 : 1)
-    const ataque = Math.floor(atacante.stats.ATK * (opciones.multiplicadorATK || 1) * (atacante.estimulado ? ESTIMULANTE : 1))
+    const ataque = Math.floor(atacante.stats.ATK * (opciones.multiplicadorATK || 1) * (atacante.estimulado ? ESTIMULANTE : 1) * (1 + (atacante.afiladoCombate || 0)))
     const proporcional = (ataque * ataque) / Math.max(1, ataque + def)
     // Efectos de eventos sobre los golpes del equipo: más o menos daño, y todo críticos (Arsenal)
     const delEquipo = equipoJugador.includes(atacante)
@@ -3309,6 +3340,7 @@ function puestoRobot() {
 }
 function descansar() {
     resultadoDescanso = []
+    const aTope = []
     const doble = (consumirDescansoDoble() ? 2 : 1) * (mejorasPartida.brujula ? 1.5 : 1)
     // 0.13: la cura es la misma para todos (también para los caídos, que vuelven con ella) y lo que
     // sobra (lo que no cabe en la vida que le falta) se convierte en vida máxima, hasta el tope
@@ -3327,9 +3359,44 @@ function descansar() {
             p.stats.HP_MAX += extra
             p.stats.HP += extra
         }
+        // a tope: ya no le cabe más vida máxima de descansos y algo del descanso se pierde
+        if (margen - extra <= 0 && total - cura - extra > 0 && p.stats.HP > 0) aTope.push(p)
         const tipo = antes.hpAntes <= 0 ? "revive" : cura > 0 ? "cura" : extra > 0 ? "vidaMax" : "tope"
         resultadoDescanso.push({ ...antes, tipo, cantidad: tipo === "vidaMax" ? extra : cura, extraMax: tipo === "vidaMax" ? 0 : extra })
     })
+    eleccionDescanso = aTope.length ? { aTope, doble, seleccion: 0, hecha: null, lineas: [] } : null
+}
+
+// --- 0.16.1: el descanso nunca se desperdicia. Si alguien ya está a tope de vida máxima de descansos, el equipo elige
+// una ventaja para los que están a tope (con el descanso doble, el doble): entrenar (el 15% de la XP de su siguiente
+// nivel), afilar las armas (+25% de ATK el próximo combate) o meditar (+1 orbe al empezar el próximo combate)
+const ENTRENAR_XP = 0.15, AFILAR_ATK = 0.25   // ajustados con la simulación (simulaciondescansos_sim.js)
+const VENTAJAS_DESCANSO = [
+    { id: "entrenar", nombre: { es: "Entrenar", en: "Train" },
+      detalle: d => L("+" + Math.round(ENTRENAR_XP * 100 * d) + "% de la XP para su siguiente nivel", "+" + Math.round(ENTRENAR_XP * 100 * d) + "% of the XP for their next level") },
+    { id: "afilar", nombre: { es: "Afilar las armas", en: "Sharpen weapons" },
+      detalle: d => L("+" + Math.round(AFILAR_ATK * 100 * d) + "% de ATK el próximo combate", "+" + Math.round(AFILAR_ATK * 100 * d) + "% ATK next combat") },
+    { id: "meditar", nombre: { es: "Meditar", en: "Meditate" },
+      detalle: d => L("+" + Math.max(1, Math.round(d)) + (Math.round(d) > 1 ? " orbes" : " orbe") + " al empezar el próximo combate", "+" + Math.max(1, Math.round(d)) + (Math.round(d) > 1 ? " orbs" : " orb") + " at the start of next combat") }
+]
+let eleccionDescanso = null   // { aTope: [personajes], doble, seleccion, hecha: id o null, lineas }
+function elegirVentajaDescanso(i) {
+    const e = eleccionDescanso
+    if (!e || e.hecha) return
+    const v = VENTAJAS_DESCANSO[i], d = e.doble
+    e.hecha = v.id; e.seleccion = i
+    for (const p of e.aTope) {
+        if (v.id === "entrenar") {
+            const r = repartirXP(Math.max(1, Math.round(xpParaSubir(p.nivel) * ENTRENAR_XP * d)), p).find(x => x.nombre === p.nombre)
+            e.lineas.push(L(p.nombre + " entrena: +" + r.xpGanada + " XP", p.nombre + " trains: +" + r.xpGanada + " XP") + (r.nivelDespues > r.nivelAntes ? L(" · ¡nivel " + r.nivelDespues + "!", " · level " + r.nivelDespues + "!") : ""))
+        } else if (v.id === "afilar") {
+            p.afilado = (p.afilado || 0) + AFILAR_ATK * d
+            e.lineas.push(L(p.nombre + ": +" + Math.round(p.afilado * 100) + "% de ATK el próximo combate", p.nombre + ": +" + Math.round(p.afilado * 100) + "% ATK next combat"))
+        } else {
+            p.meditacion = (p.meditacion || 0) + Math.max(1, Math.round(d))
+            e.lineas.push(L(p.nombre + ": +" + p.meditacion + (p.meditacion > 1 ? " orbes" : " orbe") + " al empezar el próximo combate", p.nombre + ": +" + p.meditacion + (p.meditacion > 1 ? " orbs" : " orb") + " at the start of next combat"))
+        }
+    }
 }
 
 // --- Eventos: efectos ---------------------------------------------------------
@@ -3821,10 +3888,16 @@ function dibujarMenu() {
         : L("← → para moverte por los botones  ·  Enter lo usa  ·  ↓ o Esc vuelve", "← → to move between the buttons  ·  Enter uses it  ·  ↓ or Esc goes back")
     ctx.fillText(ayuda, 512, yBoton + 18)
 
-    zonasMenu.push(dibujarBoton(L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)"), 512, 600, "reportar"))
+    // abajo: reportar un bug o una idea (R) y, a su lado, el Discord de la comunidad (los dos juntos, centrados)
+    const textoReporte = L("¿Has encontrado un bug o tienes una idea? Cuéntamelo (R)", "Found a bug or have an idea? Tell me (R)")
+    const textoDiscord = L("Únete al Discord", "Join the Discord")
+    const anchoReporte = anchoTexto("15px sans-serif", textoReporte) + 32, anchoDiscord = anchoTexto("15px sans-serif", textoDiscord) + 32
+    const inicioAbajo = 512 - (anchoReporte + 12 + anchoDiscord) / 2
+    zonasMenu.push(dibujarBoton(textoReporte, inicioAbajo + anchoReporte / 2, 600, "reportar"),
+                   dibujarBoton(textoDiscord, inicioAbajo + anchoReporte + 12 + anchoDiscord / 2, 600, "discord"))
     // La barra de arriba va lo último: si el panel de ajustes está abierto, queda por encima de todo
     dibujarBarraMenu()
-    dibujarVersion()
+    dibujarVersion(true)
     ctx.textAlign = "left"
 }
 
@@ -3847,6 +3920,9 @@ function dibujarCandado(cx, cy) {
 // Teclado en el menú: ↑ desde la dificultad sube a la barra, ←→ se mueven por ella, Enter usa el
 // botón y ↓ o Esc vuelven. En el panel: ↑↓ eligen fila, ←→ (o Enter) cambian el valor, Esc lo cierra.
 // En Estadísticas: V silencia y O abre los ajustes.
+// El servidor de Discord del juego (invitación permanente): se abre en otra pestaña desde el botón del menú
+const ENLACE_DISCORD = "https://discord.gg/WDhjC6tHMR"
+function abrirDiscord() { try { window.open(ENLACE_DISCORD, "_blank", "noopener") } catch (e) { } }
 const ORDEN_BARRA = ["sonido", "ayuda", "ajustes"]   // de izquierda a derecha
 const TEXTO_AYUDA_MENU = () => L("¿Cómo jugar? (H)", "How to play (H)")
 let focoMenu = "nueva"            // uno de columnaMenu() o de ORDEN_BARRA: a qué afectan las flechas y Enter
@@ -3900,6 +3976,10 @@ function dibujarBotonIcono(x, y, icono, tipo, resaltado = false) {
         ctx.fillStyle = "rgb(20, 16, 30)"
         ctx.fillRect(cx - 11, cy - 2, 7, 2); ctx.fillRect(cx - 8.5, cy - 4.5, 2, 7)
         ctx.beginPath(); ctx.arc(cx + 6, cy - 2, 1.6, 0, Math.PI * 2); ctx.arc(cx + 10, cy + 1, 1.6, 0, Math.PI * 2); ctx.fill()
+    } else if (icono === "cuenta" && typeof dibujarPersona === "function") {
+        dibujarPersona(cx, cy - 1, color, 0.85)
+    } else if (icono === "disquete" && typeof dibujarDisquete === "function") {
+        dibujarDisquete(cx, cy, color)
     } else {
         // Tuerca: ocho dientes, el cuerpo y el agujero del centro
         ctx.save(); ctx.translate(cx, cy)
@@ -3919,6 +3999,8 @@ function dibujarBarraMenu() {
     // en el menú de inicio, debajo de la tuerca, un botón con un mando: explica cómo conectarlo (con el panel de
     // ajustes abierto no se pinta: el panel va justo ahí)
     if (estado === "menu" && !panelAjustes) zonasMenu.push(dibujarBotonIcono(tuerca.x, 14 + 36 + 8, "mando", "mando", focoMenu === "mando"))
+    // y debajo del mando, la cuenta (Nube.js)
+    if (estado === "menu" && !panelAjustes && typeof abrirCuenta === "function") zonasMenu.push(dibujarBotonIcono(tuerca.x, 14 + 2 * (36 + 8), "cuenta", "cuenta", focoMenu === "cuenta"))
     const anchoAyuda = anchoTexto("15px sans-serif", TEXTO_AYUDA_MENU()) + 32
     zonasMenu.push(tuerca, dibujarBoton(TEXTO_AYUDA_MENU(), tuerca.x - 10 - anchoAyuda / 2, 14, "ayuda", focoMenu === "ayuda"))
     if (panelAjustes) dibujarPanelAjustes(1024 - 14 - ANCHO_PANEL_AJUSTES, 58)
@@ -4068,13 +4150,20 @@ function dibujarBoton(texto, centroX, y, tipo, resaltado = false) {
     return zona
 }
 
-// Versión en la esquina inferior derecha
-function dibujarVersion() {
+// Versión: en el menú de inicio, abajo a la izquierda y bien visible (letra pixel, dorada); en el resto de pantallas,
+// pequeña en la esquina inferior derecha
+function dibujarVersion(destacada = false) {
     const alineacion = ctx.textAlign
-    ctx.textAlign = "right"
-    ctx.fillStyle = "rgb(120, 120, 135)"
-    ctx.font = "12px sans-serif"
-    ctx.fillText("v" + VERSION, 1014, 696)
+    if (destacada) {
+        ctx.textAlign = "left"; ctx.font = "11px 'Press Start 2P'"
+        ctx.fillStyle = "rgb(18, 9, 28)"; ctx.fillText("v" + VERSION, 16, 692)
+        ctx.fillStyle = "rgb(250, 214, 110)"; ctx.fillText("v" + VERSION, 14, 690)
+    } else {
+        ctx.textAlign = "right"
+        ctx.fillStyle = "rgb(120, 120, 135)"
+        ctx.font = "12px sans-serif"
+        ctx.fillText("v" + VERSION, 1014, 696)
+    }
     ctx.textAlign = alineacion
 }
 
@@ -4236,7 +4325,7 @@ function enviarReporte() {
 // casillas: true para la lista de casillas del mapa con sus símbolos.
 const CASILLAS_AYUDA = [
     { tipo: 2, texto: { es: "Combate: una patrulla enemiga", en: "Combat: an enemy patrol" } },
-    { tipo: 3, texto: { es: "Descanso: cura un 35% (también a los caídos); a quien ya está entero, más vida máxima", en: "Rest: heals 35% (fallen allies too); anyone at full health gets more max HP" } },
+    { tipo: 3, texto: { es: "Descanso: cura un 35% (también a los caídos); a quien ya está entero, más vida máxima, y si ya no le cabe, elegís entrenar, afilar las armas o meditar", en: "Rest: heals 35% (fallen allies too); anyone at full health gets more max HP, and once they can't take more, you choose to train, sharpen weapons or meditate" } },
     { tipo: 4, texto: { es: "Evento: una decisión con premio... y a veces con riesgo", en: "Event: a choice with a reward... and sometimes a risk" } }
 ]
 const AYUDA = {
@@ -4289,8 +4378,8 @@ const AYUDA = {
               texto: { es: "Cada sector se reparte en zonas, cada una con su color de suelo: bodega, sala de máquinas, armería, enfermería y puente de mando. En cada una salen más o menos combates, descansos o eventos, y enemigos distintos. Abajo a la izquierda ves en cuál estás y qué tiene de especial.",
                        en: "Each sector is split into zones, each with its own floor color: cargo hold, engine room, armory, infirmary and bridge. Each one has more or fewer combats, rests or events, and different enemies. The bottom left shows which one you're in and what makes it special." } },
             { titulo: { es: "Atajos", en: "Shortcuts" },
-              texto: { es: "M: estadísticas del equipo, objetos y mejoras de la partida  ·  R (en Estadísticas): reportar un bug o una idea",
-                       en: "M: team stats, items and run upgrades  ·  R (in Stats): report a bug or an idea" } }
+              texto: { es: "M: estadísticas del equipo, objetos y mejoras de la partida  ·  G: guardar ahora (con cuenta, también en la nube)  ·  R (en Estadísticas): reportar un bug o una idea",
+                       en: "M: team stats, items and run upgrades  ·  G: save now (with an account, to the cloud too)  ·  R (in Stats): report a bug or an idea" } }
         ]
     },
     combate: {
@@ -4716,12 +4805,7 @@ function dibujarExploracion() {
     }
     if (typeof dibujarNaveDinamica === "function") dibujarNaveDinamica()
     if (typeof dibujarAcompañantes === "function") dibujarAcompañantes()   // aliados y acompañantes, detrás de la fila
-        // El robot de servicio va el último de la fila, más pequeño
-        if (mejorasPartida.robots > 0 && puntoRastro(puestoRobot())) {
-            const r = puntoRastro(puestoRobot())
-            ctx.fillStyle = "rgb(150, 190, 200)"
-            ctx.fillRect(r.x + 4, r.y + 4, 10, 10)
-        }
+        // (el robot de servicio va con los acompañantes, en Nave.js)
         // Los caídos no salen en el mapa hasta que vuelven a tener vida; el que va delante, encima
         const coloresMapa = { Paku: ["red", "white"], Mamuri: ["blue", "white"], VBZ: ["green", "white"], Imanps: ["yellow", "black"], Milo: ["purple", "white"] }
         filaVivos().reverse().forEach(p => dibujarMiembroMapa(p, coloresMapa[p.id][0], coloresMapa[p.id][1]))
@@ -4747,7 +4831,7 @@ function dibujarExploracion() {
     ctx.textAlign = "right"
     ctx.font = "13px sans-serif"
     ctx.fillStyle = "rgb(190, 190, 210)"
-    ctx.fillText(L("H: ayuda  ·  M: estadísticas  ·  P: pausa", "H: help  ·  M: stats  ·  P: pause"), 1016, 21)
+    ctx.fillText(L("H: ayuda  ·  M: estadísticas  ·  G: guardar  ·  P: pausa", "H: help  ·  M: stats  ·  G: save  ·  P: pause"), 1016, 21)
     ctx.textAlign = "left"
     if (dibujarTransicionNave()) return
     dibujarAvisosMapa()
@@ -4755,8 +4839,10 @@ function dibujarExploracion() {
 
 // Panel del descanso: cada miembro con su sprite, su barra de vida (lo que ya tenía y, en otro color, lo
 // que acaba de ganar) y el resultado: cura, vuelta a la vida, más vida máxima o tope alcanzado
+let zonasDescanso = []
 function dibujarPanelDescanso() {
-    const x = 262, y = 160, ancho = 500, alto = 350
+    zonasDescanso = []
+    const e = eleccionDescanso, x = 262, ancho = 500, alto = e ? 350 + (e.hecha ? 34 + e.lineas.length * 18 : 112) : 350, y = Math.round((ALTO_JUEGO - alto) / 2)
     ctx.fillStyle = "rgba(22, 15, 28, 0.96)"
     ctx.fillRect(x, y, ancho, alto)
     ctx.strokeStyle = "rgb(140, 98, 124)"
@@ -4834,10 +4920,34 @@ function dibujarPanelDescanso() {
         }
     })
 
+    // 0.16.1: si alguien está a tope, el equipo elige qué hacer con el descanso que le sobra
+    if (e) {
+        const ey = y + 322
+        ctx.fillStyle = "rgb(58, 38, 58)"; ctx.fillRect(x + 20, ey - 6, ancho - 40, 1)
+        ctx.textAlign = "left"; ctx.font = "13px sans-serif"; ctx.fillStyle = "rgb(250, 214, 110)"
+        const quienes = e.aTope.map(p => p.nombre).join(", ")
+        ctx.fillText(e.hecha ? L("Con lo que sobraba del descanso:", "With what was left of the rest:") : L("A tope de vida: " + quienes + ". ¿Qué hacen con el descanso?", "At max HP: " + quienes + ". What do they do with the rest?"), x + 24, ey + 14)
+        if (!e.hecha) {
+            const fw = 144, gap = 10, fx0 = x + (ancho - 3 * fw - 2 * gap) / 2
+            VENTAJAS_DESCANSO.forEach((v, i) => {
+                const fx = fx0 + i * (fw + gap), fy = ey + 26, marcada = e.seleccion === i
+                ctx.fillStyle = marcada ? "rgba(250, 200, 80, 0.14)" : "rgba(255, 255, 255, 0.04)"; ctx.fillRect(fx, fy, fw, 66)
+                ctx.strokeStyle = marcada ? "rgb(250, 200, 80)" : "rgb(90, 66, 96)"; ctx.lineWidth = marcada ? 2 : 1; ctx.strokeRect(fx + 0.5, fy + 0.5, fw - 1, 65); ctx.lineWidth = 1
+                ctx.textAlign = "center"; ctx.font = "bold 14px sans-serif"; ctx.fillStyle = marcada ? "rgb(250, 214, 110)" : "white"
+                ctx.fillText(tr(v.nombre), fx + fw / 2, fy + 22)
+                ctx.font = "12px sans-serif"; ctx.fillStyle = "rgb(190, 180, 205)"
+                dibujarTextoEnvuelto(v.detalle(e.doble), fx + fw / 2, fy + 40, fw - 16, 14, 2)   // (centrado en la ficha)
+                zonasDescanso.push({ indice: i, x: fx, y: fy, w: fw, h: 66 })
+            })
+        } else {
+            ctx.font = "13px sans-serif"; ctx.fillStyle = "rgb(150, 235, 160)"
+            e.lineas.forEach((t, i) => ctx.fillText(t, x + 24, ey + 36 + i * 18))
+        }
+    }
     ctx.textAlign = "center"
     ctx.fillStyle = "rgb(130, 120, 145)"
     ctx.font = "12px sans-serif"
-    ctx.fillText(L("Pulsa cualquier tecla para seguir", "Press any key to continue"), x + ancho / 2, y + alto - 16)
+    ctx.fillText(e && !e.hecha ? L("← → para elegir · Enter o clic para decidir", "← → to choose · Enter or click to decide") : L("Pulsa cualquier tecla para seguir", "Press any key to continue"), x + ancho / 2, y + alto - 16)
     ctx.textAlign = "left"
 }
 
@@ -5661,6 +5771,8 @@ function dibujarEstadisticas() {
     // Como en el menú de inicio: altavoz arriba a la izquierda y, arriba a la derecha, la tuerca de
     // ajustes, la ayuda a su izquierda y reportar a la izquierda de la ayuda
     if (haySonido()) zonasEstadisticas.push(dibujarBotonIcono(14, 14, "altavoz", "sonido", focoEstadisticas === "sonido"))
+    // a su derecha, el disquete: guarda a mano (y, con la cuenta, lo sube ya a la nube; G hace lo mismo)
+    if (typeof guardarAhora === "function") zonasEstadisticas.push(dibujarBotonIcono(haySonido() ? 14 + ANCHO_ICONO + 8 : 14, 14, "disquete", "guardar", focoEstadisticas === "guardar"))
     const tuerca = dibujarBotonIcono(1024 - 14 - ANCHO_ICONO, 14, "tuerca", "ajustes", panelAjustes !== null || focoEstadisticas === "ajustes")
     const textoAyuda = L("Ayuda (H)", "Help (H)")
     const anchoAyuda = anchoTexto("15px sans-serif", textoAyuda) + 32
@@ -5807,6 +5919,10 @@ function dibujarResumenPartida(x, y, ancho, yMaximo) {
     const temporales = preparado.map(t => t + " (" + duracion(1) + ")")
     if (mejorasPartida.combatesHambrientos > 0) temporales.push(L("enemigos hambrientos", "hungry enemies") + " (" + duracion(mejorasPartida.combatesHambrientos) + ")")
     temporales.push(...textosTemporalesEventos())
+    equipoJugador.forEach(p => {
+        if (p.afilado > 0) temporales.push(p.nombre + L(": armas afiladas, +", ": sharpened weapons, +") + Math.round(p.afilado * 100) + L("% ATK", "% ATK") + " (" + duracion(1) + ")")
+        if (p.meditacion > 0) temporales.push(p.nombre + ": +" + p.meditacion + (p.meditacion > 1 ? L(" orbes", " orbs") : L(" orbe", " orb")) + " (" + duracion(1) + ")")
+    })
     // En singular si solo hay uno
     if (temporales.length > 0) linea((temporales.length === 1 ? L("Temporal: ", "Temporary: ") : L("Temporales: ", "Temporary: ")) + temporales.join(" · "), "rgb(240, 200, 120)", 4)
     if (partida.length > 0) linea((partida.length === 1 ? L("Permanente: ", "Permanent: ") : L("Permanentes: ", "Permanent: ")) + partida.join(" · "), "rgb(120, 220, 140)", 10)

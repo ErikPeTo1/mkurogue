@@ -325,7 +325,20 @@ const SPRITES_ACOMPAÑANTES = {
     "Robot de seguridad": { color: [150, 150, 170], filas: [
         "................", "....KKKKKKKK....", "...KNNNNNNNNK...", "...KNKKKKKKNK...", "...KNKEEEEKNK...", "...KNKKKKKKNK...",
         "..KKMMMMMMMMKK..", ".KNNKYKYKYKKNNK.", ".KNMKKKKKKKKKMNK", ".KNMKNNNNNNKKMNK", ".KNMKNMMMMNKKMNK", ".KKKKNMMMMNKKKKK",
-        "...KKKKKKKKKK...", "...KMMK..KMMK...", "..KNMMK..KMMNK..", "..KKKKK..KKKKK.."] }
+        "...KKKKKKKKKK...", "...KMMK..KMMK...", "..KNMMK..KMMNK..", "..KKKKK..KKKKK.."] },
+    // (0.16.1) el robot de limpieza que repara Ianproaso y las mascotas de los eventos: el gato de dos colas y el loro
+    "Robot de limpieza": { color: [70, 170, 150], filas: [
+        "................", "................", "................", ".......K........", "......KEK.......", ".......K........",
+        "....KKKKKKK.....", "...KNNNNNNNK....", "...KNKKKKKNK..K.", "...KNKCcKKNK.KNK", "..KKMNNNNNMKKKMK", ".KLLAAAAAAAAAKK.",
+        ".KAAAAAAAAAAaKYK", "..KqaaaaaaaqKYYK", "...KmmK..KmmK.KK", "....KK....KK...."] },
+    "Gato de dos colas": { color: [96, 82, 120], filas: [
+        "................", "................", "................", ".K.K............", "KAKAK......K.K..", "KAKAK.....KAKAK.",
+        ".KAAK.....KAAAAK", "..KAK.....KYAYAK", "..KAKKKKKKKASAAK", "..KLAAAAAAAAAAK.", ".KLAAAAAAAAAAAK.", ".KAAAAAAAAAAAAK.",
+        ".KqAAAAAAAAAAqK.", "..KqaK....KaqK..", "..KKKK....KKKK..", "................"] },
+    "Loro robótico": { color: [80, 180, 90], filas: [
+        "................", "..KK............", "..KAK.....KKK...", "..KLAK...KNNNK..", "..KLAAK.KNNNENK.", "...KLAAKNNNNNNYK",
+        "...KLAAANMNNNKYY", "....KAAANMMNNK.K", "....KqAAMMMNK...", ".....KqAMMMK....", "......KEEAAK....", ".....KEEEAK.....",
+        "....KEEKKK......", "....KK..KYK.....", "........KK......", "................"] }
 }
 // los de los eventos se reconocen por quién son (efectosTemporales de Eventos.js)
 const ACOMPAÑANTE_DE = { "La médica": "Médica", "El robot enfermero": "Robot enfermero" }
@@ -341,21 +354,27 @@ function lienzoAcompañante(clave) {
 }
 function acompañantesEnMapa() {
     const lista = []
+    // el robot de limpieza va el primero, pegado a la tripulación
+    if (mejorasPartida.robots > 0) lista.push("Robot de limpieza")
     if (typeof aliados !== "undefined") aliados.filter(a => !a.seVa && a.stats.HP > 0 && SPRITES_ACOMPAÑANTES[a.id]).forEach(a => lista.push(a.id))
     if (typeof efectosTemporales !== "undefined") efectosTemporales.forEach(t => { const k = t.quien && ACOMPAÑANTE_DE[t.quien.es]; if (k && !lista.includes(k)) lista.push(k) })
-    // las mascotas de los jefes, las últimas
+    // las mascotas de los eventos (el gato y el loro) y, las últimas, las de los jefes
+    if (mejorasPartida.mascotas && mejorasPartida.mascotas.gato) lista.push("Gato de dos colas")
+    if (mejorasPartida.mascotas && mejorasPartida.mascotas.loro) lista.push("Loro robótico")
     const nombres = { bulldog: "Bulldog", criaHidra: "Cría de hidra", halcon: "Halcón mecánico", proyector: "Proyector de bolsillo" }
     ;(mejorasPartida.mascotasJefe || []).forEach(id => { if (nombres[id]) lista.push(nombres[id]) })
     return lista
 }
+const SEPARACION_ACOMPAÑANTES = 14   // puntos de la estela entre acompañante y acompañante (la tripulación va a 50)
 function dibujarAcompañantes() {
     const lista = acompañantesEnMapa()
     if (!lista.length) return
-    const delante = Math.max(1, filaVivos().length) + (mejorasPartida.robots > 0 ? 1 : 0)
+    const delante = Math.max(1, filaVivos().length)
     ctx.imageSmoothingEnabled = false
     // del último al primero, para que el que va delante quede encima
     for (let i = lista.length - 1; i >= 0; i--) {
-        const p = puntoRastro(Math.min(LARGO_HISTORIAL - 1, (delante + i) * 50)), l = lienzoAcompañante(lista[i])
+        // el primero, a la distancia de la tripulación (50); los demás, más pegados entre sí (son más pequeños)
+        const p = puntoRastro(Math.min(LARGO_HISTORIAL - 1, delante * 50 + i * SEPARACION_ACOMPAÑANTES)), l = lienzoAcompañante(lista[i])
         if (!p || !l) continue
         ctx.fillStyle = "rgba(0, 0, 0, 0.45)"
         ctx.fillRect(p.x + 1, p.y + lider.height - 2, lider.width - 2, 3)

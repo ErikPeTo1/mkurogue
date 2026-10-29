@@ -4,7 +4,7 @@
 // Ianproaso) le hace la mitad. Se desbloquea en el evento del tanque (solo en los sectores de jefe), sin pistas, y
 // sale la ventana de «¡Nuevo tripulante!». Se carga después de Jefes.js y antes de Guardado.js.
 
-// --- Sprites: el de combate (48) y el calmado del mapa (16). Piel 1-5, traje 6-9, camisa w j (generador en
+// --- Sprites: el de combate (48), el de la lista del selector (32) y el calmado del mapa (16). Piel 1-5, traje 6-9, camisa w j (generador en
 // Documents\MKURogue-trabajo\milo) ---
 if (typeof PALETA_V2 !== "undefined" && typeof SPRITES48 !== "undefined") {   // (en las simulaciones no hay sprites)
 Object.assign(PALETA_V2, {
@@ -29,6 +29,19 @@ SPRITES_V2_16.Milo = [
     "...KhhhhhhSSK", "...KhhSSSSSSK", "...KhSSSSWKSK", "...KhSSSSSSSSK",
     "....KhSSSSsKK", "...K77WALW77K", "..K677WWW7778K", "..K6777W77778K",
     "..KSK777777KSK", "....K777778K", "....K78K78K", "....KMmKMmK"]
+// el de 32 (lista del selector): el de 48 reducido y repasado a mano (DocumentsMKURogue-trabajomilom32)
+SPRITES_V2.Milo = [
+    "............K.KK.KK.KK", "...........KHKhMKMhKcCKK", "...........KMHMMMMyYZYyK",
+    "...........KMMMHHHhhdddK", "..........KHHHHHhhhddd3KK", "..........KMHdd232232345K",
+    "..........KH12d2334555542K", "..........K3244334334WK23K", "...........K4543111123445K",
+    "...........K55411KKKKKKKKK", ".....KKKKK..K53223WwKWwKW4KK", "....KWWWWwK.K33444KKKKKKKWwK",
+    "...KWWWWWwjK112WwALKLAAWWWwjK", "...KWWWWwN2222243aAqAaWWwwjNK", "...KWWWw42112233122wN222w234K",
+    "...K444N22223342222344441123K", "...K3553233344542333555211234K", "...K2343234555544455554112335K",
+    "...K3344333432342345554223234K", "...K2235433332333235555432113K", "..K22234543223343345555K3112a4K",
+    "..K223355K33333344355KKK111234K", ".K3233455KK99999Yy999KKK2222q4K", ".K444q55567666677777888K223345K",
+    "..K44445577666677777888K333344K", "..K31224577666789667788KK11123K", "..K333345723348K7623489KK122334K",
+    "..K444455423445KK723345K2223455K", "...K5555K44455K.K333455KK45555K", "....KKKKKKNNNmmKKKKNNNmmKK555K",
+    "........KmNWNdK33mNNNNmK23KKK", ".........KKKKKKKKKKKKKKKKK"]
 }
 ESTILOS_PLACEHOLDER.Milo = { color: "rgb(150, 80, 200)", forma: "caja" }
 NOMBRES.Milo = { es: "Milo", en: "Milo" }

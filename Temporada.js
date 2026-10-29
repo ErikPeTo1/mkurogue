@@ -678,6 +678,9 @@ const IAN_PESTE_48 = [
     "............KdDDDDDDdKKdDDDDDDK", "............KddDDDDDK.KddDDDDDDK", "............KddDDDDDK.KdddDDDDdK", "............KddDDDNNK.KdddDDNNMK",
     "...........KMmmMZZNNK.KmmmMZNNMKK", "..........KMmmMMMMNMK.KmmmMMMNNNK", "..........KmmmMMMMMKK.KKmmMMMMNMK", "..........KKKKKKKKKKK.KKKKKKKKKKK"]
 if (HALLOWEEN_ACTIVO && HAY_SPRITES) SPRITES48.Imanps = IAN_PESTE_48
+// (0.16.1) Los disfraces solo están en los sprites de 48: en temporada, la tripulación usa siempre el de 48 en los tamaños
+// grandes (derrota, victoria, selector, ficha...), que si no salía el de 32 ampliado, sin disfraz
+if (HALLOWEEN_ACTIVO && HAY_SPRITES && typeof SOLO_48 !== "undefined") ["Paku", "Mamuri", "VBZ", "Imanps", "Milo"].forEach(id => SOLO_48.add(id))
 
 // --- Suelos de combate de Halloween (ronda de fondos: los cinco aprobados tal cual) ---
 // el propio suelo de cada zona, a oscuras, con la decoración puesta a mano en sus muebles
